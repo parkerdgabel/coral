@@ -1,0 +1,12 @@
+include "tensor.fbs";
+
+table SnapshotMetadata {
+    timestamp: ulong;
+}
+
+table Snapshot {
+    metadata: SnapshotMetadata;
+    tensors: [Tensor];
+}
+
+root_type Snapshot;

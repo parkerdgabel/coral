@@ -1,0 +1,12 @@
+include "common.fbs";
+include "chunk.fbs";
+
+
+table TileMetadata {
+    coord: Coord;
+}
+
+table Tile {
+    metadata: TileMetadata;
+    chunks_refs: [string];
+}

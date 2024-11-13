@@ -1,0 +1,16 @@
+include "common.fbs";
+include "tile.fbs";
+
+table TensorMetadata {
+    name: string;
+    dtype: DType;
+    shape: Shape;
+    tile_order: Order;
+    cell_order: Order;
+    tile_extent: Shape;
+}
+
+table Tensor {
+    metadata: TensorMetadata;
+    tiles: [Tile];
+}
