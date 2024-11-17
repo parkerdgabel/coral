@@ -1,0 +1,14 @@
+[package]
+name = "coral_bindings"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "coral_bindings"
+crate-type = ["cdylib"]
+
+[dependencies]
+lib_coral = { path = "../lib_coral" }
+pyo3 = { version = "0.20", features = ["extension-module"] }
+numpy = "0.20"
+ndarray = "0.15"

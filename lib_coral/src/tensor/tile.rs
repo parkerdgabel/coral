@@ -1,9 +1,10 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::store::{ObjectType, Store};
-
-use super::chunk::Chunk;
+use crate::{
+    chunk::chunk::Chunk,
+    store::{ObjectType, Store},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tile {

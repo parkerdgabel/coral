@@ -1,0 +1,32 @@
+# pyproject.toml
+[build-system]
+requires = ["maturin>=1.4,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "libcoral"
+version = "0.1.0"
+description = "Python bindings for Coral data format"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11"
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "libcoral"
+
+[project.optional-dependencies]
+numpy = ["numpy>=1.21.6"]
+torch = ["torch>=2.0.0"]
+tensorflow = ["tensorflow>=2.13.0"]
+all = ["libcoral[numpy]", "libcoral[torch]", "libcoral[tensorflow]"]

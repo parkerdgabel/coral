@@ -88,7 +88,126 @@ impl Dtype {
             Dtype::BF16 => 12u32.to_le_bytes(),
         }
     }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            Dtype::BOOL => "BOOL".to_string(),
+            Dtype::U8 => "U8".to_string(),
+            Dtype::I8 => "I8".to_string(),
+            Dtype::I16 => "I16".to_string(),
+            Dtype::U16 => "U16".to_string(),
+            Dtype::F16 => "F16".to_string(),
+            Dtype::BF16 => "BF16".to_string(),
+            Dtype::I32 => "I32".to_string(),
+            Dtype::U32 => "U32".to_string(),
+            Dtype::F32 => "F32".to_string(),
+            Dtype::F64 => "F64".to_string(),
+            Dtype::I64 => "I64".to_string(),
+            Dtype::U64 => "U64".to_string(),
+        }
+    }
 }
+
+impl Default for Dtype {
+    fn default() -> Self {
+        Dtype::F32
+    }
+}
+
+impl std::fmt::Display for Dtype {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Dtype::BOOL => write!(f, "BOOL"),
+            Dtype::U8 => write!(f, "U8"),
+            Dtype::I8 => write!(f, "I8"),
+            Dtype::I16 => write!(f, "I16"),
+            Dtype::U16 => write!(f, "U16"),
+            Dtype::F16 => write!(f, "F16"),
+            Dtype::BF16 => write!(f, "BF16"),
+            Dtype::I32 => write!(f, "I32"),
+            Dtype::U32 => write!(f, "U32"),
+            Dtype::F32 => write!(f, "F32"),
+            Dtype::F64 => write!(f, "F64"),
+            Dtype::I64 => write!(f, "I64"),
+            Dtype::U64 => write!(f, "U64"),
+        }
+    }
+}
+
+impl From<Dtype> for String {
+    fn from(dtype: Dtype) -> Self {
+        format!("{}", dtype)
+    }
+}
+
+impl From<&str> for Dtype {
+    fn from(dtype: &str) -> Self {
+        match dtype {
+            "BOOL" => Dtype::BOOL,
+            "U8" => Dtype::U8,
+            "I8" => Dtype::I8,
+            "I16" => Dtype::I16,
+            "U16" => Dtype::U16,
+            "F16" => Dtype::F16,
+            "BF16" => Dtype::BF16,
+            "I32" => Dtype::I32,
+            "U32" => Dtype::U32,
+            "F32" => Dtype::F32,
+            "F64" => Dtype::F64,
+            "I64" => Dtype::I64,
+            "U64" => Dtype::U64,
+            _ => panic!("Invalid Dtype value"),
+        }
+    }
+}
+
+impl From<&Dtype> for String {
+    fn from(dtype: &Dtype) -> Self {
+        format!("{}", dtype)
+    }
+}
+
+impl From<Dtype> for u32 {
+    fn from(dtype: Dtype) -> Self {
+        match dtype {
+            Dtype::BOOL => 0,
+            Dtype::U8 => 1,
+            Dtype::U16 => 2,
+            Dtype::U32 => 3,
+            Dtype::U64 => 4,
+            Dtype::I8 => 5,
+            Dtype::I16 => 6,
+            Dtype::I32 => 7,
+            Dtype::I64 => 8,
+            Dtype::F32 => 9,
+            Dtype::F64 => 10,
+            Dtype::F16 => 11,
+            Dtype::BF16 => 12,
+        }
+    }
+}
+
+impl From<u32> for Dtype {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => Dtype::BOOL,
+            1 => Dtype::U8,
+            2 => Dtype::U16,
+            3 => Dtype::U32,
+            4 => Dtype::U64,
+            5 => Dtype::I8,
+            6 => Dtype::I16,
+            7 => Dtype::I32,
+            8 => Dtype::I64,
+            9 => Dtype::F32,
+            10 => Dtype::F64,
+            11 => Dtype::F16,
+            12 => Dtype::BF16,
+            _ => panic!("Invalid Dtype value"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

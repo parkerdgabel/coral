@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{dtype::Dtype, order::Order, tile::Tile};
 
+/// Represents a view into a tensor
 pub trait View {
     /// The `Dtype` of the tensor
     fn dtype(&self) -> Dtype;
@@ -27,26 +28,91 @@ pub trait View {
     fn tile_extent(&self) -> &[usize];
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct TileBlock {
     offset: u64,
     size: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Hash, Clone)]
 struct TileCoord {
     coords: Vec<usize>,
 }
 
-/// Reperesents a view into a tensor in a file
+pub struct TensorWriter {
+    dtype: Dtype,
+    shape: Vec<usize>,
+    cell_order: Order,
+    tile_extent: Vec<usize>,
+    tiles: Vec<(Vec<usize>, Tile)>,
+}
+
+impl TensorWriter {
+    pub fn new(
+        dtype: Dtype,
+        shape: Vec<usize>,
+        cell_order: Order,
+        tile_extent: Vec<usize>,
+    ) -> Self {
+        Self {
+            dtype,
+            shape,
+            cell_order,
+            tile_extent,
+            tiles: Vec::new(),
+        }
+    }
+
+    pub fn add_tile(&mut self, coords: Vec<usize>, tile: Tile) {
+        self.tiles.push((coords, tile));
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+
+        // Write header
+        bytes.extend_from_slice(&self.dtype.to_le_bytes());
+        bytes.extend_from_slice(&(self.shape.len() as u32).to_le_bytes());
+        for dim in &self.shape {
+            bytes.extend_from_slice(&(*dim as u64).to_le_bytes());
+        }
+        for extent in &self.tile_extent {
+            bytes.extend_from_slice(&(*extent as u64).to_le_bytes());
+        }
+        bytes.extend_from_slice(&self.cell_order.to_le_bytes());
+
+        // Write index
+        bytes.extend_from_slice(&(self.tiles.len() as u32).to_le_bytes());
+
+        // Calculate offsets for each tile
+        let mut current_offset = 0u64;
+        for (coords, tile) in &self.tiles {
+            for coord in coords {
+                bytes.extend_from_slice(&(*coord as u64).to_le_bytes());
+            }
+            let tile_bytes = tile.to_bytes();
+            bytes.extend_from_slice(&current_offset.to_le_bytes());
+            bytes.extend_from_slice(&(tile_bytes.len() as u32).to_le_bytes());
+            current_offset += tile_bytes.len() as u64;
+        }
+
+        // Write tile data
+        for (_, tile) in &self.tiles {
+            bytes.extend_from_slice(&tile.to_bytes());
+        }
+
+        bytes
+    }
+}
+
+/// Represents a view into a tensor in a file
 /// The tensor is stored in a file in the following format:
 /// - Header:
 ///     - Dtype (4 bytes)
 ///     - Number of dimensions (4 bytes)
 ///     - Shape (8 bytes per dimension)
 ///     - Tile extent (8 bytes per dimension)
-///     - Tile order (8 bytes per dimension)
-///     - Cell order (8 bytes per dimension)
+///     - Cell order (4 bytes)
 /// - Index:
 ///    - Number of tiles (4 bytes)
 ///    - Tile blocks
@@ -54,24 +120,25 @@ struct TileCoord {
 ///       - Offset (8 bytes)
 ///       - Size (4 bytes)
 /// - Data:
-///    - The data itself
-pub struct TensorView<'data> {
+///    - The tile data itself
+#[derive(Debug, Clone)]
+pub struct TensorView {
     dtype: Dtype,
     shape: Vec<usize>,
     cell_order: Order,
     tile_extent: Vec<usize>,
     tile_blocks: HashMap<TileCoord, TileBlock>,
-    data: &'data [u8],
+    data: Vec<u8>,
 }
 
-impl<'data> TensorView<'data> {
+impl TensorView {
     pub fn new(
         dtype: Dtype,
         shape: Vec<usize>,
         cell_order: Order,
         tile_extent: Vec<usize>,
         tile_coords: Vec<Vec<usize>>,
-        data: &'data [u8],
+        data: Vec<u8>,
     ) -> Self {
         let mut tile_blocks = HashMap::new();
         let mut current_offset = 0u64;
@@ -101,38 +168,8 @@ impl<'data> TensorView<'data> {
         }
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-
-        // Write header
-        bytes.extend_from_slice(&self.dtype.to_le_bytes());
-        bytes.extend_from_slice(&(self.shape.len() as u32).to_le_bytes());
-        for dim in &self.shape {
-            bytes.extend_from_slice(&(*dim as u64).to_le_bytes());
-        }
-        for extent in &self.tile_extent {
-            bytes.extend_from_slice(&(*extent as u64).to_le_bytes());
-        }
-        bytes.extend_from_slice(&self.cell_order.to_le_bytes());
-
-        // Write index
-        bytes.extend_from_slice(&(self.tile_blocks.len() as u32).to_le_bytes());
-        for (coords, block) in &self.tile_blocks {
-            for coord in &coords.coords {
-                bytes.extend_from_slice(&(*coord as u64).to_le_bytes());
-            }
-            bytes.extend_from_slice(&block.offset.to_le_bytes());
-            bytes.extend_from_slice(&block.size.to_le_bytes());
-        }
-
-        // Write data
-        bytes.extend_from_slice(self.data);
-
-        bytes
-    }
-
-    pub fn from_bytes(bytes: &'data [u8]) -> Result<Self> {
-        let mut cursor = std::io::Cursor::new(bytes);
+    pub fn from_bytes(bytes: Vec<u8>) -> Result<Self> {
+        let mut cursor = std::io::Cursor::new(&bytes);
         let dtype_val = cursor.read_u32::<LittleEndian>()?;
         let dtype = Dtype::from_le_bytes(dtype_val.to_le_bytes());
         let ndims = cursor.read_u32::<LittleEndian>()? as usize;
@@ -168,7 +205,7 @@ impl<'data> TensorView<'data> {
             tile_blocks.insert(TileCoord { coords }, TileBlock { offset, size });
         }
 
-        let data = &bytes[cursor.position() as usize..];
+        let data = bytes[cursor.position() as usize..].to_vec();
 
         Ok(TensorView {
             dtype,
@@ -203,7 +240,7 @@ impl<'data> TensorView<'data> {
     }
 }
 
-impl<'data> View for TensorView<'data> {
+impl View for TensorView {
     fn dtype(&self) -> Dtype {
         self.dtype
     }
@@ -253,7 +290,7 @@ mod tests {
             cell_order,
             tile_extent.clone(),
             tile_coords,
-            &data,
+            data,
         );
 
         assert_eq!(view.dtype(), dtype);
@@ -291,7 +328,7 @@ mod tests {
         // Data
         bytes.extend_from_slice(&[0u8; 24]);
 
-        let view = TensorView::from_bytes(&bytes).unwrap();
+        let view = TensorView::from_bytes(bytes).unwrap();
         assert_eq!(view.dtype(), Dtype::F32);
         assert_eq!(view.shape(), &[2, 3]);
         assert_eq!(view.cell_order(), Order::RowMajor);
@@ -307,7 +344,7 @@ mod tests {
             Order::RowMajor,
             vec![1, 2],
             vec![vec![0, 0], vec![1, 0]],
-            &[0u8; 16],
+            [0u8; 16].to_vec(),
         );
         let _ = view.data();
     }
@@ -327,7 +364,7 @@ mod tests {
             cell_order,
             tile_extent.clone(),
             tile_coords,
-            &data,
+            data,
         );
 
         assert_eq!(view.shape().len(), 0);
@@ -349,7 +386,7 @@ mod tests {
             cell_order,
             tile_extent.clone(),
             tile_coords,
-            &data,
+            data,
         );
 
         assert_eq!(view.shape(), &[1]);
@@ -371,7 +408,7 @@ mod tests {
                 cell_order,
                 tile_extent.clone(),
                 tile_coords.clone(),
-                &data,
+                data,
             );
 
             assert_eq!(view.dtype(), *dtype);
@@ -393,7 +430,7 @@ mod tests {
             cell_order,
             tile_extent.clone(),
             tile_coords,
-            &data,
+            data,
         );
 
         assert_eq!(view.cell_order(), Order::ColumnMajor);
@@ -408,7 +445,7 @@ mod tests {
             Order::RowMajor,
             vec![1, 2],
             vec![vec![0, 0], vec![1, 0]],
-            &[0u8; 16],
+            [0u8; 16].to_vec(),
         );
         let _ = view.data_len();
     }

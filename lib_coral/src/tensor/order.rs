@@ -32,6 +32,10 @@ impl Order {
         }
     }
 
+    pub fn to_string(&self) -> String {
+        self.to_str().to_string()
+    }
+
     pub fn from_le_bytes(bytes: [u8; 4]) -> Self {
         match u32::from_le_bytes(bytes) {
             0 => Order::RowMajor,
