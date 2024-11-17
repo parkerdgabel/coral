@@ -1,6 +1,0 @@
-You will help me to create a rust new project. This project implements the data format specification, Coral, that I provide to you.
-This project will be written in rust and will be a library crate. The project will be published to crates.io.
-The project will consist of two workspaces. The first workspace will be the library crate. The second workspace will be the test crate.
-The library crate will implement the Coral data format specification. The test crate will perform comprehensive integration testing on the library crate from the perspective of a user of the crate.
-
-Read the specification thoroughly and implement a reseable api for the library crate. The integration crate should use this unimplemented api at first. The integration tests should be written in a way that they can be run in parallel. The integration tests should thoroughly test all of the revelant properties of the Coral data format specification. If you need to break down this planning process into smaller steps, feel free to do so. We can do this over multiple prompts.
