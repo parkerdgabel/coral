@@ -115,8 +115,10 @@ class SafetensorsMetadata:
             try:
                 import numpy as np
 
-                if isinstance(dtype, np.dtype) or isinstance(dtype, type):
+                if isinstance(dtype, np.dtype):
                     dtype = DType.from_numpy(dtype)
+                elif isinstance(dtype, type):
+                    dtype = DType.from_numpy(np.dtype(dtype))
                 else:
                     # Assume it's already a string representation
                     dtype = DType(str(dtype))
@@ -239,7 +241,7 @@ class SafetensorsMetadata:
             version: Model version
             config: Model configuration dictionary
         """
-        model_info = {"type": model_type}
+        model_info: Dict[str, Any] = {"type": model_type}
 
         if architecture:
             model_info["architecture"] = architecture
@@ -274,7 +276,7 @@ class SafetensorsMetadata:
             metrics: Final training metrics
             dataset: Dataset name or description
         """
-        training_info = {}
+        training_info: Dict[str, Any] = {}
 
         if epochs is not None:
             training_info["epochs"] = epochs
@@ -359,7 +361,7 @@ class SafetensorsMetadata:
         Returns:
             Dictionary with validation results
         """
-        validation_result = {
+        validation_result: Dict[str, Any] = {
             "valid": True,
             "errors": [],
             "warnings": [],

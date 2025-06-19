@@ -2,7 +2,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, cast
 
 from ..core.deduplicator import Deduplicator
 from ..core.weight_tensor import WeightTensor
@@ -109,12 +109,13 @@ class Repository:
         with open(main_branch_file, "w") as f:
             json.dump(initial_branch_data, f, indent=2)
 
-    def _load_config(self) -> Dict:
+    def _load_config(self) -> Dict[str, Any]:
         """Load repository configuration."""
         config_file = self.coral_dir / "config.json"
         if config_file.exists():
             with open(config_file) as f:
-                return json.load(f)
+                data: Dict[str, Any] = json.load(f)
+                return data
         return {}
 
     def _load_commits(self) -> None:
@@ -128,9 +129,10 @@ class Repository:
         staged = {}
 
         with HDF5Store(
-            self.weights_store_path,
+            str(self.weights_store_path),
             compression=self.config.get("core", {}).get("compression", "gzip"),
-        ) as store:
+        ) as store_base:
+            store = cast(HDF5Store, store_base)
             for name, weight in weights.items():
                 # Add to deduplicator
                 ref_hash = self.deduplicator.add_weight(weight, name)
@@ -288,9 +290,10 @@ class Repository:
         else:
             # Use current HEAD
             current_branch = self.branch_manager.get_current_branch()
-            commit_hash = self.branch_manager.get_branch_commit(current_branch)
-            if not commit_hash:
+            commit_hash_tmp = self.branch_manager.get_branch_commit(current_branch)
+            if not commit_hash_tmp:
                 raise ValueError("No commits in repository")
+            commit_hash = commit_hash_tmp
 
         self.branch_manager.create_branch(name, commit_hash)
 
@@ -317,7 +320,10 @@ class Repository:
         # Fast-forward if possible
         if common_ancestor == current_commit_hash:
             self.branch_manager.update_branch(current_branch, source_commit_hash)
-            return self.version_graph.get_commit(source_commit_hash)
+            commit = self.version_graph.get_commit(source_commit_hash)
+            if not commit:
+                raise ValueError(f"Cannot find commit {source_commit_hash}")
+            return commit
 
         # Perform three-way merge
         current_commit = self.version_graph.get_commit(current_commit_hash)
@@ -325,6 +331,9 @@ class Repository:
         ancestor_commit = (
             self.version_graph.get_commit(common_ancestor) if common_ancestor else None
         )
+
+        if not current_commit or not source_commit:
+            raise ValueError("Cannot find required commits for merge")
 
         # Merge weights
         merged_weights = self._merge_weights(
@@ -342,7 +351,7 @@ class Repository:
         return self.commit(message=merge_message, tags=["merge"])
 
     def _reconstruct_weight_from_storage(
-        self, name: str, weight_hash: str, commit: Commit, store: HDF5Store
+        self, name: str, weight_hash: str, commit: Commit, store: "HDF5Store"
     ) -> Optional[WeightTensor]:
         """Unified method to reconstruct a weight from storage, handling deltas
         consistently."""
@@ -372,13 +381,17 @@ class Repository:
             current_branch = self.branch_manager.get_current_branch()
             commit_ref = self.branch_manager.get_branch_commit(current_branch)
 
+        if not commit_ref:
+            return None
+            
         commit = self.version_graph.get_commit(commit_ref)
         if not commit or name not in commit.weight_hashes:
             return None
 
         weight_hash = commit.weight_hashes[name]
 
-        with HDF5Store(self.weights_store_path) as store:
+        with HDF5Store(str(self.weights_store_path)) as store_base:
+            store = cast(HDF5Store, store_base)
             return self._reconstruct_weight_from_storage(
                 name, weight_hash, commit, store
             )
@@ -391,12 +404,16 @@ class Repository:
             current_branch = self.branch_manager.get_current_branch()
             commit_ref = self.branch_manager.get_branch_commit(current_branch)
 
+        if not commit_ref:
+            return {}
+            
         commit = self.version_graph.get_commit(commit_ref)
         if not commit:
             return {}
 
         weights = {}
-        with HDF5Store(self.weights_store_path) as store:
+        with HDF5Store(str(self.weights_store_path)) as store_base:
+            store = cast(HDF5Store, store_base)
             for name, weight_hash in commit.weight_hashes.items():
                 weight = self._reconstruct_weight_from_storage(
                     name, weight_hash, commit, store
@@ -406,12 +423,15 @@ class Repository:
 
         return weights
 
-    def diff(self, from_ref: str, to_ref: Optional[str] = None) -> Dict[str, Dict]:
+    def diff(self, from_ref: str, to_ref: Optional[str] = None) -> Dict[str, Any]:
         """Show differences between commits."""
         if to_ref is None:
             # Compare with current HEAD
             current_branch = self.branch_manager.get_current_branch()
             to_ref = self.branch_manager.get_branch_commit(current_branch)
+
+        if not to_ref:
+            raise ValueError("Cannot determine target commit for diff")
 
         from_commit = self.version_graph.get_commit(from_ref)
         to_commit = self.version_graph.get_commit(to_ref)
@@ -419,7 +439,7 @@ class Repository:
         if not from_commit or not to_commit:
             raise ValueError("Invalid commit references")
 
-        diff_info = {
+        diff_info: Dict[str, Any] = {
             "added": list(to_commit.get_added_weights(from_commit)),
             "removed": list(to_commit.get_removed_weights(from_commit)),
             "modified": {},
@@ -458,7 +478,13 @@ class Repository:
             tip_hash, max_depth=max_commits
         )
 
-        return [self.version_graph.get_commit(h) for h in history_hashes if h]
+        commits = []
+        for h in history_hashes:
+            if h:
+                commit = self.version_graph.get_commit(h)
+                if commit:
+                    commits.append(commit)
+        return commits
 
     def tag_version(
         self,
@@ -472,7 +498,7 @@ class Repository:
             current_branch = self.branch_manager.get_current_branch()
             commit_ref = self.branch_manager.get_branch_commit(current_branch)
 
-        if not self.version_graph.get_commit(commit_ref):
+        if not commit_ref or not self.version_graph.get_commit(commit_ref):
             raise ValueError(f"Invalid commit: {commit_ref}")
 
         version_id = hashlib.sha256(f"{name}:{commit_ref}".encode()).hexdigest()[:8]
@@ -500,7 +526,7 @@ class Repository:
         self, weight_hashes: Dict[str, str], parent_commit: Commit
     ) -> Dict[str, str]:
         """Calculate delta encodings for changed weights."""
-        deltas = {}
+        deltas: Dict[str, str] = {}
 
         if (
             not self.deduplicator.enable_delta_encoding
@@ -509,7 +535,8 @@ class Repository:
             logger.debug("Delta encoding disabled, skipping delta calculation")
             return deltas
 
-        with HDF5Store(self.weights_store_path) as store:
+        with HDF5Store(str(self.weights_store_path)) as store_base:
+            store = cast(HDF5Store, store_base)
             for name, current_hash in weight_hashes.items():
                 # Check if weight changed from parent
                 if (
@@ -574,7 +601,8 @@ class Repository:
         if ancestor:
             all_names |= set(ancestor.weight_hashes.keys())
 
-        with HDF5Store(self.weights_store_path) as store:
+        with HDF5Store(str(self.weights_store_path)) as store_base:
+            store = cast(HDF5Store, store_base)
             for name in all_names:
                 # Get weights from each commit
                 current_hash = current.weight_hashes.get(name)
@@ -585,39 +613,50 @@ class Repository:
                 if current_hash == source_hash:
                     # No conflict
                     if current_hash:
-                        merged[name] = store.load(current_hash)
+                        weight = store.load(current_hash)
+                        if weight:
+                            merged[name] = weight
                 elif ancestor_hash is None:
                     # Both added the weight - conflict
                     # For now, prefer current
                     if current_hash:
-                        merged[name] = store.load(current_hash)
+                        weight = store.load(current_hash)
+                        if weight:
+                            merged[name] = weight
                 elif current_hash == ancestor_hash:
                     # Only source changed
                     if source_hash:
-                        merged[name] = store.load(source_hash)
+                        weight = store.load(source_hash)
+                        if weight:
+                            merged[name] = weight
                 elif source_hash == ancestor_hash:
                     # Only current changed
                     if current_hash:
-                        merged[name] = store.load(current_hash)
+                        weight = store.load(current_hash)
+                        if weight:
+                            merged[name] = weight
                 else:
                     # Both changed - conflict
                     # For now, prefer current
                     if current_hash:
-                        merged[name] = store.load(current_hash)
+                        weight = store.load(current_hash)
+                        if weight:
+                            merged[name] = weight
 
         return merged
 
     def gc(self) -> Dict[str, int]:
         """Garbage collect unreferenced weights."""
         # Find all referenced weight hashes
-        referenced_hashes = set()
+        referenced_hashes: Set[str] = set()
 
         for commit in self.version_graph.commits.values():
             referenced_hashes.update(commit.weight_hashes.values())
 
         # Clean up unreferenced weights
         cleaned = 0
-        with HDF5Store(self.weights_store_path) as store:
+        with HDF5Store(str(self.weights_store_path)) as store_base:
+            store = cast(HDF5Store, store_base)
             all_hashes = set(store.list_weights())
             unreferenced = all_hashes - referenced_hashes
 

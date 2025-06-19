@@ -1,7 +1,13 @@
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    try:
+        import torch  # type: ignore
+    except ImportError:
+        torch = None
 
 
 @dataclass
@@ -33,7 +39,7 @@ class TrainingState:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
 
-        def serialize_nested_dict(obj):
+        def serialize_nested_dict(obj: Any) -> Any:
             """Recursively serialize PyTorch tensors in nested structures."""
             if obj is None:
                 return None
@@ -45,7 +51,7 @@ class TrainingState:
                 try:
                     import torch
 
-                    if isinstance(obj, torch.Tensor):
+                    if hasattr(torch, 'Tensor') and isinstance(obj, torch.Tensor):
                         return {
                             "__tensor__": obj.cpu().numpy().tolist(),
                             "__dtype__": str(obj.dtype),
@@ -81,7 +87,7 @@ class TrainingState:
         data = data.copy()
         data["timestamp"] = datetime.fromisoformat(data["timestamp"])
 
-        def deserialize_nested_dict(obj):
+        def deserialize_nested_dict(obj: Any) -> Any:
             """Recursively deserialize PyTorch tensors in nested structures."""
             if obj is None:
                 return None
@@ -121,7 +127,7 @@ class TrainingState:
             data = json.load(f)
         return cls.from_dict(data)
 
-    def update_metrics(self, **metrics) -> None:
+    def update_metrics(self, **metrics: float) -> None:
         """Update training metrics."""
         self.metrics.update(metrics)
 

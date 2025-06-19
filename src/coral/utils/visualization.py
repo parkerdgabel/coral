@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def plot_weight_distribution(
     weights: List[WeightTensor], bins: int = 50
-) -> Dict[str, Any]:
+) -> Dict[str, Dict[str, Any]]:
     """
     Analyze weight distribution (returns data for plotting).
 

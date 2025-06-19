@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -12,7 +12,7 @@ class Branch:
     commit_hash: str
     parent_branch: Optional[str] = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "name": self.name,
@@ -21,7 +21,7 @@ class Branch:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "Branch":
+    def from_dict(cls, data: Dict[str, Any]) -> "Branch":
         """Create from dictionary."""
         return cls(**data)
 

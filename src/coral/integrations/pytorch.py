@@ -1,28 +1,32 @@
 """PyTorch integration for Coral version control."""
 
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
+# Type checking imports
+if TYPE_CHECKING:
+    try:
+        import torch  # type: ignore
+        import torch.nn as nn  # type: ignore
+        from torch.optim import Optimizer  # type: ignore
+        from torch.optim.lr_scheduler import _LRScheduler  # type: ignore
+    except ImportError:
+        # Type stub placeholders
+        torch = None  # type: ignore
+        nn = None  # type: ignore
+        Optimizer = None  # type: ignore
+        _LRScheduler = None  # type: ignore
+
+# Runtime availability check
 try:
     import torch
     import torch.nn as nn
     from torch.optim import Optimizer
     from torch.optim.lr_scheduler import _LRScheduler
-
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
-
-    # Create dummy classes for type hints
-    class nn:
-        class Module:
-            pass
-
-    class Optimizer:
-        pass
-
-    class _LRScheduler:
-        pass
+    torch = None
 
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
@@ -37,7 +41,7 @@ class PyTorchIntegration:
     """Integration utilities for PyTorch models."""
 
     @staticmethod
-    def model_to_weights(model: nn.Module) -> Dict[str, WeightTensor]:
+    def model_to_weights(model: "nn.Module") -> Dict[str, WeightTensor]:
         """Convert PyTorch model to Coral weights."""
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
@@ -64,9 +68,9 @@ class PyTorchIntegration:
         return weights
 
     @staticmethod
-    def weights_to_model(weights: Dict[str, WeightTensor], model: nn.Module) -> None:
+    def weights_to_model(weights: Dict[str, WeightTensor], model: "nn.Module") -> None:
         """Load Coral weights into PyTorch model."""
-        if not TORCH_AVAILABLE:
+        if not TORCH_AVAILABLE or torch is None:
             raise ImportError("PyTorch is not installed")
 
         state_dict = {}
@@ -76,15 +80,16 @@ class PyTorchIntegration:
         model.load_state_dict(state_dict, strict=False)
 
     @staticmethod
-    def save_optimizer_state(optimizer: Optimizer) -> Dict[str, Any]:
+    def save_optimizer_state(optimizer: "Optimizer") -> Dict[str, Any]:
         """Save optimizer state."""
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
 
-        return optimizer.state_dict()
+        state_dict: Dict[str, Any] = optimizer.state_dict()
+        return state_dict
 
     @staticmethod
-    def load_optimizer_state(optimizer: Optimizer, state: Dict[str, Any]) -> None:
+    def load_optimizer_state(optimizer: "Optimizer", state: Dict[str, Any]) -> None:
         """Load optimizer state."""
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
@@ -92,15 +97,16 @@ class PyTorchIntegration:
         optimizer.load_state_dict(state)
 
     @staticmethod
-    def save_scheduler_state(scheduler: _LRScheduler) -> Dict[str, Any]:
+    def save_scheduler_state(scheduler: "_LRScheduler") -> Dict[str, Any]:
         """Save scheduler state."""
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
 
-        return scheduler.state_dict()
+        state_dict: Dict[str, Any] = scheduler.state_dict()
+        return state_dict
 
     @staticmethod
-    def load_scheduler_state(scheduler: _LRScheduler, state: Dict[str, Any]) -> None:
+    def load_scheduler_state(scheduler: "_LRScheduler", state: Dict[str, Any]) -> None:
         """Load scheduler state."""
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
@@ -110,7 +116,7 @@ class PyTorchIntegration:
     @staticmethod
     def get_random_state() -> Dict[str, Any]:
         """Get random state for reproducibility."""
-        if not TORCH_AVAILABLE:
+        if not TORCH_AVAILABLE or torch is None:
             raise ImportError("PyTorch is not installed")
 
         return {
@@ -123,7 +129,7 @@ class PyTorchIntegration:
     @staticmethod
     def set_random_state(state: Dict[str, Any]) -> None:
         """Set random state for reproducibility."""
-        if not TORCH_AVAILABLE:
+        if not TORCH_AVAILABLE or torch is None:
             raise ImportError("PyTorch is not installed")
 
         if "torch" in state and state["torch"] is not None:
@@ -158,7 +164,7 @@ class CoralTrainer:
 
     def __init__(
         self,
-        model: nn.Module,
+        model: "nn.Module",
         repository: Repository,
         experiment_name: str,
         checkpoint_config: Optional[CheckpointConfig] = None,
@@ -189,26 +195,26 @@ class CoralTrainer:
         # Training state
         self.current_epoch = 0
         self.global_step = 0
-        self.training_metrics = {}
+        self.training_metrics: Dict[str, float] = {}
 
         # Optional components
-        self.optimizer: Optional[Optimizer] = None
-        self.scheduler: Optional[_LRScheduler] = None
+        self.optimizer: Optional["Optimizer"] = None
+        self.scheduler: Optional["_LRScheduler"] = None
 
         # Callbacks
-        self.on_epoch_end_callbacks: List[Callable] = []
-        self.on_step_end_callbacks: List[Callable] = []
-        self.on_checkpoint_save_callbacks: List[Callable] = []
+        self.on_epoch_end_callbacks: List[Callable[..., Any]] = []
+        self.on_step_end_callbacks: List[Callable[..., Any]] = []
+        self.on_checkpoint_save_callbacks: List[Callable[..., Any]] = []
 
-    def set_optimizer(self, optimizer: Optimizer) -> None:
+    def set_optimizer(self, optimizer: "Optimizer") -> None:
         """Set the optimizer."""
         self.optimizer = optimizer
 
-    def set_scheduler(self, scheduler: _LRScheduler) -> None:
+    def set_scheduler(self, scheduler: "_LRScheduler") -> None:
         """Set the learning rate scheduler."""
         self.scheduler = scheduler
 
-    def add_callback(self, event: str, callback: Callable) -> None:
+    def add_callback(self, event: str, callback: Callable[..., Any]) -> None:
         """Add a callback for training events."""
         if event == "epoch_end":
             self.on_epoch_end_callbacks.append(callback)
@@ -219,11 +225,11 @@ class CoralTrainer:
         else:
             raise ValueError(f"Unknown event: {event}")
 
-    def update_metrics(self, **metrics) -> None:
+    def update_metrics(self, **metrics: float) -> None:
         """Update training metrics."""
         self.training_metrics.update(metrics)
 
-    def step(self, loss: float, **metrics) -> None:
+    def step(self, loss: float, **metrics: float) -> None:
         """Record a training step."""
         self.global_step += 1
         self.training_metrics["loss"] = loss
@@ -371,12 +377,12 @@ class CoralTrainer:
 
     def _get_learning_rate(self) -> float:
         """Get current learning rate."""
-        if self.optimizer:
-            return self.optimizer.param_groups[0]["lr"]
+        if self.optimizer and hasattr(self.optimizer, 'param_groups'):
+            return float(self.optimizer.param_groups[0]["lr"])
         return 0.0
 
 
-def _get_layer_type(model: nn.Module, param_name: str) -> Optional[str]:
+def _get_layer_type(model: "nn.Module", param_name: str) -> Optional[str]:
     """Get the layer type for a parameter."""
     # Parse parameter name to find the layer
     parts = param_name.split(".")
@@ -393,11 +399,11 @@ def _get_layer_type(model: nn.Module, param_name: str) -> Optional[str]:
 
 # Utility functions for common PyTorch workflows
 def save_model_to_coral(
-    model: nn.Module,
+    model: "nn.Module",
     repository: Repository,
     message: str,
     model_name: Optional[str] = None,
-    **metadata,
+    **metadata: Any,
 ) -> str:
     """Save a PyTorch model to Coral repository."""
     if not TORCH_AVAILABLE:
@@ -421,7 +427,7 @@ def save_model_to_coral(
 
 
 def load_model_from_coral(
-    model: nn.Module, repository: Repository, commit_ref: Optional[str] = None
+    model: "nn.Module", repository: Repository, commit_ref: Optional[str] = None
 ) -> bool:
     """Load a PyTorch model from Coral repository."""
     if not TORCH_AVAILABLE:

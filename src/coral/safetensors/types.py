@@ -71,19 +71,19 @@ class DType(Enum):
 
     def to_numpy(self) -> np.dtype:
         """Convert SafeTensors DType to numpy dtype."""
-        dtype_map = {
-            self.FLOAT16: np.float16,
-            self.FLOAT32: np.float32,
-            self.FLOAT64: np.float64,
-            self.INT8: np.int8,
-            self.INT16: np.int16,
-            self.INT32: np.int32,
-            self.INT64: np.int64,
-            self.UINT8: np.uint8,
-            self.UINT16: np.uint16,
-            self.UINT32: np.uint32,
-            self.UINT64: np.uint64,
-            self.BOOL: np.bool_,
+        dtype_map: Dict[DType, type] = {
+            DType.FLOAT16: np.float16,
+            DType.FLOAT32: np.float32,
+            DType.FLOAT64: np.float64,
+            DType.INT8: np.int8,
+            DType.INT16: np.int16,
+            DType.INT32: np.int32,
+            DType.INT64: np.int64,
+            DType.UINT8: np.uint8,
+            DType.UINT16: np.uint16,
+            DType.UINT32: np.uint32,
+            DType.UINT64: np.uint64,
+            DType.BOOL: np.bool_,
         }
         return np.dtype(dtype_map[self])
 

@@ -102,6 +102,11 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 
 [tool.uv]
+
+[dependency-groups]
+dev = [
+    "types-networkx>=3.4.2.20241227",
+]
 # Publishing configuration
 # To publish to PyPI:
 # 1. Set UV_PUBLISH_TOKEN environment variable with your PyPI token

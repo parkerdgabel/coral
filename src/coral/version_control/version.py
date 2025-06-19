@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import networkx as nx
 
@@ -16,7 +16,7 @@ class Version:
     description: Optional[str] = None
     metrics: Optional[Dict[str, float]] = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "version_id": self.version_id,
@@ -27,7 +27,7 @@ class Version:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "Version":
+    def from_dict(cls, data: Dict[str, Any]) -> "Version":
         """Create from dictionary."""
         return cls(**data)
 
@@ -35,8 +35,8 @@ class Version:
 class VersionGraph:
     """Manages the version graph and commit relationships."""
 
-    def __init__(self):
-        self.graph = nx.DiGraph()
+    def __init__(self) -> None:
+        self.graph: "nx.DiGraph[str]" = nx.DiGraph()
         self.commits: Dict[str, Commit] = {}
         self.versions: Dict[str, Version] = {}
 
@@ -94,7 +94,7 @@ class VersionGraph:
         topo_order = list(nx.topological_sort(self.graph))
         for commit_hash in reversed(topo_order):
             if commit_hash in common:
-                return commit_hash
+                return str(commit_hash)
 
         return None
 
@@ -104,7 +104,8 @@ class VersionGraph:
             return None
 
         try:
-            return nx.shortest_path(self.graph, from_hash, to_hash)
+            path = nx.shortest_path(self.graph, from_hash, to_hash)
+            return [str(node) for node in path]
         except nx.NetworkXNoPath:
             return None
 
@@ -113,7 +114,7 @@ class VersionGraph:
     ) -> List[str]:
         """Get linear history from a commit backwards."""
         history = []
-        current = tip_hash
+        current: Optional[str] = tip_hash
         depth = 0
 
         while current and (max_depth is None or depth < max_depth):

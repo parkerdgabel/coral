@@ -50,7 +50,7 @@ class DeltaCompressor:
             return np.array([], dtype=np.int64), np.array([], dtype=np.float32)
 
         # Extract differences and values
-        index_diffs = compressed_data[:, 0].astype(np.int64)
+        index_diffs: np.ndarray = compressed_data[:, 0].astype(np.int64)
         values = compressed_data[:, 1]
 
         # Reconstruct original indices
@@ -86,13 +86,13 @@ class DeltaCompressor:
             dtype = np.int8
         else:
             quant_min, quant_max = -32768, 32767
-            dtype = np.int16
+            dtype = np.int16  # type: ignore[assignment]
 
         if min_val == max_val:
             scale = 1.0
             quantized = np.zeros_like(clipped_data, dtype=dtype)
         else:
-            scale = (max_val - min_val) / (quant_max - quant_min)
+            scale = float((max_val - min_val) / (quant_max - quant_min))
             normalized = (clipped_data - min_val) / scale + quant_min
             quantized = np.round(normalized).astype(dtype)
 
@@ -126,8 +126,9 @@ class DeltaCompressor:
 
         # Dequantize
         dequantized = (quantized_data.astype(np.float32) - quant_min) * scale + min_val
+        result: np.ndarray = np.asarray(dequantized, dtype=np.float32)
 
-        return dequantized
+        return result
 
     @staticmethod
     def compress_with_dictionary(
@@ -176,8 +177,9 @@ class DeltaCompressor:
         # Reconstruct using dictionary lookup
         flat_compressed = compressed_data.flatten()
         flat_reconstructed = dictionary[flat_compressed]
+        result: np.ndarray = np.asarray(flat_reconstructed.reshape(original_shape), dtype=np.float32)
 
-        return flat_reconstructed.reshape(original_shape)
+        return result
 
     @staticmethod
     def delta_statistics(delta_data: np.ndarray) -> Dict[str, float]:
@@ -188,7 +190,7 @@ class DeltaCompressor:
             "min": float(np.min(delta_data)),
             "max": float(np.max(delta_data)),
             "sparsity": float(np.sum(np.abs(delta_data) < 1e-6) / delta_data.size),
-            "dynamic_range": float(np.max(delta_data) - np.min(delta_data)),
+            "dynamic_range": float(np.max(delta_data) - np.min(delta_data)),  # type: ignore[operator]
             "entropy": DeltaCompressor._estimate_entropy(delta_data),
             "zero_ratio": float(np.sum(delta_data == 0) / delta_data.size),
         }
@@ -203,7 +205,7 @@ class DeltaCompressor:
         probabilities = hist / np.sum(hist)
 
         # Calculate entropy
-        entropy = -np.sum(probabilities * np.log2(probabilities))
+        entropy = float(-np.sum(probabilities * np.log2(probabilities)))  # type: ignore[operator]
         return float(entropy)
 
     @staticmethod

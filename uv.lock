@@ -221,6 +221,13 @@ torch = [
     { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "types-networkx", version = "3.4.2.20241227", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "types-networkx", version = "3.4.2.20250509", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
+    { name = "types-networkx", version = "3.5.0.20250610", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1.8" },
@@ -238,6 +245,9 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.60.0" },
     { name = "xxhash", specifier = ">=3.0.0" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "types-networkx", specifier = ">=3.4.2.20241227" }]
 
 [[package]]
 name = "coverage"
@@ -2546,6 +2556,55 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/74/1f/dfb531f90a2d367d914adfee771babbd3f1a5b26c3f5fbc458dee21daa78/triton-3.3.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b89d846b5a4198317fec27a5d3a609ea96b6d557ff44b56c23176546023c4240", size = 155673035 },
     { url = "https://files.pythonhosted.org/packages/28/71/bd20ffcb7a64c753dc2463489a61bf69d531f308e390ad06390268c4ea04/triton-3.3.1-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a3198adb9d78b77818a5388bff89fa72ff36f9da0bc689db2f0a651a67ce6a42", size = 155735832 },
     { url = "https://files.pythonhosted.org/packages/6d/81/ac4d50af22f594c4cb7c84fd2ad5ba1e0c03e2a83fe3483ddd79edcd7ec7/triton-3.3.1-cp39-cp39-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:f6139aeb04a146b0b8e0fbbd89ad1e65861c57cfed881f21d62d3cb94a36bab7", size = 155596799 },
+]
+
+[[package]]
+name = "types-networkx"
+version = "3.4.2.20241227"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.8.1' and python_full_version < '3.9'",
+    "python_full_version < '3.8.1'",
+]
+dependencies = [
+    { name = "numpy", version = "1.24.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/54/93/35baaeadf0b6d34de9c78b34f67843e48e9a7a244b9f04f8d4dd97d680f2/types_networkx-3.4.2.20241227.tar.gz", hash = "sha256:6c3be0ed31a7828d713d374017cee91bc23df1d90d81ed434d1952c9a653cfd7", size = 53497 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/31/c1/d73ff5900c6b462879039ac92f89424ad1eb544b1f6bd77f12f9c3013e20/types_networkx-3.4.2.20241227-py3-none-any.whl", hash = "sha256:adb0e3f0a16c1481a2cfa97772a0b925b220dcf857f0def1c5ab4c4f349e309d", size = 130194 },
+]
+
+[[package]]
+name = "types-networkx"
+version = "3.4.2.20250509"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version == '3.9.*'",
+]
+dependencies = [
+    { name = "numpy", version = "2.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8f/52/e7e4e72f4f46ca434546cb4c0e0a89fe5714bea4a3b805945b639f09440d/types_networkx-3.4.2.20250509.tar.gz", hash = "sha256:4bf3459461ef772f2ab35f76038fb53e3e7b80ab4f09aa91646d189accc1d456", size = 59894 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1f/25/fb77afd928064d01d15e1b15e9ffbea46d8c6186a39d311ad9be96a0eacc/types_networkx-3.4.2.20250509-py3-none-any.whl", hash = "sha256:f0120088ae87be6645aee68888730e8d1ce3b393799e3a7ea18e9382ab81a163", size = 145013 },
+]
+
+[[package]]
+name = "types-networkx"
+version = "3.5.0.20250610"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version == '3.11.*'",
+    "python_full_version >= '3.12'",
+    "python_full_version == '3.10.*'",
+]
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
+    { name = "numpy", version = "2.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/67/25/2c101319d0e7e715a31f0fcaf1080b70c113166edf76c6a88010f2959968/types_networkx-3.5.0.20250610.tar.gz", hash = "sha256:874196bef3f116f57ca86818a576274def24c5a66cb00ff77d3e1f376ab57157", size = 64416 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/06/7a/3658f84cfc20500a231d2aae1c98c284f61e5e366aabccda38c9ab6095dc/types_networkx-3.5.0.20250610-py3-none-any.whl", hash = "sha256:c428b96c544f28fe955bfc2253581ed5d3389a59c03997b79da5188be0191c56", size = 150419 },
 ]
 
 [[package]]

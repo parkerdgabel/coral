@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import h5py
+import h5py  # type: ignore
 import numpy as np
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
@@ -213,7 +213,7 @@ class HDF5Store(WeightStore):
             "compression": self.compression,
         }
 
-    def close(self):
+    def close(self) -> None:
         """Close the HDF5 file"""
         if hasattr(self, "file") and self.file:
             self.file.close()

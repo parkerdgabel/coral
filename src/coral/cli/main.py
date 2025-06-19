@@ -7,7 +7,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Any
 
 import numpy as np
 
@@ -22,7 +22,7 @@ from coral.version_control.repository import Repository
 class CoralCLI:
     """Main CLI interface for Coral."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.parser = self._create_parser()
 
     def _create_parser(self) -> argparse.ArgumentParser:
@@ -152,16 +152,17 @@ class CoralCLI:
 
         return parser
 
-    def run(self, args=None) -> int:
+    def run(self, args: Optional[List[str]] = None) -> int:
         """Run the CLI."""
-        args = self.parser.parse_args(args)
+        parsed_args = self.parser.parse_args(args)
 
-        if not args.command:
+        if not parsed_args.command:
             self.parser.print_help()
             return 0
 
         # Find repository root
-        if args.command not in ["init", "convert"]:
+        repo_path: Optional[Path] = None
+        if parsed_args.command not in ["init", "convert"]:
             repo_path = self._find_repo_root()
             if repo_path is None:
                 print("Error: Not in a Coral repository", file=sys.stderr)
@@ -169,38 +170,51 @@ class CoralCLI:
 
         # Execute command
         try:
-            if args.command == "init":
-                return self._cmd_init(args)
-            elif args.command == "add":
-                return self._cmd_add(args, repo_path)
-            elif args.command == "commit":
-                return self._cmd_commit(args, repo_path)
-            elif args.command == "status":
-                return self._cmd_status(args, repo_path)
-            elif args.command == "log":
-                return self._cmd_log(args, repo_path)
-            elif args.command == "checkout":
-                return self._cmd_checkout(args, repo_path)
-            elif args.command == "branch":
-                return self._cmd_branch(args, repo_path)
-            elif args.command == "merge":
-                return self._cmd_merge(args, repo_path)
-            elif args.command == "diff":
-                return self._cmd_diff(args, repo_path)
-            elif args.command == "tag":
-                return self._cmd_tag(args, repo_path)
-            elif args.command == "show":
-                return self._cmd_show(args, repo_path)
-            elif args.command == "gc":
-                return self._cmd_gc(args, repo_path)
-            elif args.command == "import-safetensors":
-                return self._cmd_import_safetensors(args, repo_path)
-            elif args.command == "export-safetensors":
-                return self._cmd_export_safetensors(args, repo_path)
-            elif args.command == "convert":
-                return self._cmd_convert(args)
+            if parsed_args.command == "init":
+                return self._cmd_init(parsed_args)
+            elif parsed_args.command == "add":
+                assert repo_path is not None
+                return self._cmd_add(parsed_args, repo_path)
+            elif parsed_args.command == "commit":
+                assert repo_path is not None
+                return self._cmd_commit(parsed_args, repo_path)
+            elif parsed_args.command == "status":
+                assert repo_path is not None
+                return self._cmd_status(parsed_args, repo_path)
+            elif parsed_args.command == "log":
+                assert repo_path is not None
+                return self._cmd_log(parsed_args, repo_path)
+            elif parsed_args.command == "checkout":
+                assert repo_path is not None
+                return self._cmd_checkout(parsed_args, repo_path)
+            elif parsed_args.command == "branch":
+                assert repo_path is not None
+                return self._cmd_branch(parsed_args, repo_path)
+            elif parsed_args.command == "merge":
+                assert repo_path is not None
+                return self._cmd_merge(parsed_args, repo_path)
+            elif parsed_args.command == "diff":
+                assert repo_path is not None
+                return self._cmd_diff(parsed_args, repo_path)
+            elif parsed_args.command == "tag":
+                assert repo_path is not None
+                return self._cmd_tag(parsed_args, repo_path)
+            elif parsed_args.command == "show":
+                assert repo_path is not None
+                return self._cmd_show(parsed_args, repo_path)
+            elif parsed_args.command == "gc":
+                assert repo_path is not None
+                return self._cmd_gc(parsed_args, repo_path)
+            elif parsed_args.command == "import-safetensors":
+                assert repo_path is not None
+                return self._cmd_import_safetensors(parsed_args, repo_path)
+            elif parsed_args.command == "export-safetensors":
+                assert repo_path is not None
+                return self._cmd_export_safetensors(parsed_args, repo_path)
+            elif parsed_args.command == "convert":
+                return self._cmd_convert(parsed_args)
             else:
-                print(f"Error: Unknown command '{args.command}'", file=sys.stderr)
+                print(f"Error: Unknown command '{parsed_args.command}'", file=sys.stderr)
                 return 1
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)
@@ -217,7 +231,7 @@ class CoralCLI:
 
         return None
 
-    def _cmd_init(self, args) -> int:
+    def _cmd_init(self, args: Any) -> int:
         """Initialize a new repository."""
         path = Path(args.path).resolve()
 
@@ -229,7 +243,7 @@ class CoralCLI:
             print(f"Error: {e}", file=sys.stderr)
             return 1
 
-    def _cmd_add(self, args, repo_path: Path) -> int:
+    def _cmd_add(self, args: Any, repo_path: Path) -> int:
         """Add weights to staging."""
         repo = Repository(repo_path)
 
@@ -274,7 +288,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_commit(self, args, repo_path: Path) -> int:
+    def _cmd_commit(self, args: Any, repo_path: Path) -> int:
         """Commit staged weights."""
         repo = Repository(repo_path)
 
@@ -293,7 +307,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_status(self, args, repo_path: Path) -> int:
+    def _cmd_status(self, args: Any, repo_path: Path) -> int:
         """Show repository status."""
         repo = Repository(repo_path)
 
@@ -322,7 +336,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_log(self, args, repo_path: Path) -> int:
+    def _cmd_log(self, args: Any, repo_path: Path) -> int:
         """Show commit history."""
         repo = Repository(repo_path)
 
@@ -345,7 +359,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_checkout(self, args, repo_path: Path) -> int:
+    def _cmd_checkout(self, args: Any, repo_path: Path) -> int:
         """Checkout branch or commit."""
         repo = Repository(repo_path)
 
@@ -354,7 +368,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_branch(self, args, repo_path: Path) -> int:
+    def _cmd_branch(self, args: Any, repo_path: Path) -> int:
         """Manage branches."""
         repo = Repository(repo_path)
 
@@ -379,7 +393,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_merge(self, args, repo_path: Path) -> int:
+    def _cmd_merge(self, args: Any, repo_path: Path) -> int:
         """Merge branches."""
         repo = Repository(repo_path)
 
@@ -391,7 +405,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_diff(self, args, repo_path: Path) -> int:
+    def _cmd_diff(self, args: Any, repo_path: Path) -> int:
         """Show differences between commits."""
         repo = Repository(repo_path)
 
@@ -422,7 +436,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_tag(self, args, repo_path: Path) -> int:
+    def _cmd_tag(self, args: Any, repo_path: Path) -> int:
         """Tag a version."""
         repo = Repository(repo_path)
 
@@ -444,7 +458,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_show(self, args, repo_path: Path) -> int:
+    def _cmd_show(self, args: Any, repo_path: Path) -> int:
         """Show weight information."""
         repo = Repository(repo_path)
 
@@ -474,7 +488,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_gc(self, args, repo_path: Path) -> int:
+    def _cmd_gc(self, args: Any, repo_path: Path) -> int:
         """Garbage collect unreferenced weights."""
         repo = Repository(repo_path)
 
@@ -486,7 +500,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_import_safetensors(self, args, repo_path: Path) -> int:
+    def _cmd_import_safetensors(self, args: Any, repo_path: Path) -> int:
         """Import weights from a Safetensors file."""
         repo = Repository(repo_path)
 
@@ -529,7 +543,7 @@ class CoralCLI:
             print(f"Error importing safetensors: {e}", file=sys.stderr)
             return 1
 
-    def _cmd_export_safetensors(self, args, repo_path: Path) -> int:
+    def _cmd_export_safetensors(self, args: Any, repo_path: Path) -> int:
         """Export weights to a Safetensors file."""
         repo = Repository(repo_path)
 
@@ -587,7 +601,7 @@ class CoralCLI:
             print(f"Error exporting to safetensors: {e}", file=sys.stderr)
             return 1
 
-    def _cmd_convert(self, args) -> int:
+    def _cmd_convert(self, args: Any) -> int:
         """Convert between weight file formats."""
         input_path = Path(args.input)
         output_path = Path(args.output)
@@ -634,23 +648,32 @@ class CoralCLI:
                         weight_dict = {
                             name: tensor.data for name, tensor in weights.items()
                         }
-                        np.savez_compressed(output_path, **weight_dict)
+                        np.savez_compressed(str(output_path), **weight_dict)  # type: ignore[arg-type]
 
                         print(f"✓ Converted {len(weight_dict)} weight(s) to NPZ format")
                 else:
                     # Direct HDF5 conversion
                     from coral.storage.hdf5_store import HDF5Store
 
-                    store = HDF5Store(output_path)
+                    store = HDF5Store(str(output_path))
 
-                    weight_mapping = convert_safetensors_to_coral(
-                        source_path=input_path,
-                        target=store,
-                        preserve_metadata=not args.no_metadata,
-                        weight_names=args.weights,
-                    )
+                    # Create a temporary repository and use it for conversion
+                    import tempfile
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        temp_repo = Repository(Path(temp_dir), init=True)
+                        weight_mapping = convert_safetensors_to_coral(
+                            source_path=input_path,
+                            target=temp_repo,
+                            preserve_metadata=not args.no_metadata,
+                            weight_names=args.weights,
+                        )
+                        
+                        # Copy weights to HDF5 store
+                        weights = temp_repo.get_all_weights()
+                        for name, weight in weights.items():
+                            store.store(weight)
 
-                    store.close()
+                    store.close()  # type: ignore[no-untyped-call]
                     print(f"✓ Converted {len(weight_mapping)} weight(s) to HDF5 format")
 
             # NPZ to Safetensors
@@ -742,7 +765,7 @@ class CoralCLI:
             return 1
 
 
-def main():
+def main() -> None:
     """Main entry point."""
     cli = CoralCLI()
     sys.exit(cli.run())

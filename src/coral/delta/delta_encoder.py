@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import numpy as np
 
@@ -360,8 +360,8 @@ class DeltaEncoder:
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         """Encode as quantized differences."""
         # Calculate scale and offset for quantization
-        min_val = np.min(delta_data)
-        max_val = np.max(delta_data)
+        min_val: float = float(np.min(delta_data))
+        max_val: float = float(np.max(delta_data))
 
         if min_val == max_val:
             # Constant delta
@@ -374,7 +374,7 @@ class DeltaEncoder:
             # Quantize to target bit depth
             if bits == 8:
                 quant_min, quant_max = -128, 127
-                dtype = np.int8
+                dtype: Union[type, np.dtype] = np.int8
             else:  # 16 bits
                 quant_min, quant_max = -32768, 32767
                 dtype = np.int16
@@ -399,7 +399,8 @@ class DeltaEncoder:
 
         # Dequantize
         decoded = encoded_data.astype(np.float32) * scale + offset
-        return decoded
+        result: np.ndarray = np.asarray(decoded, dtype=np.float32)
+        return result
 
     def _encode_sparse(
         self, delta_data: np.ndarray
@@ -435,14 +436,15 @@ class DeltaEncoder:
         delta_data = np.zeros(original_shape, dtype=np.float32)
 
         if encoded_data.size > 0:
-            indices = encoded_data[:, 0].astype(np.int64)
+            indices: np.ndarray = encoded_data[:, 0].astype(np.int64)
             values = encoded_data[:, 1]
 
             # Convert flat indices back to multi-dimensional
             multi_indices = np.unravel_index(indices, original_shape)
             delta_data[multi_indices] = values
 
-        return delta_data
+        result: np.ndarray = np.asarray(delta_data, dtype=np.float32)
+        return result
 
     def _encode_compressed(
         self, delta_data: np.ndarray
@@ -480,7 +482,8 @@ class DeltaEncoder:
         original_shape = tuple(metadata["original_shape"])
         delta_data = np.frombuffer(raw_bytes, dtype=np.float32).reshape(original_shape)
 
-        return delta_data
+        result: np.ndarray = np.asarray(delta_data, dtype=np.float32)
+        return result
 
     def estimate_delta_size(self, weight: WeightTensor, reference: WeightTensor) -> int:
         """Estimate delta size without actually encoding."""
@@ -490,7 +493,7 @@ class DeltaEncoder:
         delta_data = weight.data - reference.data
 
         if self.config.delta_type == DeltaType.SPARSE:
-            non_zero = np.sum(np.abs(delta_data) > self.config.sparse_threshold)
+            non_zero: int = int(np.sum(np.abs(delta_data) > self.config.sparse_threshold))
             return non_zero * 8  # 4 bytes index + 4 bytes value
         elif self.config.delta_type == DeltaType.INT8_QUANTIZED:
             return weight.size

@@ -102,7 +102,8 @@ class Pruner:
         else:
             mask = np.ones_like(flat_weights, dtype=bool)
 
-        return mask.reshape(data.shape)
+        reshaped_mask: np.ndarray = mask.reshape(data.shape).astype(bool)
+        return reshaped_mask
 
     @staticmethod
     def _structured_magnitude_pruning(
@@ -131,7 +132,8 @@ class Pruner:
         # Broadcast to full mask
         mask = np.broadcast_to(structure_mask, data.shape).copy()
 
-        return mask
+        final_mask: np.ndarray = mask.astype(bool)
+        return final_mask
 
     @staticmethod
     def prune_random(

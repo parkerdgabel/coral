@@ -82,7 +82,7 @@ class SafetensorsWriter:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit with cleanup."""
         if not self._written and exc_type is None:
             # Auto-write if no exception occurred and nothing was written
@@ -274,7 +274,7 @@ class SafetensorsWriter:
         """
         self._ensure_open()
 
-        validation_result = {
+        validation_result: Dict[str, Any] = {
             "valid": True,
             "errors": [],
             "warnings": [],
@@ -327,7 +327,7 @@ class SafetensorsWriter:
         total_params = sum(tensor.size for tensor in self._tensors.values())
         total_size = sum(tensor.nbytes for tensor in self._tensors.values())
 
-        dtype_counts = {}
+        dtype_counts: Dict[str, int] = {}
         for tensor in self._tensors.values():
             dtype_str = str(tensor.dtype)
             dtype_counts[dtype_str] = dtype_counts.get(dtype_str, 0) + 1

@@ -25,14 +25,14 @@ logger = logging.getLogger(__name__)
 
 
 def convert_coral_to_safetensors(
-    repository: Repository = None,
-    output_path: Union[str, Path] = None,
+    repository: Optional[Repository] = None,
+    output_path: Optional[Union[str, Path]] = None,
     branch: str = "main",
     weight_filter: Optional[Set[str]] = None,
     metadata: Optional[MetadataDict] = None,
     include_coral_metadata: bool = True,
     # New CLI-compatible parameters
-    source: Repository = None,
+    source: Optional[Repository] = None,
     weight_names: Optional[List[str]] = None,
     include_metadata: bool = True,
     custom_metadata: Optional[MetadataDict] = None,
@@ -115,8 +115,8 @@ def convert_coral_to_safetensors(
                 )
 
             # Convert weights and add tensor metadata
-            tensor_data = {}
-            conversion_stats = {
+            tensor_data: Dict[str, np.ndarray] = {}
+            conversion_stats: Dict[str, Any] = {
                 "total_weights": len(all_weights),
                 "total_parameters": 0,
                 "total_size_bytes": 0,
@@ -188,8 +188,8 @@ def convert_coral_to_safetensors(
 
 
 def convert_safetensors_to_coral(
-    source_path: Union[str, Path] = None,
-    target: Repository = None,
+    source_path: Optional[Union[str, Path]] = None,
+    target: Optional[Repository] = None,
     preserve_metadata: bool = True,
     weight_names: Optional[List[str]] = None,
     exclude_weights: Optional[Set[str]] = None,
@@ -197,8 +197,8 @@ def convert_safetensors_to_coral(
     overwrite_existing: bool = False,
     auto_commit: bool = True,
     # Legacy parameter names for backward compatibility
-    input_path: Union[str, Path] = None,
-    repository: Repository = None,
+    input_path: Optional[Union[str, Path]] = None,
+    repository: Optional[Repository] = None,
     weight_filter: Optional[Set[str]] = None,
     exclude_filter: Optional[Set[str]] = None,
 ) -> Dict[str, Any]:
@@ -263,8 +263,8 @@ def convert_safetensors_to_coral(
             global_metadata = reader.metadata
 
             # Convert to Coral WeightTensors
-            coral_weights = {}
-            conversion_stats = {
+            coral_weights: Dict[str, WeightTensor] = {}
+            conversion_stats: Dict[str, Any] = {
                 "total_tensors": len(target_names),
                 "total_parameters": 0,
                 "total_size_bytes": 0,
@@ -288,7 +288,7 @@ def convert_safetensors_to_coral(
                         dtype=tensor.dtype,
                         layer_type=tensor_metadata.layer_type,
                         model_name=tensor_metadata.model_name,
-                        compression_info=tensor_metadata.compression_info,
+                        compression_info=tensor_metadata.compression_info or {},
                     )
 
                     # Create WeightTensor
@@ -363,7 +363,7 @@ def batch_convert_safetensors(
     conversion_type: str = "to_coral",
     repository: Optional[Repository] = None,
     name_pattern: str = "{original_name}",
-    **kwargs,
+    **kwargs: Any,
 ) -> Dict[str, Any]:
     """
     Convert multiple SafeTensors files in batch.
@@ -386,7 +386,7 @@ def batch_convert_safetensors(
         output_dir = Path(output_directory)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        batch_stats = {
+        batch_stats: Dict[str, Any] = {
             "total_files": len(input_paths),
             "successful_conversions": 0,
             "failed_conversions": 0,
@@ -523,7 +523,7 @@ def validate_conversion_compatibility(
     Returns:
         Dictionary with compatibility information
     """
-    compatibility = {
+    compatibility: Dict[str, Any] = {
         "compatible": True,
         "warnings": [],
         "errors": [],

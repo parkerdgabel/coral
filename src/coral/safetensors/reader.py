@@ -6,7 +6,7 @@ with lazy loading, metadata extraction, and comprehensive error handling.
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 import numpy as np
 from safetensors import safe_open
@@ -50,9 +50,9 @@ class SafetensorsReader:
             SafetensorsReadError: If file cannot be opened or is invalid
         """
         self.file_path = Path(file_path)
-        self._safe_file = None
-        self._metadata = None
-        self._tensor_info_cache = {}
+        self._safe_file: Optional[safe_open] = None
+        self._metadata: Optional[Dict[str, Any]] = None
+        self._tensor_info_cache: Dict[str, TensorInfo] = {}
 
         if not self.file_path.exists():
             raise SafetensorsReadError(f"File not found: {self.file_path}")
@@ -71,7 +71,7 @@ class SafetensorsReader:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit with cleanup."""
         self.close()
 
@@ -86,7 +86,7 @@ class SafetensorsReader:
     @property
     def metadata(self) -> MetadataDict:
         """Get the global metadata from the SafeTensors file."""
-        return self._metadata.copy()
+        return self._metadata.copy() if self._metadata else {}
 
     @property
     def is_open(self) -> bool:
@@ -105,6 +105,8 @@ class SafetensorsReader:
         """
         self._ensure_open()
         try:
+            if self._safe_file is None:
+                raise SafetensorsReadError("SafeTensors file is not open")
             return list(self._safe_file.keys())
         except Exception as e:
             raise SafetensorsReadError(f"Failed to get tensor names: {e}") from e
@@ -128,7 +130,9 @@ class SafetensorsReader:
             raise SafetensorsReadError(f"Tensor '{name}' not found in file")
 
         try:
-            return self._safe_file.get_tensor(name)
+            if self._safe_file is None:
+                raise SafetensorsReadError("SafeTensors file is not open")
+            return cast(np.ndarray, self._safe_file.get_tensor(name))
         except Exception as e:
             raise SafetensorsReadError(f"Failed to read tensor '{name}': {e}") from e
 
@@ -190,6 +194,8 @@ class SafetensorsReader:
 
         try:
             # Get tensor to extract info (this is lazy in safetensors)
+            if self._safe_file is None:
+                raise SafetensorsReadError("SafeTensors file is not open")
             tensor = self._safe_file.get_tensor(name)
             dtype = DType.from_numpy(tensor.dtype)
             shape = tensor.shape
@@ -227,7 +233,7 @@ class SafetensorsReader:
         info = self.get_tensor_info(name)
 
         # Extract additional metadata from global metadata if available
-        tensor_metadata = self._metadata.get(f"tensor.{name}", {})
+        tensor_metadata = self._metadata.get(f"tensor.{name}", {}) if self._metadata else {}
 
         return TensorMetadata(
             name=info.name,
@@ -270,7 +276,7 @@ class SafetensorsReader:
             # Calculate total parameters and size
             total_params = 0
             total_size = 0
-            dtype_counts = {}
+            dtype_counts: Dict[str, int] = {}
 
             for name in tensor_names:
                 info = self.get_tensor_info(name)
@@ -305,7 +311,7 @@ class SafetensorsReader:
             SafetensorsFormatError: If file format is invalid
         """
         try:
-            validation_result = {
+            validation_result: Dict[str, Any] = {
                 "valid": True,
                 "errors": [],
                 "warnings": [],
