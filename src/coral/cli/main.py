@@ -24,7 +24,7 @@ class CoralCLI:
     def _create_parser(self) -> argparse.ArgumentParser:
         """Create the argument parser."""
         parser = argparse.ArgumentParser(
-            prog="coral", description="Version control for neural network weights"
+            prog="coral-ml", description="Version control for neural network weights"
         )
 
         subparsers = parser.add_subparsers(dest="command", help="Available commands")

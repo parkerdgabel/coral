@@ -1,6 +1,6 @@
 # 🪸 Coral: Neural Network Weight Versioning System
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/yourusername/coral)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/parkerdgabel/coral)
 [![Python](https://img.shields.io/badge/python-3.8+-green.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen.svg)](#testing)
@@ -31,7 +31,7 @@
 - **Callback system** for custom checkpoint handling
 
 ### 🖥️ **Professional CLI**
-- Full git-like command interface (`coral init`, `coral commit`, etc.)
+- Full git-like command interface (`coral-ml init`, `coral-ml commit`, etc.)
 - Progress tracking and comprehensive error handling
 - Batch operations for performance
 
@@ -45,13 +45,13 @@
 
 ```bash
 # Install from PyPI (recommended)
-pip install coral
+pip install coral-ml
 
 # Install with PyTorch support
-pip install coral[torch]
+pip install coral-ml[torch]
 
 # Development installation
-git clone https://github.com/yourusername/coral.git
+git clone https://github.com/parkerdgabel/coral.git
 cd coral
 pip install -e ".[dev,torch]"
 ```
@@ -149,31 +149,31 @@ trainer.load_checkpoint(load_best=True)
 
 ```bash
 # Initialize new project
-coral init my_ml_project
+coral-ml init my_ml_project
 cd my_ml_project
 
 # Add model weights
-coral add model_checkpoint.pth
-coral commit -m "Initial model checkpoint"
+coral-ml add model_checkpoint.pth
+coral-ml commit -m "Initial model checkpoint"
 
 # Experiment workflow
-coral branch fine_tune_lr_0.001
-coral checkout fine_tune_lr_0.001
+coral-ml branch fine_tune_lr_0.001
+coral-ml checkout fine_tune_lr_0.001
 
 # After training iteration
-coral add updated_model.pth
-coral commit -m "Fine-tuned with lr=0.001, accuracy=92.5%"
+coral-ml add updated_model.pth
+coral-ml commit -m "Fine-tuned with lr=0.001, accuracy=92.5%"
 
 # Compare experiments
-coral diff main fine_tune_lr_0.001
-coral log --oneline
+coral-ml diff main fine_tune_lr_0.001
+coral-ml log --oneline
 
 # Tag successful model
-coral tag v1.1 -d "Best performing model" 
+coral-ml tag v1.1 -d "Best performing model" 
 
 # Clean up storage
-coral gc --dry-run  # See what would be deleted
-coral gc            # Actually clean up
+coral-ml gc --dry-run  # See what would be deleted
+coral-ml gc            # Actually clean up
 ```
 
 ## 🏗️ Architecture & Core Components
@@ -334,7 +334,7 @@ uv run pytest --cov=coral --cov-report=html
 ### Development Setup
 ```bash
 # Clone and setup
-git clone https://github.com/yourusername/coral.git
+git clone https://github.com/parkerdgabel/coral.git
 cd coral
 
 # Install with development dependencies
@@ -390,8 +390,8 @@ MIT License - see [LICENSE](LICENSE) for details.
 **Ready to revolutionize your ML model storage?** 🚀
 
 ```bash
-pip install coral
-coral init my_first_project
+pip install coral-ml
+coral-ml init my_first_project
 ```
 
 *Built with ❤️ for the ML community*

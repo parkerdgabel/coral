@@ -8,13 +8,13 @@ this_directory = Path(__file__).parent
 long_description = (this_directory / "README.md").read_text()
 
 setup(
-    name="coral",
+    name="coral-ml",
     version="1.0.0",
     author="Coral Contributors",
     description="Neural network weight storage and deduplication system",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/coral",
+    url="https://github.com/parkerdgabel/coral",
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     classifiers=[
@@ -39,7 +39,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "coral=coral.cli.main:main",
+            "coral-ml=coral.cli.main:main",
         ],
     },
     extras_require={

@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "coral"
+name = "coral-ml"
 version = "1.0.0"
 description = "Neural network weight storage and deduplication system"
 readme = "README.md"
@@ -24,7 +24,7 @@ keywords = [
     "version-control",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -60,13 +60,13 @@ tensorflow = [
 ]
 
 [project.scripts]
-coral = "coral.cli.main:main"
+coral-ml = "coral.cli.main:main"
 
 [project.urls]
-"Homepage" = "https://github.com/yourusername/coral"
-"Bug Tracker" = "https://github.com/yourusername/coral/issues"
-"Source" = "https://github.com/yourusername/coral"
-"Documentation" = "https://github.com/yourusername/coral#readme"
+"Homepage" = "https://github.com/parkerdgabel/coral"
+"Bug Tracker" = "https://github.com/parkerdgabel/coral/issues"
+"Source" = "https://github.com/parkerdgabel/coral"
+"Documentation" = "https://github.com/parkerdgabel/coral#readme"
 
 [tool.setuptools.packages.find]
 where = ["src"]
