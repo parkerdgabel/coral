@@ -2,16 +2,22 @@
 Coral: Neural network weight storage and deduplication system
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
-from coral.core.weight_tensor import WeightTensor
 from coral.core.deduplicator import Deduplicator
-from coral.storage.weight_store import WeightStore
+from coral.core.weight_tensor import WeightTensor
+from coral.delta.delta_encoder import DeltaConfig, DeltaEncoder, DeltaType
 from coral.storage.hdf5_store import HDF5Store
+from coral.storage.weight_store import WeightStore
+from coral.version_control.repository import Repository
 
 __all__ = [
     "WeightTensor",
-    "Deduplicator", 
+    "Deduplicator",
     "WeightStore",
     "HDF5Store",
+    "Repository",
+    "DeltaEncoder",
+    "DeltaConfig",
+    "DeltaType",
 ]

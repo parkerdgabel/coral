@@ -1,0 +1,40 @@
+# Include documentation
+include README.md
+include LICENSE
+include CHANGELOG.md
+
+# Include configuration files
+include pyproject.toml
+include requirements.txt
+
+# Include all source code
+recursive-include src *.py
+recursive-include src *.pyi
+recursive-include src py.typed
+
+# Include tests for source distributions
+recursive-include tests *.py
+
+# Include examples
+recursive-include examples *.py
+
+# Exclude unnecessary files
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude .DS_Store
+global-exclude .gitignore
+global-exclude .git
+recursive-exclude tests __pycache__
+recursive-exclude examples __pycache__
+
+# Exclude development files
+exclude .coverage
+exclude .coveragerc
+exclude tox.ini
+exclude .travis.yml
+exclude .github
+exclude CLAUDE.md
+exclude PUBLISHING.md
+exclude benchmark.py
+recursive-exclude htmlcov *
+recursive-exclude coral_test *

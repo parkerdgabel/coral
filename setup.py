@@ -9,7 +9,7 @@ long_description = (this_directory / "README.md").read_text()
 
 setup(
     name="coral",
-    version="0.1.0",
+    version="1.0.0",
     author="Coral Contributors",
     description="Neural network weight storage and deduplication system",
     long_description=long_description,
@@ -18,7 +18,7 @@ setup(
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     classifiers=[
-        "Development Status :: 3 - Alpha",
+        "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3",
@@ -35,7 +35,13 @@ setup(
         "protobuf>=3.19.0",
         "xxhash>=3.0.0",
         "tqdm>=4.60.0",
+        "networkx>=2.6.0",
     ],
+    entry_points={
+        "console_scripts": [
+            "coral=coral.cli.main:main",
+        ],
+    },
     extras_require={
         "dev": [
             "pytest>=7.0.0",

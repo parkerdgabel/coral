@@ -1,0 +1,85 @@
+{
+  "model_name": "SimpleModel",
+  "experiment_name": "simple_model_training",
+  "best_checkpoint_hash": "81371ad55b30eea0",
+  "best_metric_value": 1.0,
+  "checkpoints": [
+    {
+      "commit_hash": "81371ad55b30eea0",
+      "epoch": 2,
+      "global_step": 13,
+      "timestamp": "2025-06-19T09:58:35.181351",
+      "metrics": {
+        "loss": 0.5377552509307861,
+        "accuracy": 1.0
+      },
+      "is_best": false
+    },
+    {
+      "commit_hash": "1286e93e0ad3777c",
+      "epoch": 16,
+      "global_step": 72,
+      "timestamp": "2025-06-19T09:58:43.088588",
+      "metrics": {
+        "loss": 0.0028686001896858215,
+        "accuracy": 1.0
+      },
+      "is_best": false
+    },
+    {
+      "commit_hash": "20a29b48782a60e0",
+      "epoch": 18,
+      "global_step": 76,
+      "timestamp": "2025-06-19T09:58:43.354157",
+      "metrics": {
+        "loss": 0.003226949251256883,
+        "accuracy": 1.0
+      },
+      "is_best": false
+    },
+    {
+      "commit_hash": "2e81427b75928a6f",
+      "epoch": 18,
+      "global_step": 77,
+      "timestamp": "2025-06-19T09:58:43.554112",
+      "metrics": {
+        "loss": 0.00327301281504333,
+        "accuracy": 1.0
+      },
+      "is_best": false
+    },
+    {
+      "commit_hash": "9bdb57bdff3e51ea",
+      "epoch": 18,
+      "global_step": 78,
+      "timestamp": "2025-06-19T09:58:43.772389",
+      "metrics": {
+        "loss": 0.0028758945409208536,
+        "accuracy": 1.0
+      },
+      "is_best": false
+    },
+    {
+      "commit_hash": "cd37a8b357e6ad1d",
+      "epoch": 18,
+      "global_step": 79,
+      "timestamp": "2025-06-19T09:58:43.989083",
+      "metrics": {
+        "loss": 0.0031063479837030172,
+        "accuracy": 1.0
+      },
+      "is_best": false
+    },
+    {
+      "commit_hash": "7ccbd9dcbac549cd",
+      "epoch": 18,
+      "global_step": 80,
+      "timestamp": "2025-06-19T09:58:44.201966",
+      "metrics": {
+        "loss": 0.0031628860160708427,
+        "accuracy": 1.0
+      },
+      "is_best": false
+    }
+  ]
+}

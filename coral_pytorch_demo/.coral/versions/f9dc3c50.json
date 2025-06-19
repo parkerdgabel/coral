@@ -1,0 +1,10 @@
+{
+  "version_id": "f9dc3c50",
+  "commit_hash": "62a084b86ff3c2de",
+  "name": "SimpleModel_best",
+  "description": "Best checkpoint for accuracy",
+  "metrics": {
+    "loss": 2.0941925048828125,
+    "accuracy": 0.625
+  }
+}

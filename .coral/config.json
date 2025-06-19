@@ -1,0 +1,11 @@
+{
+  "user": {
+    "name": "Anonymous",
+    "email": "anonymous@example.com"
+  },
+  "core": {
+    "compression": "gzip",
+    "similarity_threshold": 0.98,
+    "delta_encoding": true
+  }
+}

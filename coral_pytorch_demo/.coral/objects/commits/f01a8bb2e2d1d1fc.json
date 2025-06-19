@@ -1,0 +1,23 @@
+{
+  "commit_hash": "f01a8bb2e2d1d1fc",
+  "parent_hashes": [],
+  "weight_hashes": {
+    "layers.0.weight": "830d96c3cb47c448",
+    "layers.0.bias": "abae8784c213e508",
+    "layers.2.weight": "b0374f4f3200ad09",
+    "layers.2.bias": "5790c60ec74ab732",
+    "layers.4.weight": "c69337f01a205796",
+    "layers.4.bias": "ff6f271d170d3dc8"
+  },
+  "metadata": {
+    "author": "Anonymous",
+    "email": "anonymous@example.com",
+    "message": "Checkpoint at epoch 0, step 1",
+    "timestamp": "2025-06-19T09:58:32.829543",
+    "tags": [
+      "checkpoint",
+      "simple_model_training"
+    ]
+  },
+  "delta_weights": {}
+}
