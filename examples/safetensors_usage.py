@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Example demonstrating SafetensorsStore usage in Coral."""
 
-import numpy as np
 import tempfile
 from pathlib import Path
+
+import numpy as np
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
 from coral.storage.safetensors_store import SafetensorsStore
@@ -61,7 +62,8 @@ def main():
         print("\n6. Get metadata without loading full data")
         metadata = store.get_metadata(hash_keys[0])
         print(
-            f"   Metadata: name={metadata.name}, shape={metadata.shape}, dtype={metadata.dtype}"
+            f"   Metadata: name={metadata.name}, shape={metadata.shape}, "
+            f"dtype={metadata.dtype}"
         )
 
         # Check storage info

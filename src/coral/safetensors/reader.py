@@ -338,7 +338,8 @@ class SafetensorsReader:
                     tensor_data = self.read_tensor(name)
                     if tensor_data.size != info.size:
                         validation_result["errors"].append(
-                            f"Tensor '{name}' size mismatch: expected {info.size}, got {tensor_data.size}"
+                            f"Tensor '{name}' size mismatch: expected "
+                            f"{info.size}, got {tensor_data.size}"
                         )
                         validation_result["valid"] = False
 
@@ -363,7 +364,10 @@ class SafetensorsReader:
         status = "open" if self.is_open else "closed"
         try:
             tensor_count = len(self.get_tensor_names()) if self.is_open else "unknown"
-        except:
+        except Exception:
             tensor_count = "unknown"
 
-        return f"SafetensorsReader(file='{self.file_path}', status={status}, tensors={tensor_count})"
+        return (
+            f"SafetensorsReader(file='{self.file_path}', status={status}, "
+            f"tensors={tensor_count})"
+        )

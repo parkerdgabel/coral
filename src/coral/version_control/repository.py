@@ -215,7 +215,8 @@ class Repository:
             if parent_commit:
                 # Calculate deltas between current weights and parent
                 commit_deltas = self._calculate_deltas(weight_hashes, parent_commit)
-                # Merge with staged deltas (staged deltas from deduplication have priority)
+                # Merge with staged deltas (staged deltas from
+                # deduplication have priority)
                 delta_weights = {**commit_deltas, **staged_deltas}
             else:
                 delta_weights = staged_deltas
@@ -547,12 +548,14 @@ class Repository:
                             deltas[name] = delta_hash
 
                             logger.debug(
-                                f"Created delta for {name}: {delta.compression_ratio:.2%} compression, "
+                                f"Created delta for {name}: "
+                                f"{delta.compression_ratio:.2%} compression, "
                                 f"hash {delta_hash}"
                             )
                         else:
                             logger.debug(
-                                f"Delta encoding not beneficial for {name}, storing full weight"
+                                f"Delta encoding not beneficial for {name}, "
+                                f"storing full weight"
                             )
 
                     except Exception as e:

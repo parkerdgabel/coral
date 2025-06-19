@@ -120,7 +120,7 @@ class SafetensorsMetadata:
                 else:
                     # Assume it's already a string representation
                     dtype = DType(str(dtype))
-            except:
+            except (ValueError, TypeError, AttributeError):
                 dtype = None
 
         # Create or update tensor metadata

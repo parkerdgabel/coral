@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Demo script to test the new Coral CLI commands for Safetensors support."""
 
-import numpy as np
-import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import numpy as np
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))

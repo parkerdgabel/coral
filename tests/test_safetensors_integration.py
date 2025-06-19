@@ -41,22 +41,20 @@ Usage:
     uv run pytest tests/test_safetensors_integration.py::TestSafetensorsIntegration
 
     # Run individual test
-    uv run pytest tests/test_safetensors_integration.py::TestSafetensorsIntegration::test_roundtrip_data_integrity
+    uv run pytest tests/test_safetensors_integration.py::TestSafetensorsIntegration::\
+        test_roundtrip_data_integrity
 
     # Run with verbose output
     uv run pytest tests/test_safetensors_integration.py -v
 """
 
 import concurrent.futures
-import json
 import os
 import platform
-import shutil
 import tempfile
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List
 
 import numpy as np
 import pytest
@@ -136,7 +134,7 @@ def sample_weights():
         (np.bool_, np.random.choice([True, False], (2, 2))),
     ]
 
-    for i, (dtype, data) in enumerate(dtypes_and_data):
+    for _i, (dtype, data) in enumerate(dtypes_and_data):
         dtype_name = np.dtype(dtype).name
         weights[f"dtype_{dtype_name}"] = WeightTensor(
             data=data,
@@ -214,7 +212,7 @@ class TestSafetensorsIntegration:
 
     def test_compression_roundtrip(self, compressed_safetensors_store, sample_weights):
         """Test compression doesn't affect data integrity."""
-        for name, weight in sample_weights.items():
+        for _name, weight in sample_weights.items():
             hash_key = compressed_safetensors_store.store(weight)
             loaded = compressed_safetensors_store.load(hash_key)
 
@@ -225,7 +223,8 @@ class TestSafetensorsIntegration:
     def test_repository_integration(
         self, repository_with_safetensors, sample_weights, temp_dir
     ):
-        """Test SafetensorsStore can be used alongside Repository for data interchange."""
+        """Test SafetensorsStore can be used alongside Repository for data
+        interchange."""
         repo = repository_with_safetensors
 
         # Stage and commit weights in Repository
@@ -414,7 +413,7 @@ class TestSafetensorsIntegration:
 
         # Read metadata
         with safe_open(official_safetensors_file, framework="numpy") as f:
-            official_metadata = f.metadata()
+            f.metadata()
 
         # Convert to Coral format and store in SafetensorsStore
         store = SafetensorsStore(str(temp_dir / "compatibility_test"))
@@ -619,8 +618,9 @@ class TestSafetensorsPerformance:
     def test_memory_usage_large_files(self, temp_dir):
         """Test memory usage when working with large files."""
         pytest.importorskip("psutil")  # Skip if psutil not available
-        import psutil
         import gc
+
+        import psutil
 
         process = psutil.Process()
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
@@ -723,7 +723,7 @@ class TestSafetensorsErrorHandling:
                 ),
             )
 
-            with pytest.raises(Exception):  # Should raise some form of permission error
+            with pytest.raises(OSError):  # Should raise some form of permission error
                 store.store(new_weight)
 
             # Reading should still work if file permissions allow it
@@ -1026,7 +1026,7 @@ class TestSafetensorsSpecialCases:
         try:
             float16_data = np.array([1.0, 2.5, -3.7], dtype=np.float16)
             test_cases.append((np.float16, float16_data))
-        except:
+        except (ValueError, TypeError):
             pass  # Skip if float16 not supported
 
         for dtype, data in test_cases:
@@ -1164,6 +1164,6 @@ if __name__ == "__main__":
 
     if len(sys.argv) > 1:
         test_class = sys.argv[1]
-        pytest.main([f"-v", f"test_safetensors_integration.py::{test_class}"])
+        pytest.main(["-v", f"test_safetensors_integration.py::{test_class}"])
     else:
         pytest.main(["-v", "test_safetensors_integration.py"])

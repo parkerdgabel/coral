@@ -15,11 +15,10 @@ This simulates real-world scenarios where large models are iteratively
 refined, creating many similar weight sets that benefit from deduplication.
 """
 
-import os
 import shutil
 import time
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict
 
 import numpy as np
 import torch
@@ -57,7 +56,7 @@ def create_model_variation(
     noise_scale = np.sqrt(1 - similarity**2)
 
     with torch.no_grad():
-        for name, param in model_copy.named_parameters():
+        for _name, param in model_copy.named_parameters():
             if param.requires_grad:
                 # Add scaled Gaussian noise
                 noise = torch.randn_like(param) * param.abs().mean() * noise_scale
@@ -283,13 +282,14 @@ def main():
             else 0.0
         )
 
-        print(f"\n✅ Coral storage complete:")
+        print("\n✅ Coral storage complete:")
         print(f"  - Size: {coral_size:.1f} MB")
         print(f"  - Time: {coral_time:.2f} seconds")
         print(f"  - Unique weights: {dedup_stats.unique_weights}")
         print(f"  - Total weights: {dedup_stats.total_weights}")
         print(
-            f"  - Deduplicated: {dedup_stats.total_weights - dedup_stats.unique_weights}"
+            f"  - Deduplicated: "
+            f"{dedup_stats.total_weights - dedup_stats.unique_weights}"
         )
 
         # Calculate and display savings
@@ -301,7 +301,7 @@ def main():
 
         print(f"🎯 Space Savings: {space_saved:.1f} MB ({space_saved_pct:.1f}%)")
         print(f"🗜️  Compression Ratio: {compression_ratio:.2f}x")
-        print(f"⏱️  Time Comparison:")
+        print("⏱️  Time Comparison:")
         print(f"    - PyTorch: {pytorch_time:.2f}s")
         print(f"    - Coral: {coral_time:.2f}s ({coral_time / pytorch_time:.2f}x)")
 
@@ -321,7 +321,7 @@ def main():
                 np.linalg.norm(base_weight.data.flatten())
                 * np.linalg.norm(variation_weight.data.flatten())
             )
-            print(f"  ✅ Successfully retrieved weights")
+            print("  ✅ Successfully retrieved weights")
             print(f"  - Similarity between base and variation: {similarity:.4f}")
 
         # Show branch and commit information

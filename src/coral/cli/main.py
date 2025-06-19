@@ -10,14 +10,13 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from tqdm import tqdm
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
-from coral.version_control.repository import Repository
 from coral.safetensors.converter import (
     convert_coral_to_safetensors,
     convert_safetensors_to_coral,
 )
+from coral.version_control.repository import Repository
 
 
 class CoralCLI:

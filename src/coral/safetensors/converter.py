@@ -345,7 +345,8 @@ def convert_safetensors_to_coral(
 
             logger.info(f"Successfully imported {len(coral_weights)} weights to Coral")
 
-            # Return weight mapping for CLI compatibility, but keep stats for detailed info
+            # Return weight mapping for CLI compatibility, but keep stats for
+            # detailed info
             return weight_mapping
 
     except Exception as e:
@@ -484,7 +485,7 @@ def convert_weights_dict_to_safetensors(
             st_metadata.load_from_dict(metadata)
 
         # Add tensor metadata
-        for name, tensor in weights.items():
+        for name, _tensor in weights.items():
             st_metadata.set_tensor_info(
                 tensor_name=name, description="Converted numpy array"
             )

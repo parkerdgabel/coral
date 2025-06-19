@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Compare storage backends: HDF5Store vs SafetensorsStore."""
 
-import numpy as np
 import tempfile
 import time
 from pathlib import Path
+
+import numpy as np
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
 from coral.storage.hdf5_store import HDF5Store
@@ -95,7 +96,8 @@ def main():
     weights = create_test_weights(num_weights=100, size=(100, 100))
     total_data_size = sum(w.nbytes for w in weights)
     print(
-        f"Created {len(weights)} weights, total size: {total_data_size / 1024 / 1024:.2f} MB\n"
+        f"Created {len(weights)} weights, total size: "
+        f"{total_data_size / 1024 / 1024:.2f} MB\n"
     )
 
     # Test different configurations
@@ -129,7 +131,8 @@ def main():
     print("SUMMARY COMPARISON")
     print("=" * 60)
     print(
-        f"{'Backend':<30} {'Store (s)':<12} {'Load (s)':<12} {'Size (MB)':<12} {'Ratio':<8}"
+        f"{'Backend':<30} {'Store (s)':<12} {'Load (s)':<12} "
+        f"{'Size (MB)':<12} {'Ratio':<8}"
     )
     print("-" * 60)
 
@@ -157,7 +160,8 @@ def main():
     )
     print(f"Fastest load: {fastest_load['name']} ({fastest_load['load_time']:.3f}s)")
     print(
-        f"Smallest size: {smallest_size['name']} ({smallest_size['total_size_mb']:.2f} MB)"
+        f"Smallest size: {smallest_size['name']} "
+        f"({smallest_size['total_size_mb']:.2f} MB)"
     )
 
     # SafeTensors vs HDF5 comparison
@@ -166,16 +170,23 @@ def main():
         r for r in results if r["name"] == "SafeTensors (no compression)"
     )
 
-    print(f"\nSafeTensors vs HDF5 (uncompressed):")
-    print(
-        f"  Store: {safetensors_uncompressed['store_time'] / hdf5_uncompressed['store_time']:.2f}x speed"
+    print("\nSafeTensors vs HDF5 (uncompressed):")
+
+    # Calculate ratios for better line length management
+    store_ratio = (
+        safetensors_uncompressed['store_time'] / hdf5_uncompressed['store_time']
     )
-    print(
-        f"  Load: {safetensors_uncompressed['load_time'] / hdf5_uncompressed['load_time']:.2f}x speed"
+    load_ratio = (
+        safetensors_uncompressed['load_time'] / hdf5_uncompressed['load_time']
     )
-    print(
-        f"  Size: {safetensors_uncompressed['total_size_bytes'] / hdf5_uncompressed['total_size_bytes']:.2f}x ratio"
+    size_ratio = (
+        safetensors_uncompressed['total_size_bytes'] /
+        hdf5_uncompressed['total_size_bytes']
     )
+
+    print(f"  Store: {store_ratio:.2f}x speed")
+    print(f"  Load: {load_ratio:.2f}x speed")
+    print(f"  Size: {size_ratio:.2f}x ratio")
 
 
 if __name__ == "__main__":

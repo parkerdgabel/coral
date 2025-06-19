@@ -296,7 +296,8 @@ class SafetensorsWriter:
 
                 if tensor.nbytes > 100 * 1024 * 1024:  # 100MB
                     validation_result["warnings"].append(
-                        f"Tensor '{name}' is very large ({tensor.nbytes / 1024 / 1024:.1f}MB)"
+                        f"Tensor '{name}' is very large "
+                        f"({tensor.nbytes / 1024 / 1024:.1f}MB)"
                     )
 
             except Exception as e:
