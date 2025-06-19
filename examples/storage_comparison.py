@@ -174,14 +174,12 @@ def main():
 
     # Calculate ratios for better line length management
     store_ratio = (
-        safetensors_uncompressed['store_time'] / hdf5_uncompressed['store_time']
+        safetensors_uncompressed["store_time"] / hdf5_uncompressed["store_time"]
     )
-    load_ratio = (
-        safetensors_uncompressed['load_time'] / hdf5_uncompressed['load_time']
-    )
+    load_ratio = safetensors_uncompressed["load_time"] / hdf5_uncompressed["load_time"]
     size_ratio = (
-        safetensors_uncompressed['total_size_bytes'] /
-        hdf5_uncompressed['total_size_bytes']
+        safetensors_uncompressed["total_size_bytes"]
+        / hdf5_uncompressed["total_size_bytes"]
     )
 
     print(f"  Store: {store_ratio:.2f}x speed")
