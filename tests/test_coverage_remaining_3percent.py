@@ -155,6 +155,7 @@ class TestRemaining3Percent:
                         with patch("sys.exit") as mock_exit:
                             with patch("builtins.print"):
                                 import argparse
+
                                 args = argparse.Namespace(command=cmd, path="model.pth")
 
                                 cli._run_add(args)

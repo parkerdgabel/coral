@@ -501,7 +501,10 @@ class Repository:
         """Calculate delta encodings for changed weights."""
         deltas = {}
 
-        if not self.deduplicator.enable_delta_encoding or not self.deduplicator.delta_encoder:
+        if (
+            not self.deduplicator.enable_delta_encoding
+            or not self.deduplicator.delta_encoder
+        ):
             logger.debug("Delta encoding disabled, skipping delta calculation")
             return deltas
 
@@ -513,16 +516,18 @@ class Repository:
                     and parent_commit.weight_hashes[name] != current_hash
                 ):
                     parent_hash = parent_commit.weight_hashes[name]
-                    
+
                     try:
                         # Load current and parent weights
                         current_weight = store.load(current_hash)
                         parent_weight = store.load(parent_hash)
-                        
+
                         if current_weight is None or parent_weight is None:
-                            logger.warning(f"Could not load weights for delta calculation: {name}")
+                            logger.warning(
+                                f"Could not load weights for delta calculation: {name}"
+                            )
                             continue
-                        
+
                         # Check if delta encoding is beneficial
                         if self.deduplicator.delta_encoder.can_encode_as_delta(
                             current_weight, parent_weight
@@ -531,16 +536,16 @@ class Repository:
                             delta = self.deduplicator.delta_encoder.encode_delta(
                                 current_weight, parent_weight
                             )
-                            
+
                             # Generate delta hash
                             delta_hash = self.deduplicator._compute_delta_hash(delta)
-                            
+
                             # Store delta in the storage backend
                             store.store_delta(delta, delta_hash)
-                            
+
                             # Track delta for this weight
                             deltas[name] = delta_hash
-                            
+
                             logger.debug(
                                 f"Created delta for {name}: {delta.compression_ratio:.2%} compression, "
                                 f"hash {delta_hash}"
@@ -549,7 +554,7 @@ class Repository:
                             logger.debug(
                                 f"Delta encoding not beneficial for {name}, storing full weight"
                             )
-                    
+
                     except Exception as e:
                         logger.error(f"Failed to create delta for {name}: {e}")
                         # Continue without delta encoding for this weight
