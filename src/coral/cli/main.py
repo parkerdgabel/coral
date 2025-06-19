@@ -10,9 +10,14 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+from tqdm import tqdm
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
 from coral.version_control.repository import Repository
+from coral.safetensors.converter import (
+    convert_coral_to_safetensors,
+    convert_safetensors_to_coral,
+)
 
 
 class CoralCLI:
@@ -103,6 +108,49 @@ class CoralCLI:
             "gc", help="Garbage collect unreferenced weights"
         )
 
+        # Import Safetensors command
+        import_st_parser = subparsers.add_parser(
+            "import-safetensors", help="Import weights from a Safetensors file"
+        )
+        import_st_parser.add_argument("file", help="Path to Safetensors file")
+        import_st_parser.add_argument(
+            "--weights", nargs="+", help="Specific weights to import (default: all)"
+        )
+        import_st_parser.add_argument(
+            "--exclude", nargs="+", help="Weights to exclude from import"
+        )
+        import_st_parser.add_argument(
+            "--no-metadata", action="store_true", help="Don't preserve metadata"
+        )
+
+        # Export Safetensors command
+        export_st_parser = subparsers.add_parser(
+            "export-safetensors", help="Export weights to a Safetensors file"
+        )
+        export_st_parser.add_argument("output", help="Output Safetensors file path")
+        export_st_parser.add_argument(
+            "--weights", nargs="+", help="Specific weights to export (default: all)"
+        )
+        export_st_parser.add_argument(
+            "--no-metadata", action="store_true", help="Don't include Coral metadata"
+        )
+        export_st_parser.add_argument(
+            "--metadata", action="append", help="Add custom metadata (format: key=value)"
+        )
+
+        # Convert command
+        convert_parser = subparsers.add_parser(
+            "convert", help="Convert between weight file formats"
+        )
+        convert_parser.add_argument("input", help="Input file path")
+        convert_parser.add_argument("output", help="Output file path")
+        convert_parser.add_argument(
+            "--weights", nargs="+", help="Specific weights to convert (default: all)"
+        )
+        convert_parser.add_argument(
+            "--no-metadata", action="store_true", help="Don't preserve/include metadata"
+        )
+
         return parser
 
     def run(self, args=None) -> int:
@@ -114,7 +162,7 @@ class CoralCLI:
             return 0
 
         # Find repository root
-        if args.command != "init":
+        if args.command not in ["init", "convert"]:
             repo_path = self._find_repo_root()
             if repo_path is None:
                 print("Error: Not in a Coral repository", file=sys.stderr)
@@ -146,6 +194,12 @@ class CoralCLI:
                 return self._cmd_show(args, repo_path)
             elif args.command == "gc":
                 return self._cmd_gc(args, repo_path)
+            elif args.command == "import-safetensors":
+                return self._cmd_import_safetensors(args, repo_path)
+            elif args.command == "export-safetensors":
+                return self._cmd_export_safetensors(args, repo_path)
+            elif args.command == "convert":
+                return self._cmd_convert(args)
             else:
                 print(f"Error: Unknown command '{args.command}'", file=sys.stderr)
                 return 1
@@ -432,6 +486,242 @@ class CoralCLI:
         print(f"  Remaining: {result['remaining_weights']} weight(s)")
 
         return 0
+
+    def _cmd_import_safetensors(self, args, repo_path: Path) -> int:
+        """Import weights from a Safetensors file."""
+        repo = Repository(repo_path)
+        
+        # Check if file exists
+        file_path = Path(args.file)
+        if not file_path.exists():
+            print(f"Error: File not found: {args.file}", file=sys.stderr)
+            return 1
+        
+        if not file_path.suffix == ".safetensors":
+            print("Warning: File does not have .safetensors extension", file=sys.stderr)
+        
+        # Prepare exclude set
+        exclude_weights = set(args.exclude) if args.exclude else None
+        
+        try:
+            print(f"Importing weights from {file_path.name}...")
+            
+            # Convert with progress
+            weight_mapping = convert_safetensors_to_coral(
+                source_path=file_path,
+                target=repo,
+                preserve_metadata=not args.no_metadata,
+                weight_names=args.weights,
+                exclude_weights=exclude_weights,
+            )
+            
+            print(f"✓ Successfully imported {len(weight_mapping)} weight(s)")
+            
+            # Show deduplication stats
+            stats = repo.deduplicator.compute_stats()
+            if stats.total_weights > stats.unique_weights:
+                saved = stats.total_weights - stats.unique_weights
+                reduction = (saved / stats.total_weights) * 100
+                print(f"✓ Deduplicated {saved} weight(s) ({reduction:.1f}% reduction)")
+            
+            return 0
+            
+        except Exception as e:
+            print(f"Error importing safetensors: {e}", file=sys.stderr)
+            return 1
+
+    def _cmd_export_safetensors(self, args, repo_path: Path) -> int:
+        """Export weights to a Safetensors file."""
+        repo = Repository(repo_path)
+        
+        # Parse custom metadata
+        custom_metadata = {}
+        if args.metadata:
+            for item in args.metadata:
+                if '=' not in item:
+                    print(f"Error: Invalid metadata format: {item} (expected key=value)", file=sys.stderr)
+                    return 1
+                key, value = item.split('=', 1)
+                custom_metadata[key] = value
+        
+        try:
+            output_path = Path(args.output)
+            
+            # Add .safetensors extension if not present
+            if output_path.suffix != ".safetensors":
+                output_path = output_path.with_suffix(".safetensors")
+            
+            # Check if output directory exists
+            if not output_path.parent.exists():
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            print(f"Exporting weights to {output_path}...")
+            
+            # Export with progress
+            convert_coral_to_safetensors(
+                source=repo,
+                output_path=output_path,
+                weight_names=args.weights,
+                include_metadata=not args.no_metadata,
+                custom_metadata=custom_metadata if custom_metadata else None,
+            )
+            
+            # Get file size
+            file_size = output_path.stat().st_size
+            size_mb = file_size / (1024 * 1024)
+            
+            # Count weights exported
+            if args.weights:
+                num_weights = len(args.weights)
+            else:
+                num_weights = len(repo.get_all_weights())
+            
+            print(f"✓ Successfully exported {num_weights} weight(s)")
+            print(f"✓ Output file: {output_path} ({size_mb:.1f} MB)")
+            
+            return 0
+            
+        except Exception as e:
+            print(f"Error exporting to safetensors: {e}", file=sys.stderr)
+            return 1
+
+    def _cmd_convert(self, args) -> int:
+        """Convert between weight file formats."""
+        input_path = Path(args.input)
+        output_path = Path(args.output)
+        
+        # Check if input exists
+        if not input_path.exists():
+            print(f"Error: Input file not found: {args.input}", file=sys.stderr)
+            return 1
+        
+        # Detect format based on extensions
+        input_ext = input_path.suffix.lower()
+        output_ext = output_path.suffix.lower()
+        
+        # Add extensions if missing
+        if not output_ext:
+            if input_ext == ".safetensors":
+                output_ext = ".npz"
+            else:
+                output_ext = ".safetensors"
+            output_path = output_path.with_suffix(output_ext)
+        
+        try:
+            # Safetensors to Coral/NPZ
+            if input_ext == ".safetensors" and output_ext in [".npz", ".h5", ".hdf5"]:
+                print(f"Converting Safetensors to {output_ext[1:].upper()}...")
+                
+                # For NPZ output, we need to create a temporary repository
+                if output_ext == ".npz":
+                    import tempfile
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        temp_repo = Repository(Path(temp_dir), init=True)
+                        
+                        # Import to temporary repository
+                        weight_mapping = convert_safetensors_to_coral(
+                            source_path=input_path,
+                            target=temp_repo,
+                            preserve_metadata=not args.no_metadata,
+                            weight_names=args.weights,
+                        )
+                        
+                        # Export as NPZ
+                        weights = temp_repo.get_all_weights()
+                        weight_dict = {name: tensor.data for name, tensor in weights.items()}
+                        np.savez_compressed(output_path, **weight_dict)
+                        
+                        print(f"✓ Converted {len(weight_dict)} weight(s) to NPZ format")
+                else:
+                    # Direct HDF5 conversion
+                    from coral.storage.hdf5_store import HDF5Store
+                    store = HDF5Store(output_path)
+                    
+                    weight_mapping = convert_safetensors_to_coral(
+                        source_path=input_path,
+                        target=store,
+                        preserve_metadata=not args.no_metadata,
+                        weight_names=args.weights,
+                    )
+                    
+                    store.close()
+                    print(f"✓ Converted {len(weight_mapping)} weight(s) to HDF5 format")
+            
+            # NPZ to Safetensors
+            elif input_ext == ".npz" and output_ext == ".safetensors":
+                print("Converting NPZ to Safetensors...")
+                
+                # Load NPZ file
+                archive = np.load(input_path)
+                
+                # Create temporary repository for conversion
+                import tempfile
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    temp_repo = Repository(Path(temp_dir), init=True)
+                    
+                    # Stage all weights
+                    weights = {}
+                    for name in archive.files:
+                        data = archive[name]
+                        weight = WeightTensor(
+                            data=data,
+                            metadata=WeightMetadata(
+                                name=name,
+                                shape=data.shape,
+                                dtype=data.dtype,
+                            ),
+                        )
+                        weights[name] = weight
+                    
+                    # Filter weights if specified
+                    if args.weights:
+                        weights = {k: v for k, v in weights.items() if k in args.weights}
+                    
+                    temp_repo.stage_weights(weights)
+                    temp_repo.commit("Import from NPZ")
+                    
+                    # Export to safetensors
+                    convert_coral_to_safetensors(
+                        source=temp_repo,
+                        output_path=output_path,
+                        include_metadata=not args.no_metadata,
+                    )
+                    
+                    print(f"✓ Converted {len(weights)} weight(s) to Safetensors format")
+            
+            # Coral repository to Safetensors
+            elif input_path.is_dir() and (input_path / ".coral").exists() and output_ext == ".safetensors":
+                print("Converting Coral repository to Safetensors...")
+                
+                repo = Repository(input_path)
+                convert_coral_to_safetensors(
+                    source=repo,
+                    output_path=output_path,
+                    weight_names=args.weights,
+                    include_metadata=not args.no_metadata,
+                )
+                
+                num_weights = len(args.weights) if args.weights else len(repo.get_all_weights())
+                print(f"✓ Converted {num_weights} weight(s) to Safetensors format")
+            
+            else:
+                print(f"Error: Unsupported conversion from {input_ext} to {output_ext}", file=sys.stderr)
+                print("Supported conversions:", file=sys.stderr)
+                print("  - .safetensors → .npz, .h5, .hdf5", file=sys.stderr)
+                print("  - .npz → .safetensors", file=sys.stderr)
+                print("  - Coral repository → .safetensors", file=sys.stderr)
+                return 1
+            
+            # Show output file info
+            file_size = output_path.stat().st_size
+            size_mb = file_size / (1024 * 1024)
+            print(f"✓ Output file: {output_path} ({size_mb:.1f} MB)")
+            
+            return 0
+            
+        except Exception as e:
+            print(f"Error during conversion: {e}", file=sys.stderr)
+            return 1
 
 
 def main():
