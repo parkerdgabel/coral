@@ -27,7 +27,7 @@ try:
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
-    torch = None
+    torch = None  # type: ignore
 
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor

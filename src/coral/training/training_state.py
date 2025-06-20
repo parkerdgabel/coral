@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     try:
         import torch  # type: ignore
     except ImportError:
-        torch = None
+        torch = None  # type: ignore
 
 
 @dataclass
