@@ -54,6 +54,7 @@ dev = [
     "pytest-cov>=3.0.0",
     "ruff>=0.1.0",
     "mypy>=0.950",
+    "matplotlib>=3.0",
 ]
 torch = [
     "torch>=1.10.0",
