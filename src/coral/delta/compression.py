@@ -27,16 +27,13 @@ class DeltaCompressor:
         sorted_indices = indices[sorted_order]
         sorted_values = values[sorted_order]
 
-        # Run-length encode index differences
-        index_diffs = np.diff(sorted_indices, prepend=sorted_indices[0])
-
-        # Simple compression: store (diff, value) pairs
-        compressed_data = np.column_stack([index_diffs, sorted_values])
+        # Store actual indices directly instead of differences
+        # This avoids the diff/cumsum reconstruction issue
+        compressed_data = np.column_stack([sorted_indices, sorted_values])
 
         metadata = {
             "compression_type": "sparse_rle",
             "original_length": len(indices),
-            "first_index": int(sorted_indices[0]) if len(sorted_indices) > 0 else 0,
         }
 
         return compressed_data.astype(np.float32), metadata
@@ -49,14 +46,9 @@ class DeltaCompressor:
         if metadata["original_length"] == 0:
             return np.array([], dtype=np.int64), np.array([], dtype=np.float32)
 
-        # Extract differences and values
-        index_diffs: np.ndarray = compressed_data[:, 0].astype(np.int64)
+        # Extract indices and values directly (no cumsum needed)
+        indices: np.ndarray = compressed_data[:, 0].astype(np.int64)
         values = compressed_data[:, 1]
-
-        # Reconstruct original indices
-        indices = np.cumsum(index_diffs)
-        if metadata.get("first_index", 0) != 0:
-            indices[0] = metadata["first_index"]
 
         return indices, values
 
@@ -67,6 +59,23 @@ class DeltaCompressor:
         """Apply adaptive quantization based on data distribution."""
         if target_bits not in [8, 16]:
             raise ValueError("target_bits must be 8 or 16")
+
+        # Handle empty array case
+        if data.size == 0:
+            if target_bits == 8:
+                dtype = np.int8
+            else:
+                dtype = np.int16
+
+            return np.array([], dtype=dtype), {
+                "scale": 1.0,
+                "min_val": 0.0,
+                "max_val": 0.0,
+                "mean": 0.0,
+                "std": 0.0,
+                "target_bits": target_bits,
+                "outlier_ratio": 0.0,
+            }
 
         # Analyze data distribution
         std_dev = np.std(data)

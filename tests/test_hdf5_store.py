@@ -118,11 +118,12 @@ class TestHDF5Store:
     def test_store_and_retrieve_delta(self, temp_store):
         """Test storing and retrieving delta objects."""
         delta = Delta(
-            reference_hash="ref_hash",
-            delta_data=np.array([0.1, 0.2, 0.3], dtype=np.float32),
             delta_type=DeltaType.FLOAT32_RAW,
-            shape=(3,),
-            original_hash="orig_hash",
+            data=np.array([0.1, 0.2, 0.3], dtype=np.float32),
+            metadata={},
+            original_shape=(3,),
+            original_dtype=np.float32,
+            reference_hash="ref_hash",
         )
 
         temp_store.store_delta(delta, "delta_hash")
@@ -131,16 +132,17 @@ class TestHDF5Store:
         assert retrieved is not None
         assert retrieved.reference_hash == delta.reference_hash
         assert retrieved.delta_type == delta.delta_type
-        np.testing.assert_array_equal(retrieved.delta_data, delta.delta_data)
+        np.testing.assert_array_equal(retrieved.data, delta.data)
 
     def test_delta_exists(self, temp_store):
         """Test checking if delta exists."""
         delta = Delta(
-            reference_hash="ref",
-            delta_data=np.array([1.0], dtype=np.float32),
             delta_type=DeltaType.FLOAT32_RAW,
-            shape=(1,),
-            original_hash="orig",
+            data=np.array([1.0], dtype=np.float32),
+            metadata={},
+            original_shape=(1,),
+            original_dtype=np.float32,
+            reference_hash="ref",
         )
 
         assert not temp_store.delta_exists("test_delta")
@@ -150,11 +152,12 @@ class TestHDF5Store:
     def test_delete_delta(self, temp_store):
         """Test deleting delta."""
         delta = Delta(
-            reference_hash="ref",
-            delta_data=np.array([1.0], dtype=np.float32),
             delta_type=DeltaType.FLOAT32_RAW,
-            shape=(1,),
-            original_hash="orig",
+            data=np.array([1.0], dtype=np.float32),
+            metadata={},
+            original_shape=(1,),
+            original_dtype=np.float32,
+            reference_hash="ref",
         )
 
         temp_store.store_delta(delta, "delta_to_delete")
@@ -170,11 +173,12 @@ class TestHDF5Store:
         """Test listing all deltas."""
         for i in range(3):
             delta = Delta(
-                reference_hash=f"ref_{i}",
-                delta_data=np.array([float(i)], dtype=np.float32),
                 delta_type=DeltaType.FLOAT32_RAW,
-                shape=(1,),
-                original_hash=f"orig_{i}",
+                data=np.array([float(i)], dtype=np.float32),
+                metadata={},
+                original_shape=(1,),
+                original_dtype=np.float32,
+                reference_hash=f"ref_{i}",
             )
             temp_store.store_delta(delta, f"delta_{i}")
 
@@ -277,9 +281,9 @@ class TestHDF5Store:
         info = temp_store.get_storage_info()
 
         assert "compression" in info
-        assert "store_path" in info
+        assert "filepath" in info
         assert info["compression"] == "gzip"
-        assert str(temp_store.filepath) in str(info["store_path"])
+        assert str(temp_store.filepath) in str(info["filepath"])
 
     def test_close_and_reopen(self):
         """Test closing and reopening store."""

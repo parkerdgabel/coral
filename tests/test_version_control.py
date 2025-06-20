@@ -204,6 +204,29 @@ class TestRepository:
         assert version.metrics["accuracy"] == 0.95
         assert version.commit_hash == commit.commit_hash
 
+        # Test get_version
+        retrieved = temp_repo.get_version("v1.0")
+        assert retrieved is not None
+        assert retrieved.name == "v1.0"
+        assert retrieved.description == "First stable version"
+
+        # Test list_versions
+        versions = temp_repo.list_versions()
+        assert len(versions) == 1
+        assert versions[0].name == "v1.0"
+
+        # Create another version
+        temp_repo.stage_weights(sample_weights)
+        temp_repo.commit("Version 2")
+        temp_repo.tag_version("v2.0", "Second version")
+
+        # Test list_versions with multiple versions
+        versions = temp_repo.list_versions()
+        assert len(versions) == 2
+        version_names = [v.name for v in versions]
+        assert "v1.0" in version_names
+        assert "v2.0" in version_names
+
     def test_log_functionality(self, temp_repo, sample_weights):
         """Test commit log."""
         commits = []
@@ -232,6 +255,59 @@ class TestRepository:
         assert len(log) == 2
         assert log[0].commit_hash == commits[-1].commit_hash  # Most recent first
         assert log[1].commit_hash == commits[-2].commit_hash
+
+    def test_repository_status(self, temp_repo, sample_weights):
+        """Test repository status functionality."""
+        # Initial status - should be empty
+        status = temp_repo.status()
+        assert "staged" in status
+        assert len(status["staged"]) == 0
+
+        # Stage some weights
+        temp_repo.stage_weights(sample_weights)
+
+        # Check status shows staged weights
+        status = temp_repo.status()
+        assert len(status["staged"]) == len(sample_weights)
+        assert all(name in status["staged"] for name in sample_weights.keys())
+
+        # Commit and check status is cleared
+        temp_repo.commit("Test commit")
+        status = temp_repo.status()
+        assert len(status["staged"]) == 0
+
+    def test_repository_error_handling(self, sample_weights):
+        """Test repository error handling cases."""
+        temp_dir = tempfile.mkdtemp()
+        try:
+            # Test loading non-existent repository without init
+            with pytest.raises(ValueError, match="Not a Coral repository"):
+                Repository(temp_dir)  # No init=True
+
+            # Initialize properly
+            repo = Repository(temp_dir, init=True)
+
+            # Test committing with no staged changes
+            with pytest.raises(ValueError, match="Nothing to commit"):
+                repo.commit("Empty commit")
+
+            # Test checking out non-existent branch
+            with pytest.raises(ValueError, match="Invalid target"):
+                repo.checkout("non-existent-branch")
+
+            # Test getting non-existent weight (should return None, not raise)
+            assert repo.get_weight("non-existent-weight") is None
+
+            # Add a commit to test get_commit error
+            repo.stage_weights(sample_weights)
+            repo.commit("Test commit")
+
+            # Test getting non-existent commit
+            with pytest.raises(ValueError, match="Commit not found"):
+                repo.get_commit("non-existent-hash")
+
+        finally:
+            shutil.rmtree(temp_dir)
 
 
 class TestBranchManager:

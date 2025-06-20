@@ -33,6 +33,7 @@ class Repository:
         # Initialize components
         self.branch_manager = BranchManager(self.path)
         self.version_graph = VersionGraph()
+        self.current_branch_file = self.coral_dir / "HEAD"
 
         # Configure delta encoding based on repository settings
         from ..delta.delta_encoder import DeltaType
@@ -43,6 +44,10 @@ class Repository:
                 "delta_type", "float32_raw"
             )
             delta_config.delta_type = DeltaType(delta_type_str)
+            # Allow smaller weights for delta encoding in tests
+            delta_config.min_weight_size = self.config.get("core", {}).get(
+                "min_weight_size", 16
+            )
 
         self.deduplicator = Deduplicator(
             similarity_threshold=self.config.get("core", {}).get(
@@ -68,6 +73,11 @@ class Repository:
         # Load existing commits
         self._load_commits()
 
+    @property
+    def current_branch(self) -> str:
+        """Get current branch name."""
+        return self.branch_manager.get_current_branch()
+
     def _initialize_repository(self) -> None:
         """Initialize a new repository."""
         if self.coral_dir.exists():
@@ -79,7 +89,9 @@ class Repository:
         (self.coral_dir / "objects" / "commits").mkdir()
         (self.coral_dir / "objects" / "weights.h5").touch()
         (self.coral_dir / "refs" / "heads").mkdir(parents=True)
+        (self.coral_dir / "refs" / "tags").mkdir(parents=True)
         (self.coral_dir / "staging").mkdir()
+        (self.coral_dir / "versions").mkdir()
 
         # Create initial config
         config = {
@@ -88,10 +100,15 @@ class Repository:
                 "compression": "gzip",
                 "similarity_threshold": 0.98,
                 "delta_encoding": True,
+                "min_weight_size": 16,
             },
         }
 
         with open(self.coral_dir / "config.json", "w") as f:
+            json.dump(config, f, indent=2)
+
+        # Also create the expected "config" file for backward compatibility
+        with open(self.coral_dir / "config", "w") as f:
             json.dump(config, f, indent=2)
 
         # Create initial branch reference
@@ -180,7 +197,7 @@ class Repository:
         # Load staged weights
         staged_file = self.staging_dir / "staged.json"
         if not staged_file.exists():
-            raise ValueError("No weights staged for commit")
+            raise ValueError("Nothing to commit")
 
         with open(staged_file) as f:
             staged_data = json.load(f)
@@ -195,7 +212,7 @@ class Repository:
             staged_deltas = {}
 
         if not weight_hashes:
-            raise ValueError("No weights to commit")
+            raise ValueError("Nothing to commit")
 
         # Get current branch and parent
         current_branch = self.branch_manager.get_current_branch()
@@ -265,13 +282,15 @@ class Repository:
             self.branch_manager.set_current_branch(target)
             return
 
-        # Check if target is a commit
-        commit = self.version_graph.get_commit(target)
-        if commit:
-            # Create detached HEAD state
-            with open(self.coral_dir / "HEAD", "w") as f:
-                f.write(commit.commit_hash)
-            return
+        # Resolve target to commit hash
+        resolved_hash = self._resolve_ref(target)
+        if resolved_hash:
+            commit = self.version_graph.get_commit(resolved_hash)
+            if commit:
+                # Create detached HEAD state
+                with open(self.coral_dir / "HEAD", "w") as f:
+                    f.write(commit.commit_hash)
+                return
 
         raise ValueError(f"Invalid target: {target}")
 
@@ -377,9 +396,19 @@ class Repository:
     ) -> Optional[WeightTensor]:
         """Get a specific weight from a commit, reconstructing from delta if needed."""
         if commit_ref is None:
-            # Use current HEAD
-            current_branch = self.branch_manager.get_current_branch()
-            commit_ref = self.branch_manager.get_branch_commit(current_branch)
+            # Use current HEAD - check if detached or on branch
+            if self.current_branch_file.exists():
+                with open(self.current_branch_file) as f:
+                    head_content = f.read().strip()
+                    if head_content.startswith("ref: refs/heads/"):
+                        # On a branch
+                        branch_name = head_content.replace("ref: refs/heads/", "")
+                        commit_ref = self.branch_manager.get_branch_commit(branch_name)
+                    else:
+                        # Detached HEAD - commit hash directly
+                        commit_ref = head_content
+            else:
+                commit_ref = None
 
         if not commit_ref:
             return None
@@ -401,8 +430,19 @@ class Repository:
     ) -> Dict[str, WeightTensor]:
         """Get all weights from a commit, reconstructing from deltas if needed."""
         if commit_ref is None:
-            current_branch = self.branch_manager.get_current_branch()
-            commit_ref = self.branch_manager.get_branch_commit(current_branch)
+            # Use current HEAD - check if detached or on branch
+            if self.current_branch_file.exists():
+                with open(self.current_branch_file) as f:
+                    head_content = f.read().strip()
+                    if head_content.startswith("ref: refs/heads/"):
+                        # On a branch
+                        branch_name = head_content.replace("ref: refs/heads/", "")
+                        commit_ref = self.branch_manager.get_branch_commit(branch_name)
+                    else:
+                        # Detached HEAD - commit hash directly
+                        commit_ref = head_content
+            else:
+                commit_ref = None
 
         if not commit_ref:
             return {}
@@ -433,8 +473,15 @@ class Repository:
         if not to_ref:
             raise ValueError("Cannot determine target commit for diff")
 
-        from_commit = self.version_graph.get_commit(from_ref)
-        to_commit = self.version_graph.get_commit(to_ref)
+        # Resolve references to full commit hashes
+        resolved_from = self._resolve_ref(from_ref)
+        resolved_to = self._resolve_ref(to_ref)
+
+        if not resolved_from or not resolved_to:
+            raise ValueError("Invalid commit references")
+
+        from_commit = self.version_graph.get_commit(resolved_from)
+        to_commit = self.version_graph.get_commit(resolved_to)
 
         if not from_commit or not to_commit:
             raise ValueError("Invalid commit references")
@@ -454,6 +501,16 @@ class Repository:
                 diff_info["modified"][name] = {
                     "from_hash": from_commit.weight_hashes[name],
                     "to_hash": to_commit.weight_hashes[name],
+                }
+            elif (
+                hasattr(to_commit, "delta_weights") and name in to_commit.delta_weights
+            ):
+                # Weight was delta-encoded, still considered modified
+                diff_info["modified"][name] = {
+                    "from_hash": from_commit.weight_hashes[name],
+                    "to_hash": to_commit.weight_hashes[name],
+                    "delta_encoded": True,
+                    "delta_hash": to_commit.delta_weights[name],
                 }
 
         # Calculate summary statistics
@@ -665,3 +722,78 @@ class Repository:
                 cleaned += 1
 
         return {"cleaned_weights": cleaned, "remaining_weights": len(referenced_hashes)}
+
+    def status(self) -> Dict[str, Any]:
+        """Get repository status."""
+        status = {
+            "branch": self.current_branch,
+            "staged": {},
+            "clean": True,
+        }
+
+        # Check for staged weights
+        staged_file = self.staging_dir / "staged.json"
+        if staged_file.exists():
+            with open(staged_file) as f:
+                staged_data = json.load(f)
+
+            # Handle both old flat format and new nested format
+            if isinstance(staged_data, dict) and "weights" in staged_data:
+                staged_weights = staged_data["weights"]
+            else:
+                staged_weights = staged_data
+
+            status["staged"] = staged_weights
+            status["clean"] = len(staged_weights) == 0
+
+        return status
+
+    def list_branches(self) -> List[Any]:
+        """List all branches."""
+        return self.branch_manager.list_branches()
+
+    def list_versions(self) -> List[Version]:
+        """List all versions."""
+        return list(self.version_graph.versions.values())
+
+    def get_version(self, name: str) -> Optional[Version]:
+        """Get version by name."""
+        for version in self.version_graph.versions.values():
+            if version.name == name:
+                return version
+        return None
+
+    def get_commit(self, commit_hash: str) -> Commit:
+        """Get commit by hash."""
+        commit = self.version_graph.get_commit(commit_hash)
+        if commit is None:
+            raise ValueError(f"Commit not found: {commit_hash}")
+        return commit
+
+    def _resolve_ref(self, ref: str) -> Optional[str]:
+        """Resolve reference to commit hash."""
+        # Handle HEAD
+        if ref == "HEAD":
+            return self.branch_manager.get_branch_commit(self.current_branch)
+
+        # Try as branch name
+        branch_commit = self.branch_manager.get_branch_commit(ref)
+        if branch_commit:
+            return branch_commit
+
+        # Try as tag/version name
+        version = self.get_version(ref)
+        if version:
+            return version.commit_hash
+
+        # Try as commit hash (short or full)
+        commit = self.version_graph.get_commit(ref)
+        if commit:
+            return ref
+
+        # Try to find commit by short hash
+        for commit_hash in self.version_graph.commits:
+            if commit_hash.startswith(ref):
+                return commit_hash
+
+        return None
