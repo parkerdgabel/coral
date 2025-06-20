@@ -271,3 +271,153 @@ To maximize space savings:
 - Enable delta encoding for model variations
 - Batch commits when storing multiple related models
 - Run `repo.gc()` periodically to clean unreferenced weights
+
+## 🔍 Development Insights
+
+### Module Organization
+
+The codebase follows a clean separation of concerns:
+
+1. **Core Module** (`coral/core/`): Contains fundamental data structures
+   - `WeightTensor`: Base abstraction for neural network weights
+   - `Deduplicator`: Handles weight similarity detection and deduplication
+   - Uses content-addressable storage with xxHash for fast lookups
+
+2. **Delta Module** (`coral/delta/`): Implements lossless reconstruction
+   - `DeltaEncoder`: Manages multiple encoding strategies
+   - `Delta`: Represents encoded differences between similar weights
+   - Supports FLOAT32_RAW, INT8/16_QUANTIZED, SPARSE, and COMPRESSED modes
+
+3. **Storage Module** (`coral/storage/`): Handles persistence
+   - `HDF5Store`: Primary storage backend with compression support
+   - `SafetensorsStore`: NEW - SafeTensors format integration
+   - `WeightStore`: Abstract interface for storage backends
+
+4. **Version Control** (`coral/version_control/`): Git-like functionality
+   - `Repository`: Main interface for version control operations
+   - `BranchManager`: Handles branch operations
+   - `Commit`: Immutable snapshots with metadata
+   - `VersionGraph`: Manages commit relationships
+
+5. **Training Integration** (`coral/training/`): ML framework integration
+   - `CheckpointManager`: Automatic checkpoint saving during training
+   - `TrainingState`: Tracks training progress and metrics
+   - Policy-based checkpoint management (every N steps, best metric, etc.)
+
+6. **SafeTensors Integration** (`coral/safetensors/`): NEW feature
+   - Full read/write support for SafeTensors format
+   - Bidirectional conversion between Coral and SafeTensors
+   - Metadata preservation and lazy loading
+   - CLI commands: `import-safetensors`, `export-safetensors`, `convert`
+
+### Testing Strategy
+
+The test suite shows extensive coverage focus with multiple test files targeting 80%+ coverage:
+- Unit tests for each module (test_weight_tensor.py, test_deduplicator.py, etc.)
+- Integration tests for PyTorch and SafeTensors
+- CLI command coverage tests
+- Delta reconstruction consistency tests
+- Multiple coverage-focused test files indicate recent push to reach 80% threshold
+
+### Key Technical Patterns
+
+1. **Content-Addressable Storage**: All weights identified by content hash
+   - Uses xxHash for performance
+   - Enables automatic deduplication
+
+2. **Lazy Loading**: Weight data loaded on-demand
+   - Store references kept until data needed
+   - Reduces memory footprint
+
+3. **Delta Encoding**: Critical innovation for space savings
+   - Stores only differences from reference weights
+   - Multiple encoding strategies based on data characteristics
+   - Automatic strategy selection for optimal compression
+
+4. **Plugin Architecture**: Storage backends are pluggable
+   - Interface defined in `WeightStore` abstract class
+   - Easy to add new storage formats
+
+### Development Tips
+
+1. **Always Use UV**: All Python commands should use `uv run`
+   ```bash
+   uv run pytest tests/test_specific.py
+   uv run python examples/demo.py
+   ```
+
+2. **Test First**: Follow TDD practices
+   - Write tests before implementation
+   - Use existing test patterns as templates
+   - Aim for >80% coverage on new code
+
+3. **Handle Edge Cases**:
+   - Empty weights/tensors
+   - Very small weights (< min_weight_size for delta encoding)
+   - Duplicate names in staging
+   - Concurrent modifications
+
+4. **Performance Considerations**:
+   - Batch operations when possible (see deduplicator batch methods)
+   - Use lazy loading for large models
+   - Configure delta encoding thresholds based on use case
+
+5. **CLI Development**:
+   - Follow git-like command structure
+   - Use subparsers for command organization
+   - Provide helpful error messages with context
+   - Support both long and short options where sensible
+
+6. **Integration Points**:
+   - PyTorch: See `integrations/pytorch.py` and `CoralTrainer` class
+   - SafeTensors: Use converter functions for import/export
+   - Custom frameworks: Implement `WeightStore` interface
+
+### Common Development Tasks
+
+1. **Adding a New Storage Backend**:
+   - Inherit from `WeightStore` abstract class
+   - Implement all required methods
+   - Add tests following existing patterns
+   - Update CLI to support new format if needed
+
+2. **Adding a New Delta Encoding Strategy**:
+   - Add new `DeltaType` enum value
+   - Implement encoding/decoding logic in `DeltaEncoder`
+   - Add strategy selection logic
+   - Write comprehensive tests
+
+3. **Extending CLI Commands**:
+   - Add parser in `cli/main.py`
+   - Implement command logic in `CoralCLI` class
+   - Add corresponding tests
+   - Update help text and documentation
+
+4. **Improving Performance**:
+   - Profile with `cProfile` or `line_profiler`
+   - Focus on batch operations
+   - Consider parallel processing for large repositories
+   - Optimize hash computations and similarity checks
+
+### Debugging Tips
+
+1. **Enable Logging**: Set log level to DEBUG for detailed traces
+   ```python
+   import logging
+   logging.basicConfig(level=logging.DEBUG)
+   ```
+
+2. **Check Repository State**:
+   - Use `coral-ml status` to see staging area
+   - Check `.coral/` directory structure
+   - Verify HDF5 file contents with `h5dump` or h5py
+
+3. **Delta Encoding Issues**:
+   - Check similarity threshold settings
+   - Verify min_weight_size configuration
+   - Use `DeltaEncoder` directly to test encoding
+
+4. **Version Control Problems**:
+   - Examine commit graph with `coral-ml log`
+   - Check branch references in `.coral/refs/heads/`
+   - Verify HEAD pointer in `.coral/HEAD`

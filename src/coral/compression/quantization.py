@@ -42,7 +42,7 @@ class Quantizer:
 
         # Handle empty arrays
         if data.size == 0:
-            quantized = data.astype(np.int8 if bits == 8 else np.int16)
+            quantized: np.ndarray = data.astype(np.int8 if bits == 8 else np.int16)
             return WeightTensor(
                 data=quantized,
                 metadata=WeightMetadata(
@@ -55,7 +55,7 @@ class Quantizer:
 
         if symmetric:
             # Symmetric quantization
-            max_val = np.max(np.abs(data))
+            max_val: float = float(np.max(np.abs(data)))
             scale = max_val / (2 ** (bits - 1) - 1) if max_val > 0 else 1.0
             zero_point = 0
 
@@ -66,13 +66,13 @@ class Quantizer:
             quantized = np.clip(quantized, -(2 ** (bits - 1)), 2 ** (bits - 1) - 1)
         else:
             # Asymmetric quantization
-            min_val = np.min(data)
-            max_val = np.max(data)
+            min_val: float = float(np.min(data))
+            max_val_asym: float = float(np.max(data))
 
             # Calculate scale and zero point
             qmin = 0
             qmax = 2**bits - 1
-            scale = (max_val - min_val) / (qmax - qmin)
+            scale = (max_val_asym - min_val) / (qmax - qmin)
             zero_point = qmin - min_val / scale
 
             # Quantize

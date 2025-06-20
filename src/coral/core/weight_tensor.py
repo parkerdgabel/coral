@@ -165,10 +165,10 @@ class WeightTensor:
         norm_b = np.linalg.norm(b)
 
         if norm_a == 0 or norm_b == 0:
-            return norm_a == norm_b
+            return bool(norm_a == norm_b)
 
         similarity = dot_product / (norm_a * norm_b)
-        return similarity >= threshold
+        return bool(similarity >= threshold)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization"""

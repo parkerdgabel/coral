@@ -2,7 +2,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from coral.core.weight_tensor import WeightTensor
 from coral.version_control.repository import Repository
@@ -155,8 +155,9 @@ class CheckpointManager:
             # Tag as best if applicable
             if self._is_best_checkpoint(state):
                 self.best_checkpoint_hash = commit_hash
-                self.best_metric_value = state.metrics.get(
-                    self.config.save_on_best_metric
+                metric_name = self.config.save_on_best_metric
+                self.best_metric_value = (
+                    state.metrics.get(metric_name) if metric_name else None
                 )
 
                 if self.config.tag_best_checkpoints:
@@ -337,7 +338,7 @@ class CheckpointManager:
         )
 
         # Identify checkpoints to keep
-        keep_hashes = set()
+        keep_hashes: Set[str] = set()
 
         # Keep last N checkpoints
         if self.config.keep_last_n_checkpoints:

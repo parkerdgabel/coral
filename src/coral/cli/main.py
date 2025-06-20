@@ -7,18 +7,22 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, List, Optional
 
 import numpy as np
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
+from coral.safetensors.converter import (
+    convert_coral_to_safetensors,
+    convert_safetensors_to_coral,
+)
 from coral.version_control.repository import Repository
 
 
 class CoralCLI:
     """Main CLI interface for Coral."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.parser = self._create_parser()
 
     def _create_parser(self) -> argparse.ArgumentParser:
@@ -99,22 +103,66 @@ class CoralCLI:
         show_parser.add_argument("-c", "--commit", help="Commit reference")
 
         # GC command
-        subparsers.add_parser(
-            "gc", help="Garbage collect unreferenced weights"
+        subparsers.add_parser("gc", help="Garbage collect unreferenced weights")
+
+        # Import Safetensors command
+        import_st_parser = subparsers.add_parser(
+            "import-safetensors", help="Import weights from a Safetensors file"
+        )
+        import_st_parser.add_argument("file", help="Path to Safetensors file")
+        import_st_parser.add_argument(
+            "--weights", nargs="+", help="Specific weights to import (default: all)"
+        )
+        import_st_parser.add_argument(
+            "--exclude", nargs="+", help="Weights to exclude from import"
+        )
+        import_st_parser.add_argument(
+            "--no-metadata", action="store_true", help="Don't preserve metadata"
+        )
+
+        # Export Safetensors command
+        export_st_parser = subparsers.add_parser(
+            "export-safetensors", help="Export weights to a Safetensors file"
+        )
+        export_st_parser.add_argument("output", help="Output Safetensors file path")
+        export_st_parser.add_argument(
+            "--weights", nargs="+", help="Specific weights to export (default: all)"
+        )
+        export_st_parser.add_argument(
+            "--no-metadata", action="store_true", help="Don't include Coral metadata"
+        )
+        export_st_parser.add_argument(
+            "--metadata",
+            action="append",
+            help="Add custom metadata (format: key=value)",
+        )
+
+        # Convert command
+        convert_parser = subparsers.add_parser(
+            "convert", help="Convert between weight file formats"
+        )
+        convert_parser.add_argument("input", help="Input file path")
+        convert_parser.add_argument("output", help="Output file path")
+        convert_parser.add_argument(
+            "--weights", nargs="+", help="Specific weights to convert (default: all)"
+        )
+        convert_parser.add_argument(
+            "--no-metadata", action="store_true", help="Don't preserve/include metadata"
         )
 
         return parser
 
-    def run(self, args=None) -> int:
+    def run(self, args: Optional[List[str]] = None) -> int:
         """Run the CLI."""
-        args = self.parser.parse_args(args)
+        parsed_args = self.parser.parse_args(args)
 
-        if not args.command:
+        if not parsed_args.command:
             self.parser.print_help()
             return 0
 
         # Find repository root
-        if args.command != "init":
+        repo_path: Optional[Path] = None
+        if parsed_args.command not in ["init", "convert"]:
             repo_path = self._find_repo_root()
             if repo_path is None:
                 print("Error: Not in a Coral repository", file=sys.stderr)
@@ -122,32 +170,53 @@ class CoralCLI:
 
         # Execute command
         try:
-            if args.command == "init":
-                return self._cmd_init(args)
-            elif args.command == "add":
-                return self._cmd_add(args, repo_path)
-            elif args.command == "commit":
-                return self._cmd_commit(args, repo_path)
-            elif args.command == "status":
-                return self._cmd_status(args, repo_path)
-            elif args.command == "log":
-                return self._cmd_log(args, repo_path)
-            elif args.command == "checkout":
-                return self._cmd_checkout(args, repo_path)
-            elif args.command == "branch":
-                return self._cmd_branch(args, repo_path)
-            elif args.command == "merge":
-                return self._cmd_merge(args, repo_path)
-            elif args.command == "diff":
-                return self._cmd_diff(args, repo_path)
-            elif args.command == "tag":
-                return self._cmd_tag(args, repo_path)
-            elif args.command == "show":
-                return self._cmd_show(args, repo_path)
-            elif args.command == "gc":
-                return self._cmd_gc(args, repo_path)
+            if parsed_args.command == "init":
+                return self._cmd_init(parsed_args)
+            elif parsed_args.command == "add":
+                assert repo_path is not None
+                return self._cmd_add(parsed_args, repo_path)
+            elif parsed_args.command == "commit":
+                assert repo_path is not None
+                return self._cmd_commit(parsed_args, repo_path)
+            elif parsed_args.command == "status":
+                assert repo_path is not None
+                return self._cmd_status(parsed_args, repo_path)
+            elif parsed_args.command == "log":
+                assert repo_path is not None
+                return self._cmd_log(parsed_args, repo_path)
+            elif parsed_args.command == "checkout":
+                assert repo_path is not None
+                return self._cmd_checkout(parsed_args, repo_path)
+            elif parsed_args.command == "branch":
+                assert repo_path is not None
+                return self._cmd_branch(parsed_args, repo_path)
+            elif parsed_args.command == "merge":
+                assert repo_path is not None
+                return self._cmd_merge(parsed_args, repo_path)
+            elif parsed_args.command == "diff":
+                assert repo_path is not None
+                return self._cmd_diff(parsed_args, repo_path)
+            elif parsed_args.command == "tag":
+                assert repo_path is not None
+                return self._cmd_tag(parsed_args, repo_path)
+            elif parsed_args.command == "show":
+                assert repo_path is not None
+                return self._cmd_show(parsed_args, repo_path)
+            elif parsed_args.command == "gc":
+                assert repo_path is not None
+                return self._cmd_gc(parsed_args, repo_path)
+            elif parsed_args.command == "import-safetensors":
+                assert repo_path is not None
+                return self._cmd_import_safetensors(parsed_args, repo_path)
+            elif parsed_args.command == "export-safetensors":
+                assert repo_path is not None
+                return self._cmd_export_safetensors(parsed_args, repo_path)
+            elif parsed_args.command == "convert":
+                return self._cmd_convert(parsed_args)
             else:
-                print(f"Error: Unknown command '{args.command}'", file=sys.stderr)
+                print(
+                    f"Error: Unknown command '{parsed_args.command}'", file=sys.stderr
+                )
                 return 1
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)
@@ -164,7 +233,7 @@ class CoralCLI:
 
         return None
 
-    def _cmd_init(self, args) -> int:
+    def _cmd_init(self, args: Any) -> int:
         """Initialize a new repository."""
         path = Path(args.path).resolve()
 
@@ -176,7 +245,7 @@ class CoralCLI:
             print(f"Error: {e}", file=sys.stderr)
             return 1
 
-    def _cmd_add(self, args, repo_path: Path) -> int:
+    def _cmd_add(self, args: Any, repo_path: Path) -> int:
         """Add weights to staging."""
         repo = Repository(repo_path)
 
@@ -221,7 +290,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_commit(self, args, repo_path: Path) -> int:
+    def _cmd_commit(self, args: Any, repo_path: Path) -> int:
         """Commit staged weights."""
         repo = Repository(repo_path)
 
@@ -240,7 +309,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_status(self, args, repo_path: Path) -> int:
+    def _cmd_status(self, args: Any, repo_path: Path) -> int:
         """Show repository status."""
         repo = Repository(repo_path)
 
@@ -269,7 +338,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_log(self, args, repo_path: Path) -> int:
+    def _cmd_log(self, args: Any, repo_path: Path) -> int:
         """Show commit history."""
         repo = Repository(repo_path)
 
@@ -292,7 +361,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_checkout(self, args, repo_path: Path) -> int:
+    def _cmd_checkout(self, args: Any, repo_path: Path) -> int:
         """Checkout branch or commit."""
         repo = Repository(repo_path)
 
@@ -301,7 +370,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_branch(self, args, repo_path: Path) -> int:
+    def _cmd_branch(self, args: Any, repo_path: Path) -> int:
         """Manage branches."""
         repo = Repository(repo_path)
 
@@ -326,7 +395,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_merge(self, args, repo_path: Path) -> int:
+    def _cmd_merge(self, args: Any, repo_path: Path) -> int:
         """Merge branches."""
         repo = Repository(repo_path)
 
@@ -338,7 +407,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_diff(self, args, repo_path: Path) -> int:
+    def _cmd_diff(self, args: Any, repo_path: Path) -> int:
         """Show differences between commits."""
         repo = Repository(repo_path)
 
@@ -369,7 +438,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_tag(self, args, repo_path: Path) -> int:
+    def _cmd_tag(self, args: Any, repo_path: Path) -> int:
         """Tag a version."""
         repo = Repository(repo_path)
 
@@ -391,7 +460,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_show(self, args, repo_path: Path) -> int:
+    def _cmd_show(self, args: Any, repo_path: Path) -> int:
         """Show weight information."""
         repo = Repository(repo_path)
 
@@ -421,7 +490,7 @@ class CoralCLI:
 
         return 0
 
-    def _cmd_gc(self, args, repo_path: Path) -> int:
+    def _cmd_gc(self, args: Any, repo_path: Path) -> int:
         """Garbage collect unreferenced weights."""
         repo = Repository(repo_path)
 
@@ -433,8 +502,273 @@ class CoralCLI:
 
         return 0
 
+    def _cmd_import_safetensors(self, args: Any, repo_path: Path) -> int:
+        """Import weights from a Safetensors file."""
+        repo = Repository(repo_path)
 
-def main():
+        # Check if file exists
+        file_path = Path(args.file)
+        if not file_path.exists():
+            print(f"Error: File not found: {args.file}", file=sys.stderr)
+            return 1
+
+        if not file_path.suffix == ".safetensors":
+            print("Warning: File does not have .safetensors extension", file=sys.stderr)
+
+        # Prepare exclude set
+        exclude_weights = set(args.exclude) if args.exclude else None
+
+        try:
+            print(f"Importing weights from {file_path.name}...")
+
+            # Convert with progress
+            weight_mapping = convert_safetensors_to_coral(
+                source_path=file_path,
+                target=repo,
+                preserve_metadata=not args.no_metadata,
+                weight_names=args.weights,
+                exclude_weights=exclude_weights,
+            )
+
+            print(f"✓ Successfully imported {len(weight_mapping)} weight(s)")
+
+            # Show deduplication stats
+            stats = repo.deduplicator.compute_stats()
+            if stats.total_weights > stats.unique_weights:
+                saved = stats.total_weights - stats.unique_weights
+                reduction = (saved / stats.total_weights) * 100
+                print(f"✓ Deduplicated {saved} weight(s) ({reduction:.1f}% reduction)")
+
+            return 0
+
+        except Exception as e:
+            print(f"Error importing safetensors: {e}", file=sys.stderr)
+            return 1
+
+    def _cmd_export_safetensors(self, args: Any, repo_path: Path) -> int:
+        """Export weights to a Safetensors file."""
+        repo = Repository(repo_path)
+
+        # Parse custom metadata
+        custom_metadata = {}
+        if args.metadata:
+            for item in args.metadata:
+                if "=" not in item:
+                    print(
+                        f"Error: Invalid metadata format: {item} (expected key=value)",
+                        file=sys.stderr,
+                    )
+                    return 1
+                key, value = item.split("=", 1)
+                custom_metadata[key] = value
+
+        try:
+            output_path = Path(args.output)
+
+            # Add .safetensors extension if not present
+            if output_path.suffix != ".safetensors":
+                output_path = output_path.with_suffix(".safetensors")
+
+            # Check if output directory exists
+            if not output_path.parent.exists():
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            print(f"Exporting weights to {output_path}...")
+
+            # Export with progress
+            convert_coral_to_safetensors(
+                source=repo,
+                output_path=output_path,
+                weight_names=args.weights,
+                include_metadata=not args.no_metadata,
+                custom_metadata=custom_metadata if custom_metadata else None,
+            )
+
+            # Get file size
+            file_size = output_path.stat().st_size
+            size_mb = file_size / (1024 * 1024)
+
+            # Count weights exported
+            if args.weights:
+                num_weights = len(args.weights)
+            else:
+                num_weights = len(repo.get_all_weights())
+
+            print(f"✓ Successfully exported {num_weights} weight(s)")
+            print(f"✓ Output file: {output_path} ({size_mb:.1f} MB)")
+
+            return 0
+
+        except Exception as e:
+            print(f"Error exporting to safetensors: {e}", file=sys.stderr)
+            return 1
+
+    def _cmd_convert(self, args: Any) -> int:
+        """Convert between weight file formats."""
+        input_path = Path(args.input)
+        output_path = Path(args.output)
+
+        # Check if input exists
+        if not input_path.exists():
+            print(f"Error: Input file not found: {args.input}", file=sys.stderr)
+            return 1
+
+        # Detect format based on extensions
+        input_ext = input_path.suffix.lower()
+        output_ext = output_path.suffix.lower()
+
+        # Add extensions if missing
+        if not output_ext:
+            if input_ext == ".safetensors":
+                output_ext = ".npz"
+            else:
+                output_ext = ".safetensors"
+            output_path = output_path.with_suffix(output_ext)
+
+        try:
+            # Safetensors to Coral/NPZ
+            if input_ext == ".safetensors" and output_ext in [".npz", ".h5", ".hdf5"]:
+                print(f"Converting Safetensors to {output_ext[1:].upper()}...")
+
+                # For NPZ output, we need to create a temporary repository
+                if output_ext == ".npz":
+                    import tempfile
+
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        temp_repo = Repository(Path(temp_dir), init=True)
+
+                        # Import to temporary repository
+                        weight_mapping = convert_safetensors_to_coral(
+                            source_path=input_path,
+                            target=temp_repo,
+                            preserve_metadata=not args.no_metadata,
+                            weight_names=args.weights,
+                        )
+
+                        # Export as NPZ
+                        weights = temp_repo.get_all_weights()
+                        weight_dict = {
+                            name: tensor.data for name, tensor in weights.items()
+                        }
+                        np.savez_compressed(str(output_path), **weight_dict)  # type: ignore[arg-type]
+
+                        print(f"✓ Converted {len(weight_dict)} weight(s) to NPZ format")
+                else:
+                    # Direct HDF5 conversion
+                    from coral.storage.hdf5_store import HDF5Store
+
+                    store = HDF5Store(str(output_path))
+
+                    # Create a temporary repository and use it for conversion
+                    import tempfile
+
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        temp_repo = Repository(Path(temp_dir), init=True)
+                        weight_mapping = convert_safetensors_to_coral(
+                            source_path=input_path,
+                            target=temp_repo,
+                            preserve_metadata=not args.no_metadata,
+                            weight_names=args.weights,
+                        )
+
+                        # Copy weights to HDF5 store
+                        weights = temp_repo.get_all_weights()
+                        for _name, weight in weights.items():
+                            store.store(weight)
+
+                    store.close()  # type: ignore[no-untyped-call]
+                    print(f"✓ Converted {len(weight_mapping)} weight(s) to HDF5 format")
+
+            # NPZ to Safetensors
+            elif input_ext == ".npz" and output_ext == ".safetensors":
+                print("Converting NPZ to Safetensors...")
+
+                # Load NPZ file
+                archive = np.load(input_path)
+
+                # Create temporary repository for conversion
+                import tempfile
+
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    temp_repo = Repository(Path(temp_dir), init=True)
+
+                    # Stage all weights
+                    weights = {}
+                    for name in archive.files:
+                        data = archive[name]
+                        weight = WeightTensor(
+                            data=data,
+                            metadata=WeightMetadata(
+                                name=name,
+                                shape=data.shape,
+                                dtype=data.dtype,
+                            ),
+                        )
+                        weights[name] = weight
+
+                    # Filter weights if specified
+                    if args.weights:
+                        weights = {
+                            k: v for k, v in weights.items() if k in args.weights
+                        }
+
+                    temp_repo.stage_weights(weights)
+                    temp_repo.commit("Import from NPZ")
+
+                    # Export to safetensors
+                    convert_coral_to_safetensors(
+                        source=temp_repo,
+                        output_path=output_path,
+                        include_metadata=not args.no_metadata,
+                    )
+
+                    print(f"✓ Converted {len(weights)} weight(s) to Safetensors format")
+
+            # Coral repository to Safetensors
+            elif (
+                input_path.is_dir()
+                and (input_path / ".coral").exists()
+                and output_ext == ".safetensors"
+            ):
+                print("Converting Coral repository to Safetensors...")
+
+                repo = Repository(input_path)
+                convert_coral_to_safetensors(
+                    source=repo,
+                    output_path=output_path,
+                    weight_names=args.weights,
+                    include_metadata=not args.no_metadata,
+                )
+
+                num_weights = (
+                    len(args.weights) if args.weights else len(repo.get_all_weights())
+                )
+                print(f"✓ Converted {num_weights} weight(s) to Safetensors format")
+
+            else:
+                print(
+                    f"Error: Unsupported conversion from {input_ext} to {output_ext}",
+                    file=sys.stderr,
+                )
+                print("Supported conversions:", file=sys.stderr)
+                print("  - .safetensors → .npz, .h5, .hdf5", file=sys.stderr)
+                print("  - .npz → .safetensors", file=sys.stderr)
+                print("  - Coral repository → .safetensors", file=sys.stderr)
+                return 1
+
+            # Show output file info
+            file_size = output_path.stat().st_size
+            size_mb = file_size / (1024 * 1024)
+            print(f"✓ Output file: {output_path} ({size_mb:.1f} MB)")
+
+            return 0
+
+        except Exception as e:
+            print(f"Error during conversion: {e}", file=sys.stderr)
+            return 1
+
+
+def main() -> None:
     """Main entry point."""
     cli = CoralCLI()
     sys.exit(cli.run())

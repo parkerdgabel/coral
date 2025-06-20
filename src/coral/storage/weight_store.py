@@ -101,14 +101,14 @@ class WeightStore(ABC):
         pass
 
     @abstractmethod
-    def close(self):
+    def close(self) -> None:
         """Close the storage backend and cleanup resources"""
         pass
 
-    def __enter__(self):
+    def __enter__(self) -> "WeightStore":
         """Context manager entry"""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Context manager exit"""
         self.close()

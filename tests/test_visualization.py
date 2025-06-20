@@ -1,7 +1,7 @@
 import numpy as np
 
 from coral.core.deduplicator import DeduplicationStats
-from coral.core.weight_tensor import WeightTensor
+from coral.core.weight_tensor import WeightMetadata, WeightTensor
 from coral.utils.visualization import plot_deduplication_stats, plot_weight_distribution
 
 
@@ -9,18 +9,28 @@ class TestVisualization:
     def test_plot_weight_distribution(self):
         """Test weight distribution analysis."""
         # Create test weights
+        data1 = np.random.randn(10, 10).astype(np.float32)
+        data2 = np.random.randn(5, 5).astype(np.float32)
+        data3 = np.zeros((3, 3), dtype=np.float32)  # All zeros for sparsity test
+
         weights = [
             WeightTensor(
-                data=np.random.randn(10, 10).astype(np.float32),
-                metadata={"name": "layer1.weight"},
+                data=data1,
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=data1.shape, dtype=data1.dtype
+                ),
             ),
             WeightTensor(
-                data=np.random.randn(5, 5).astype(np.float32),
-                metadata={"name": "layer2.weight"},
+                data=data2,
+                metadata=WeightMetadata(
+                    name="layer2.weight", shape=data2.shape, dtype=data2.dtype
+                ),
             ),
             WeightTensor(
-                data=np.zeros((3, 3), dtype=np.float32),  # All zeros for sparsity test
-                metadata={"name": "layer3.weight"},
+                data=data3,
+                metadata=WeightMetadata(
+                    name="layer3.weight", shape=data3.shape, dtype=data3.dtype
+                ),
             ),
         ]
 
@@ -60,10 +70,13 @@ class TestVisualization:
 
     def test_plot_weight_distribution_single_value(self):
         """Test weight distribution with uniform weights."""
+        data = np.ones((5, 5), dtype=np.float32) * 2.5
         weights = [
             WeightTensor(
-                data=np.ones((5, 5), dtype=np.float32) * 2.5,
-                metadata={"name": "uniform.weight"},
+                data=data,
+                metadata=WeightMetadata(
+                    name="uniform.weight", shape=data.shape, dtype=data.dtype
+                ),
             )
         ]
 

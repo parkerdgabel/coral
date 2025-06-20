@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import h5py
+import h5py  # type: ignore
 import numpy as np
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
@@ -75,12 +75,20 @@ class HDF5Store(WeightStore):
 
         # Store weight data
         weights_group = self.file["weights"]
-        dataset = weights_group.create_dataset(
-            hash_key,
-            data=weight.data,
-            compression=self.compression,
-            compression_opts=self.compression_opts,
-        )
+
+        # Create dataset with appropriate compression settings
+        create_kwargs = {
+            "name": hash_key,
+            "data": weight.data,
+        }
+
+        if self.compression is not None:
+            create_kwargs["compression"] = self.compression
+            # LZF compression doesn't accept compression options
+            if self.compression != "lzf":
+                create_kwargs["compression_opts"] = self.compression_opts
+
+        dataset = weights_group.create_dataset(**create_kwargs)
 
         # Store metadata as attributes
         metadata = weight.metadata
@@ -213,7 +221,7 @@ class HDF5Store(WeightStore):
             "compression": self.compression,
         }
 
-    def close(self):
+    def close(self) -> None:
         """Close the HDF5 file"""
         if hasattr(self, "file") and self.file:
             self.file.close()
@@ -227,12 +235,19 @@ class HDF5Store(WeightStore):
         deltas_group = self.file["deltas"]
 
         # Store delta data
-        dataset = deltas_group.create_dataset(
-            delta_hash,
-            data=delta.data,
-            compression=self.compression,
-            compression_opts=self.compression_opts,
-        )
+        # Create dataset with appropriate compression settings
+        create_kwargs = {
+            "name": delta_hash,
+            "data": delta.data,
+        }
+
+        if self.compression is not None:
+            create_kwargs["compression"] = self.compression
+            # LZF compression doesn't accept compression options
+            if self.compression != "lzf":
+                create_kwargs["compression_opts"] = self.compression_opts
+
+        dataset = deltas_group.create_dataset(**create_kwargs)
 
         # Store delta metadata as attributes
         dataset.attrs["delta_type"] = delta.delta_type.value

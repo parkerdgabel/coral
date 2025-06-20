@@ -23,7 +23,7 @@ class DeduplicationStats:
     bytes_saved: int = 0
     compression_ratio: float = 0.0
 
-    def update(self, original_bytes: int, deduplicated_bytes: int):
+    def update(self, original_bytes: int, deduplicated_bytes: int) -> None:
         """Update compression statistics"""
         self.bytes_saved = original_bytes - deduplicated_bytes
         if original_bytes > 0:
@@ -144,7 +144,7 @@ class Deduplicator:
         self._add_unique_weight(weight_hash, name, weight)
         return weight_hash
 
-    def _add_duplicate(self, ref_hash: str, name: str, weight: WeightTensor):
+    def _add_duplicate(self, ref_hash: str, name: str, weight: WeightTensor) -> None:
         """Add an exact duplicate to existing group"""
         if ref_hash not in self.weight_groups:
             # Create group if it doesn't exist
@@ -157,7 +157,7 @@ class Deduplicator:
         self.stats.duplicate_weights += 1
         logger.debug(f"Found exact duplicate: {name} -> {ref_hash}")
 
-    def _add_similar(self, ref_hash: str, name: str, weight: WeightTensor):
+    def _add_similar(self, ref_hash: str, name: str, weight: WeightTensor) -> None:
         """Add a similar weight to existing group"""
         ref_weight = self.weight_index[ref_hash]
         similarity = self._compute_similarity(weight, ref_weight)
@@ -199,7 +199,9 @@ class Deduplicator:
             f"Found similar weight: {name} -> {ref_hash} (similarity: {similarity:.4f})"
         )
 
-    def _add_unique_weight(self, weight_hash: str, name: str, weight: WeightTensor):
+    def _add_unique_weight(
+        self, weight_hash: str, name: str, weight: WeightTensor
+    ) -> None:
         """Add a new unique weight"""
         self.weight_index[weight_hash] = weight
         self.name_to_hash[name] = weight_hash
@@ -246,7 +248,7 @@ class Deduplicator:
         if norm_a == 0 or norm_b == 0:
             return 1.0 if norm_a == norm_b else 0.0
 
-        return dot_product / (norm_a * norm_b)
+        return float(dot_product / (norm_a * norm_b))
 
     def get_weight_by_name(self, name: str) -> Optional[WeightTensor]:
         """Get weight by name, reconstructing from delta if needed"""
@@ -339,7 +341,7 @@ class Deduplicator:
             ],
         }
 
-    def clear(self):
+    def clear(self) -> None:
         """Clear all stored weights and statistics"""
         self.weight_index.clear()
         self.weight_groups.clear()

@@ -2,7 +2,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 
 @dataclass
@@ -15,7 +15,7 @@ class CommitMetadata:
     timestamp: datetime = field(default_factory=datetime.now)
     tags: List[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "author": self.author,
@@ -26,7 +26,7 @@ class CommitMetadata:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "CommitMetadata":
+    def from_dict(cls, data: Dict[str, Any]) -> "CommitMetadata":
         """Create from dictionary."""
         data = data.copy()
         data["timestamp"] = datetime.fromisoformat(data["timestamp"])
@@ -89,7 +89,7 @@ class Commit:
 
         return set(parent_commit.weight_hashes.keys()) - set(self.weight_hashes.keys())
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "commit_hash": self.commit_hash,
@@ -100,7 +100,7 @@ class Commit:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "Commit":
+    def from_dict(cls, data: Dict[str, Any]) -> "Commit":
         """Create from dictionary."""
         data = data.copy()
         data["metadata"] = CommitMetadata.from_dict(data["metadata"])

@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 import tempfile
 from io import StringIO
 from pathlib import Path
@@ -200,3 +201,164 @@ class TestCLI:
             output = fake_out.getvalue()
             # Help should mention message requirement
             assert "-m" in output or "--message" in output
+
+    def test_cli_run_method_dispatch(self, cli):
+        """Test CLI run method dispatches to correct handler."""
+        # Mock all run methods
+        for cmd in [
+            "init",
+            "add",
+            "commit",
+            "status",
+            "log",
+            "checkout",
+            "branch",
+            "merge",
+            "diff",
+            "tag",
+            "show",
+            "gc",
+        ]:
+            setattr(cli, f"_cmd_{cmd}", Mock())
+
+        # Test each command
+        for cmd in [
+            "init",
+            "add",
+            "commit",
+            "status",
+            "log",
+            "checkout",
+            "branch",
+            "merge",
+            "diff",
+            "tag",
+            "show",
+            "gc",
+        ]:
+            # Reset all mocks
+            for cmd2 in [
+                "init",
+                "add",
+                "commit",
+                "status",
+                "log",
+                "checkout",
+                "branch",
+                "merge",
+                "diff",
+                "tag",
+                "show",
+                "gc",
+            ]:
+                getattr(cli, f"_cmd_{cmd2}").reset_mock()
+
+            # Create args for command
+            args = Mock()
+            args.command = cmd
+
+            # Add required attributes based on command
+            if cmd == "add":
+                args.weights = ["model.pth"]
+            elif cmd == "commit":
+                args.message = "test"
+                args.author = None
+                args.email = None
+                args.tag = None
+            elif cmd == "log":
+                args.number = 10
+                args.branch = None
+            elif cmd == "checkout":
+                args.target = "branch"
+            elif cmd == "branch":
+                args.name = None
+                args.delete = None
+                args.list = True
+            elif cmd == "merge":
+                args.branch = "feature"
+            elif cmd == "diff":
+                args.from_ref = "main"
+                args.to_ref = "feature"
+            elif cmd == "tag":
+                args.name = "v1.0"
+                args.description = "desc"
+                args.metric = None
+                args.commit = None
+            elif cmd == "show":
+                args.weight = "weight"
+                args.commit = None
+            elif cmd == "gc":
+                pass  # GC doesn't need special args
+            elif cmd == "init":
+                args.path = "."
+
+            with patch.object(cli.parser, "parse_args", return_value=args):
+                cli.run()
+
+            # Verify correct method was called
+            getattr(cli, f"_cmd_{cmd}").assert_called_once()
+
+    # Repository detection and error handling tests
+    def test_cli_find_repo_root(self, cli):
+        """Test _find_repo_root method."""
+        # Test when .coral exists in current directory
+        with patch("pathlib.Path.cwd") as mock_cwd:
+            mock_path = Mock()
+            mock_coral = Mock()
+            mock_coral.exists.return_value = True
+            mock_path.__truediv__ = Mock(return_value=mock_coral)
+            mock_cwd.return_value = mock_path
+
+            result = cli._find_repo_root()
+            assert result == mock_path
+
+        # Test when .coral doesn't exist anywhere
+        with patch("pathlib.Path.cwd") as mock_cwd:
+            # Create a chain of paths
+            root = Mock()
+            root.parent = root  # Root is its own parent
+
+            path = Mock()
+            path.parent = root
+            mock_coral = Mock()
+            mock_coral.exists.return_value = False
+            path.__truediv__ = Mock(return_value=mock_coral)
+            root.__truediv__ = Mock(return_value=mock_coral)
+
+            mock_cwd.return_value = path
+
+            result = cli._find_repo_root()
+            assert result is None
+
+    def test_cli_run_not_in_repo(self, cli):
+        """Test CLI run when not in a repository."""
+        args = argparse.Namespace(command="status")
+        with patch.object(cli.parser, "parse_args", return_value=args):
+            with patch.object(cli, "_find_repo_root", return_value=None):
+                with patch("builtins.print") as mock_print:
+                    result = cli.run()
+                    assert result == 1
+                    mock_print.assert_called_with(
+                        "Error: Not in a Coral repository", file=sys.stderr
+                    )
+
+    def test_cli_run_no_command(self, cli):
+        """Test CLI run with no command."""
+        # Mock parser to return args with no command
+        args = argparse.Namespace(command=None)
+        with patch.object(cli.parser, "parse_args", return_value=args):
+            with patch.object(cli.parser, "print_help") as mock_help:
+                result = cli.run()
+                assert result == 0
+                mock_help.assert_called_once()
+
+    def test_cli_run_unknown_command(self, cli):
+        """Test CLI run with unknown command."""
+        args = argparse.Namespace(command="unknown")
+        with patch.object(cli.parser, "parse_args", return_value=args):
+            with patch("builtins.print") as mock_print:
+                result = cli.run()
+                assert result == 1
+                mock_print.assert_called_with(
+                    "Error: Unknown command 'unknown'", file=sys.stderr
+                )

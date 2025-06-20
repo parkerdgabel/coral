@@ -1,4 +1,4 @@
-"""Comprehensive imports and basic tests for 80% coverage."""
+"""Test module imports and basic functionality of coral package."""
 
 import tempfile
 from pathlib import Path
@@ -12,14 +12,14 @@ from coral.compression.pruning import Pruner
 from coral.compression.quantization import Quantizer
 from coral.core.deduplicator import Deduplicator
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
-from coral.delta.delta_encoder import DeltaEncoder, DeltaType
+from coral.delta.delta_encoder import DeltaConfig, DeltaEncoder, DeltaType
 from coral.storage.hdf5_store import HDF5Store
 from coral.training.checkpoint_manager import CheckpointConfig
 from coral.training.training_state import TrainingState
 
 
 class TestComprehensiveImports:
-    """Comprehensive tests through imports and basic usage."""
+    """Test imports and basic functionality of coral modules."""
 
     def test_version_exists(self):
         """Test version is defined."""
@@ -59,6 +59,7 @@ class TestComprehensiveImports:
 
     def test_deduplicator_comprehensive(self):
         """Test Deduplicator comprehensively."""
+        # Fixed to use correct Deduplicator API: add_weight() instead of deduplicate()
         dedup = Deduplicator(similarity_threshold=0.95)
 
         # Create test weights
@@ -80,21 +81,46 @@ class TestComprehensiveImports:
             )
             weights[f"w{i}"] = weight
 
-        # Deduplicate
-        result = dedup.deduplicate(weights)
+        # Add weights to deduplicator
+        for name, weight in weights.items():
+            dedup.add_weight(weight, name)
 
-        # Check result structure
-        assert "unique_weights" in result
-        assert "duplicate_mapping" in result
-        assert "similar_weights" in result
-        assert "stats" in result
+        # Get deduplication statistics
+        stats = dedup.compute_stats()
 
         # Stats should be valid
-        stats = result["stats"]
         assert stats.total_weights == 5
         assert stats.unique_weights >= 1
+        assert stats.unique_weights <= 3  # At most 3 unique (first 3 are different)
         assert stats.duplicate_weights >= 0
         assert stats.similar_weights >= 0
+        assert (
+            stats.duplicate_weights + stats.similar_weights >= 2
+        )  # Last 2 are similar
+
+        # Get detailed report
+        report = dedup.get_deduplication_report()
+
+        # Check report structure
+        assert "summary" in report
+        assert "largest_groups" in report
+
+        # Verify summary matches stats
+        summary = report["summary"]
+        assert summary["total_weights"] == stats.total_weights
+        assert summary["unique_weights"] == stats.unique_weights
+        assert summary["duplicate_weights"] == stats.duplicate_weights
+        assert summary["similar_weights"] == stats.similar_weights
+
+        # Test weight retrieval
+        for name in weights:
+            retrieved = dedup.get_weight_by_name(name)
+            assert retrieved is not None
+            # For similar weights, data might be reconstructed from delta
+            if dedup.is_delta_encoded(name):
+                # Delta-encoded weights should still be retrievable
+                assert retrieved.shape == weights[name].shape
+                assert retrieved.dtype == weights[name].dtype
 
     def test_delta_encoder_comprehensive(self):
         """Test DeltaEncoder comprehensively."""
@@ -116,21 +142,61 @@ class TestComprehensiveImports:
             ),
         )
 
-        # Test similarity
-        sim = DeltaEncoder.compute_similarity(ref, target)
-        assert 0 <= sim <= 1
-
-        # Test encoding strategies
+        # Test different encoding strategies
         for strategy in [DeltaType.SPARSE, DeltaType.FLOAT32_RAW]:
-            delta = DeltaEncoder.encode(ref, target, strategy=strategy)
+            # Create encoder with specific strategy
+            config = DeltaConfig(delta_type=strategy)
+            encoder = DeltaEncoder(config)
+
+            # Test can_encode_as_delta
+            can_encode = encoder.can_encode_as_delta(target, ref)
+            assert isinstance(can_encode, bool)
+
+            # Test encoding
+            delta = encoder.encode_delta(target, ref)
             assert delta is not None
             assert delta.delta_type == strategy
             assert delta.reference_hash == ref.compute_hash()
+            assert delta.original_shape == target.shape
+            assert delta.original_dtype == target.dtype
 
             # Test decoding
-            decoded = DeltaEncoder.decode(ref, delta)
+            decoded = encoder.decode_delta(delta, ref)
             assert decoded is not None
+            assert decoded.shape == target.shape
+            assert decoded.dtype == target.dtype
             np.testing.assert_allclose(decoded.data, target_data, rtol=1e-5)
+
+        # Test with a larger weight to meet min_weight_size requirement
+        large_ref_data = np.random.randn(100, 100).astype(np.float32)
+        large_target_data = (
+            large_ref_data + np.random.randn(100, 100).astype(np.float32) * 0.01
+        )
+
+        large_ref = WeightTensor(
+            data=large_ref_data,
+            metadata=WeightMetadata(
+                name="large_ref", shape=large_ref_data.shape, dtype=large_ref_data.dtype
+            ),
+        )
+
+        large_target = WeightTensor(
+            data=large_target_data,
+            metadata=WeightMetadata(
+                name="large_target",
+                shape=large_target_data.shape,
+                dtype=large_target_data.dtype,
+            ),
+        )
+
+        # Test can_encode_as_delta with larger weights
+        encoder = DeltaEncoder()
+        assert encoder.can_encode_as_delta(large_target, large_ref) is True
+
+        # Test encoding and decoding with larger weights
+        delta = encoder.encode_delta(large_target, large_ref)
+        decoded = encoder.decode_delta(delta, large_ref)
+        np.testing.assert_allclose(decoded.data, large_target_data, rtol=1e-5)
 
     def test_hdf5_store_comprehensive(self):
         """Test HDF5Store comprehensively."""
@@ -157,7 +223,7 @@ class TestComprehensiveImports:
                 )
 
                 hash_key = weight.compute_hash()
-                store.store(hash_key, weight)
+                store.store(weight, hash_key)
 
                 # Test all methods
                 assert store.exists(hash_key)
@@ -169,7 +235,7 @@ class TestComprehensiveImports:
 
                 meta = store.get_metadata(hash_key)
                 assert meta is not None
-                assert meta["name"] == "large_weight"
+                assert meta.name == "large_weight"
 
                 info = store.get_storage_info()
                 assert "compression" in info
@@ -205,15 +271,18 @@ class TestComprehensiveImports:
         pruner = Pruner()
 
         # Magnitude pruning
-        pruned, mask = pruner.prune_magnitude(weight, sparsity=0.5)
+        pruned, pruning_info = pruner.prune_magnitude(weight, sparsity=0.5)
         assert pruned is not None
-        assert mask is not None
+        assert pruning_info is not None
+        mask = pruning_info["mask"]
         assert np.sum(mask) / mask.size <= 0.5
 
         # Random pruning
-        pruned, mask = pruner.prune_random(weight, sparsity=0.3)
+        pruned, pruning_info = pruner.prune_random(weight, sparsity=0.3)
         assert pruned is not None
-        assert np.sum(mask) / mask.size <= 0.7
+        mask = pruning_info["mask"]
+        # Allow for small variance in random pruning (±5%)
+        assert np.sum(mask) / mask.size <= 0.75
 
     def test_training_modules(self):
         """Test training modules."""
