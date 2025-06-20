@@ -383,7 +383,7 @@ class Repository:
 
         if not commit_ref:
             return None
-            
+
         commit = self.version_graph.get_commit(commit_ref)
         if not commit or name not in commit.weight_hashes:
             return None
@@ -406,7 +406,7 @@ class Repository:
 
         if not commit_ref:
             return {}
-            
+
         commit = self.version_graph.get_commit(commit_ref)
         if not commit:
             return {}

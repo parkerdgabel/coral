@@ -156,7 +156,9 @@ class CheckpointManager:
             if self._is_best_checkpoint(state):
                 self.best_checkpoint_hash = commit_hash
                 metric_name = self.config.save_on_best_metric
-                self.best_metric_value = state.metrics.get(metric_name) if metric_name else None
+                self.best_metric_value = (
+                    state.metrics.get(metric_name) if metric_name else None
+                )
 
                 if self.config.tag_best_checkpoints:
                     self.repository.tag_version(

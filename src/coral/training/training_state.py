@@ -51,7 +51,7 @@ class TrainingState:
                 try:
                     import torch
 
-                    if hasattr(torch, 'Tensor') and isinstance(obj, torch.Tensor):
+                    if hasattr(torch, "Tensor") and isinstance(obj, torch.Tensor):
                         return {
                             "__tensor__": obj.cpu().numpy().tolist(),
                             "__dtype__": str(obj.dtype),

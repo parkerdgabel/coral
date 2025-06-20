@@ -233,7 +233,9 @@ class SafetensorsReader:
         info = self.get_tensor_info(name)
 
         # Extract additional metadata from global metadata if available
-        tensor_metadata = self._metadata.get(f"tensor.{name}", {}) if self._metadata else {}
+        tensor_metadata = (
+            self._metadata.get(f"tensor.{name}", {}) if self._metadata else {}
+        )
 
         return TensorMetadata(
             name=info.name,

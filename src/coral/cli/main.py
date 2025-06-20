@@ -214,7 +214,9 @@ class CoralCLI:
             elif parsed_args.command == "convert":
                 return self._cmd_convert(parsed_args)
             else:
-                print(f"Error: Unknown command '{parsed_args.command}'", file=sys.stderr)
+                print(
+                    f"Error: Unknown command '{parsed_args.command}'", file=sys.stderr
+                )
                 return 1
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)
@@ -659,6 +661,7 @@ class CoralCLI:
 
                     # Create a temporary repository and use it for conversion
                     import tempfile
+
                     with tempfile.TemporaryDirectory() as temp_dir:
                         temp_repo = Repository(Path(temp_dir), init=True)
                         weight_mapping = convert_safetensors_to_coral(
@@ -667,7 +670,7 @@ class CoralCLI:
                             preserve_metadata=not args.no_metadata,
                             weight_names=args.weights,
                         )
-                        
+
                         # Copy weights to HDF5 store
                         weights = temp_repo.get_all_weights()
                         for name, weight in weights.items():

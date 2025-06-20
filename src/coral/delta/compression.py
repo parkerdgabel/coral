@@ -177,7 +177,9 @@ class DeltaCompressor:
         # Reconstruct using dictionary lookup
         flat_compressed = compressed_data.flatten()
         flat_reconstructed = dictionary[flat_compressed]
-        result: np.ndarray = np.asarray(flat_reconstructed.reshape(original_shape), dtype=np.float32)
+        result: np.ndarray = np.asarray(
+            flat_reconstructed.reshape(original_shape), dtype=np.float32
+        )
 
         return result
 

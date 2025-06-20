@@ -5,6 +5,7 @@ __all__: List[str] = []
 
 try:
     from .pytorch import CoralTrainer, PyTorchIntegration
+
     __all__.extend(["PyTorchIntegration", "CoralTrainer"])
 except ImportError:
     # PyTorch not installed
@@ -14,6 +15,7 @@ except ImportError:
 if importlib.util.find_spec("tensorflow") is not None:
     try:
         from .tensorflow import TensorFlowIntegration  # type: ignore
+
         __all__.append("TensorFlowIntegration")
     except ImportError:
         # TensorFlow integration not available

@@ -493,7 +493,9 @@ class DeltaEncoder:
         delta_data = weight.data - reference.data
 
         if self.config.delta_type == DeltaType.SPARSE:
-            non_zero: int = int(np.sum(np.abs(delta_data) > self.config.sparse_threshold))
+            non_zero: int = int(
+                np.sum(np.abs(delta_data) > self.config.sparse_threshold)
+            )
             return non_zero * 8  # 4 bytes index + 4 bytes value
         elif self.config.delta_type == DeltaType.INT8_QUANTIZED:
             return weight.size

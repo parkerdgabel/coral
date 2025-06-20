@@ -199,7 +199,9 @@ class Deduplicator:
             f"Found similar weight: {name} -> {ref_hash} (similarity: {similarity:.4f})"
         )
 
-    def _add_unique_weight(self, weight_hash: str, name: str, weight: WeightTensor) -> None:
+    def _add_unique_weight(
+        self, weight_hash: str, name: str, weight: WeightTensor
+    ) -> None:
         """Add a new unique weight"""
         self.weight_index[weight_hash] = weight
         self.name_to_hash[name] = weight_hash

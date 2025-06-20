@@ -23,6 +23,7 @@ try:
     import torch.nn as nn
     from torch.optim import Optimizer
     from torch.optim.lr_scheduler import _LRScheduler
+
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
@@ -377,7 +378,7 @@ class CoralTrainer:
 
     def _get_learning_rate(self) -> float:
         """Get current learning rate."""
-        if self.optimizer and hasattr(self.optimizer, 'param_groups'):
+        if self.optimizer and hasattr(self.optimizer, "param_groups"):
             return float(self.optimizer.param_groups[0]["lr"])
         return 0.0
 
