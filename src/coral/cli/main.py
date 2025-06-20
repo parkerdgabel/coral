@@ -7,7 +7,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Optional, List, Any
+from typing import Any, List, Optional
 
 import numpy as np
 
@@ -673,7 +673,7 @@ class CoralCLI:
 
                         # Copy weights to HDF5 store
                         weights = temp_repo.get_all_weights()
-                        for name, weight in weights.items():
+                        for _name, weight in weights.items():
                             store.store(weight)
 
                     store.close()  # type: ignore[no-untyped-call]

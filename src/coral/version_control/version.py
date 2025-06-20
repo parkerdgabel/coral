@@ -36,7 +36,7 @@ class VersionGraph:
     """Manages the version graph and commit relationships."""
 
     def __init__(self) -> None:
-        self.graph: "nx.DiGraph[str]" = nx.DiGraph()
+        self.graph: nx.DiGraph[str] = nx.DiGraph()
         self.commits: Dict[str, Commit] = {}
         self.versions: Dict[str, Version] = {}
 

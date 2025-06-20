@@ -1,7 +1,7 @@
 """PyTorch integration for Coral version control."""
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 # Type checking imports
 if TYPE_CHECKING:
@@ -199,8 +199,8 @@ class CoralTrainer:
         self.training_metrics: Dict[str, float] = {}
 
         # Optional components
-        self.optimizer: Optional["Optimizer"] = None
-        self.scheduler: Optional["_LRScheduler"] = None
+        self.optimizer: Optional[Optimizer] = None
+        self.scheduler: Optional[_LRScheduler] = None
 
         # Callbacks
         self.on_epoch_end_callbacks: List[Callable[..., Any]] = []
