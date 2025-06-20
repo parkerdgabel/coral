@@ -88,9 +88,10 @@ uv run benchmark.py
 - **WeightTensor** (`core/weight_tensor.py`): Fundamental data structure representing neural network weights with metadata
 - **Deduplicator** (`core/deduplicator.py`): Advanced engine for identifying and eliminating duplicate/similar weights with **lossless delta encoding**
 - **Delta Encoding** (`delta/`): **NEW** Lossless reconstruction system for similar weights with multiple compression strategies
-- **Storage System** (`storage/`): HDF5-based content-addressable storage with compression and delta support
+- **Clustering System** (`clustering/`): **NEW** Repository-wide clustering for global weight pattern recognition and optimization
+- **Storage System** (`storage/`): HDF5-based content-addressable storage with compression, delta, and cluster support
 - **Version Control** (`version_control/`): Complete git-like system with branching, committing, merging, and conflict resolution
-- **CLI** (`cli/`): Full-featured command-line interface with git-like commands for weight management
+- **CLI** (`cli/`): Full-featured command-line interface with git-like commands and clustering operations
 
 ### Integration Points
 
@@ -106,6 +107,8 @@ uv run benchmark.py
 4. **Pluggable Backends**: Storage backends implement the `WeightStore` interface
 5. **Git-like Versioning**: Complete branch/commit/merge workflow for model development
 6. **Similarity-Based Deduplication**: Uses configurable similarity thresholds with lossless reconstruction
+7. **Clustering-Based Optimization**: Repository-wide analysis identifies global patterns for maximum compression
+8. **Hierarchical Structure**: Multi-level clustering (model → layer → block → tensor) for granular control
 
 ## Test-Driven Development
 
@@ -145,8 +148,10 @@ Test structure:
 - `test_weight_tensor.py`: Core WeightTensor functionality
 - `test_deduplicator.py`: Deduplication logic and similarity detection
 - `test_delta_encoding.py`: **NEW** Delta encoding and lossless reconstruction
+- `test_clustering_*.py`: **NEW** Clustering system tests (analyzer, index, encoder, storage, etc.)
 - `test_version_control.py`: Git-like version control features
 - `test_training.py`: Training integration and checkpoint management
+- `test_cli_clustering.py`: **NEW** CLI clustering commands
 
 ## Key Implementation Details
 
@@ -182,9 +187,10 @@ Test structure:
 
 ## Entry Points
 
-- CLI: `coral` command (defined in setup.py console_scripts)
+- CLI: `coral-ml` command (defined in pyproject.toml scripts)
 - Python API: Import from `coral` package
 - Main classes: `WeightTensor`, `Deduplicator`, `HDF5Store`, `Repository`, `DeltaEncoder`
+- Clustering: `ClusterAnalyzer`, `ClusterIndex`, `CentroidEncoder`, `ClusterStorage`
 - Training: `CoralTrainer`, `CheckpointManager` for seamless training integration
 
 ## Dependencies
@@ -196,10 +202,13 @@ Core dependencies:
 - protobuf (serialization)
 - tqdm (progress bars)
 - networkx (version graph management)
+- scipy (clustering algorithms)
+- scikit-learn (clustering implementations)
 
 Optional:
 - torch (PyTorch integration)
 - tensorflow (TensorFlow integration)
+- matplotlib (visualization in dev)
 
 ## 🎯 Key Innovations
 
@@ -225,12 +234,40 @@ loaded_b = repo.get_weight("weight_b")  # [1.01, 2.01, 3.01] ✓ Exact!
 - `INT8_QUANTIZED`: Minor accuracy loss, ~90% compression
 - `SPARSE`: Perfect for few changes, >95% compression
 
+### Clustering-Based Deduplication
+**Problem Solved**: Pairwise similarity detection misses global patterns across repository.
+**Solution**: Repository-wide clustering identifies similar weight patterns globally and stores them as small deltas from cluster centroids.
+
+### Clustering Features
+- **Multi-Strategy Support**: K-means, hierarchical, DBSCAN, and adaptive algorithms
+- **Hierarchical Structure**: Model → Layer → Block → Tensor levels for granular control
+- **Dynamic Optimization**: Clusters automatically rebalance for maximum efficiency
+- **Spatial Indexing**: Fast nearest-neighbor searches with KD-tree and LSH
+- **CLI Integration**: Full suite of clustering commands (`coral-ml cluster analyze/create/optimize`)
+
+### Usage Example
+```python
+# Analyze repository for clustering opportunities
+analysis = repo.analyze_repository_clusters()
+print(f"Potential clusters: {analysis.potential_clusters}")
+print(f"Estimated compression: {analysis.estimated_compression:.2f}x")
+
+# Create clusters with adaptive strategy
+clusters = repo.create_clusters(strategy="adaptive", threshold=0.95)
+
+# CLI commands
+# coral-ml cluster analyze                    # Analyze potential
+# coral-ml cluster create adaptive --optimize # Create & optimize
+# coral-ml cluster status                     # Show statistics
+```
+
 ## 🚀 Production Features
 
 - **Automatic Checkpointing**: CoralTrainer handles training checkpoints transparently
 - **Git-like CLI**: Full command suite (init, add, commit, branch, merge, tag, diff, log)
+- **Clustering CLI**: Comprehensive clustering commands (analyze, create, optimize, report)
 - **Training Integration**: Configurable checkpoint policies with metric-based saving
-- **Scalable Storage**: Content-addressable with garbage collection
+- **Scalable Storage**: Content-addressable with garbage collection and clustering
 - **Framework Agnostic**: Clean abstractions work with any ML framework
 
 ## 📊 Benchmarking & Performance
@@ -271,3 +308,17 @@ To maximize space savings:
 - Enable delta encoding for model variations
 - Batch commits when storing multiple related models
 - Run `repo.gc()` periodically to clean unreferenced weights
+- Use clustering for repository-wide optimization:
+  - Run `coral-ml cluster analyze` to identify opportunities
+  - Create clusters with `coral-ml cluster create adaptive`
+  - Optimize periodically with `coral-ml cluster optimize`
+- Monitor clustering health with `coral-ml cluster status`
+
+### Clustering Module Notes
+
+When working with the clustering system:
+- **Circular imports**: Repository uses TYPE_CHECKING to avoid circular imports with clustering modules
+- **Mock implementations**: Repository has lightweight mock methods for clustering when full system not available
+- **Thread safety**: All clustering components use RLock for concurrent access
+- **Spatial indexing**: Falls back gracefully from LSH → KD-tree → brute force based on data
+- **HDF5 integration**: Clusters stored in dedicated "/clusters" group with metadata

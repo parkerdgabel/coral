@@ -14,6 +14,12 @@
 - Multiple encoding strategies: raw, quantized, sparse, compressed
 - **Zero information loss** - reconstruct weights exactly as stored
 
+### 🧠 **Clustering-Based Deduplication** ⭐ NEW
+- **Repository-wide clustering** identifies similar weight patterns globally
+- **Centroid + delta encoding** stores weights as small differences from cluster centers
+- **Hierarchical clustering** for multi-level deduplication (model → layer → tensor)
+- **Adaptive optimization** automatically rebalances clusters for maximum efficiency
+
 ### 🔄 **Git-like Version Control**
 - Complete branching, committing, merging, and tagging workflow
 - Conflict resolution and merge strategies
@@ -146,7 +152,31 @@ for epoch in range(100):
 trainer.load_checkpoint(load_best=True)
 ```
 
-### 3. SafeTensors Integration
+### 3. Clustering-Based Deduplication
+
+```python
+from coral import Repository
+
+# Initialize repository with clustering
+repo = Repository("./my_model_repo", init=True)
+
+# Analyze repository for clustering opportunities
+analysis = repo.analyze_repository_clusters()
+print(f"Potential clusters: {analysis.potential_clusters}")
+print(f"Estimated compression: {analysis.estimated_compression:.2f}x")
+
+# Create clusters using adaptive strategy
+clusters = repo.create_clusters(strategy="adaptive", threshold=0.95)
+print(f"Created {len(clusters)} clusters")
+
+# CLI commands for clustering
+# coral-ml cluster analyze                    # Analyze clustering potential
+# coral-ml cluster create adaptive --optimize # Create and optimize clusters
+# coral-ml cluster status                     # Show clustering statistics
+# coral-ml cluster report --format html       # Generate detailed report
+```
+
+### 4. SafeTensors Integration
 
 ```python
 from coral.safetensors import convert_coral_to_safetensors, convert_safetensors_to_coral
@@ -180,7 +210,7 @@ with SafetensorsWriter("output.safetensors") as writer:
     writer.set_metadata({"framework": "pytorch", "version": "1.0"})
 ```
 
-### 4. CLI Workflow
+### 5. CLI Workflow
 
 ```bash
 # Initialize new project
@@ -195,6 +225,13 @@ coral-ml commit -m "Initial model checkpoint"
 coral-ml import-safetensors model.safetensors
 coral-ml export-safetensors --output shared_model.safetensors
 coral-ml convert --to-safetensors model.pth output.safetensors
+
+# Clustering operations
+coral-ml cluster analyze                           # Analyze clustering potential
+coral-ml cluster create adaptive --threshold 0.95  # Create clusters
+coral-ml cluster status                            # Show statistics
+coral-ml cluster optimize --aggressive             # Optimize clusters
+coral-ml cluster report --format html              # Generate report
 
 # Experiment workflow
 coral-ml branch fine_tune_lr_0.001
@@ -261,26 +298,38 @@ if encoder.can_encode_as_delta(weight_current, weight_reference):
     # reconstructed == weight_current (exactly!)
 ```
 
-### Advanced Deduplication
+### Advanced Deduplication with Clustering
 ```python
-from coral import Deduplicator
+from coral import Deduplicator, Repository
+from coral.clustering import ClusterAnalyzer
 
-# Intelligent similarity detection
+# Intelligent similarity detection with clustering
 dedup = Deduplicator(
     similarity_threshold=0.98,              # 98% similar = deduplicate
     enable_delta_encoding=True,             # Lossless compression
     batch_size=100                          # Process in batches
 )
 
-# Process model weights
-total_savings = 0
+# Repository-wide clustering analysis
+repo = Repository("./my_model_repo")
+analyzer = ClusterAnalyzer(repo)
+analysis = analyzer.analyze_repository()
+
+print(f"🧠 Found {analysis.potential_clusters} potential clusters")
+print(f"📊 Estimated compression: {analysis.estimated_compression:.1%}")
+
+# Create clusters for maximum efficiency
+clusters = analyzer.create_clusters(strategy="adaptive")
+for cluster in clusters:
+    print(f"Cluster {cluster.id}: {cluster.member_count} weights, "
+          f"{cluster.compression_ratio:.1%} compression")
+
+# Process new weights with cluster awareness
 for name, weight in model.state_dict().items():
+    # Automatically finds best cluster centroid
     ref_hash, delta_info = dedup.add_weight(weight, name)
     if delta_info:
         print(f"💾 {name}: {delta_info['compression_ratio']:.1%} compression")
-        total_savings += delta_info['bytes_saved']
-
-print(f"🎉 Total savings: {total_savings / 1024**2:.1f} MB")
 ```
 
 ### Production Storage
@@ -409,6 +458,7 @@ coral/
 ├── src/coral/
 │   ├── core/              # Weight tensors, deduplication
 │   ├── delta/             # Lossless delta encoding system
+│   ├── clustering/        # Clustering-based deduplication system
 │   ├── storage/           # HDF5, SafeTensors, and pluggable backends  
 │   ├── safetensors/       # SafeTensors format support
 │   ├── version_control/   # Git-like repository system
@@ -430,6 +480,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 ### ✅ **v1.0.0 - Production Ready** (Current)
 - Complete git-like version control system
 - Lossless delta encoding with multiple strategies
+- **Clustering-based deduplication** for repository-wide optimization
 - **SafeTensors format support** for secure, cross-framework model sharing
 - Full PyTorch training integration
 - Professional CLI interface with import/export commands
