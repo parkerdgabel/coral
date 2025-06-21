@@ -1,0 +1,140 @@
+{
+  "timestamp": "2025-06-20 16:05:04",
+  "test_type": "basic_performance_demo",
+  "results": {
+    "memory_usage": {
+      "initial_memory_mb": 54.28125,
+      "tests": [
+        {
+          "size": [
+            100,
+            100
+          ],
+          "tensor_size_mb": 0.03814697265625,
+          "memory_after_creation_mb": 56.875,
+          "memory_after_storage_mb": 58.546875,
+          "memory_efficiency_ratio": 111.8208,
+          "store_time_ms": 2.2601250000207074,
+          "retrieve_time_ms": 0.741707999850405,
+          "data_integrity": true
+        },
+        {
+          "size": [
+            500,
+            500
+          ],
+          "tensor_size_mb": 0.95367431640625,
+          "memory_after_creation_mb": 61.59375,
+          "memory_after_storage_mb": 63.0625,
+          "memory_efficiency_ratio": 9.207808,
+          "store_time_ms": 17.996000000039203,
+          "retrieve_time_ms": 5.230208000057246,
+          "data_integrity": true
+        },
+        {
+          "size": [
+            1000,
+            1000
+          ],
+          "tensor_size_mb": 3.814697265625,
+          "memory_after_creation_mb": 78.359375,
+          "memory_after_storage_mb": 79.78125,
+          "memory_efficiency_ratio": 6.684672,
+          "store_time_ms": 89.42308399991816,
+          "retrieve_time_ms": 18.317916999876616,
+          "data_integrity": true
+        }
+      ]
+    },
+    "deduplication_performance": {
+      "tests": [
+        {
+          "num_similar_tensors": 10,
+          "unique_weights_found": 1,
+          "deduplication_ratio": 10.0,
+          "dedup_time_ms": 1.3907079999171401,
+          "throughput_tensors_per_sec": 7190.582063665278
+        },
+        {
+          "num_similar_tensors": 50,
+          "unique_weights_found": 1,
+          "deduplication_ratio": 50.0,
+          "dedup_time_ms": 6.217915999968682,
+          "throughput_tensors_per_sec": 8041.279425494304
+        },
+        {
+          "num_similar_tensors": 100,
+          "unique_weights_found": 1,
+          "deduplication_ratio": 100.0,
+          "dedup_time_ms": 14.699457999995502,
+          "throughput_tensors_per_sec": 6802.9719191027725
+        }
+      ]
+    },
+    "repository_scaling": {
+      "tests": [
+        {
+          "batch_size": 10,
+          "total_weights": 10,
+          "batch_time_ms": 25.149958000156403,
+          "avg_store_time_per_weight_ms": 2.5149958000156403,
+          "avg_retrieve_time_ms": 0,
+          "storage_size_mb": 0.41756725311279297,
+          "storage_per_weight_kb": 42.75888671875,
+          "throughput_weights_per_sec": 397.61497812194403
+        },
+        {
+          "batch_size": 25,
+          "total_weights": 35,
+          "batch_time_ms": 61.26995900012844,
+          "avg_store_time_per_weight_ms": 2.4507983600051375,
+          "avg_retrieve_time_ms": 0,
+          "storage_size_mb": 1.4439306259155273,
+          "storage_per_weight_kb": 42.24528459821428,
+          "throughput_weights_per_sec": 408.0303040507599
+        },
+        {
+          "batch_size": 50,
+          "total_weights": 85,
+          "batch_time_ms": 122.94699999984005,
+          "avg_store_time_per_weight_ms": 2.458939999996801,
+          "avg_retrieve_time_ms": 0,
+          "storage_size_mb": 3.4977474212646484,
+          "storage_per_weight_kb": 42.13756893382353,
+          "throughput_weights_per_sec": 406.67930083747507
+        }
+      ]
+    },
+    "concurrent_operations": {
+      "tests": [
+        {
+          "num_threads": 1,
+          "successful_operations": 1,
+          "failed_operations": 0,
+          "success_rate": 1.0,
+          "total_time_ms": 4.793416000211437,
+          "avg_store_time_ms": 3.7521249998917483,
+          "throughput_ops_per_sec": 208.6194897242155
+        },
+        {
+          "num_threads": 2,
+          "successful_operations": 2,
+          "failed_operations": 0,
+          "success_rate": 1.0,
+          "total_time_ms": 10.207583000010345,
+          "avg_store_time_ms": 6.311541500053863,
+          "throughput_ops_per_sec": 195.9327688051102
+        },
+        {
+          "num_threads": 4,
+          "successful_operations": 2,
+          "failed_operations": 2,
+          "success_rate": 0.5,
+          "total_time_ms": 20.107375000179672,
+          "avg_store_time_ms": 10.693583000033868,
+          "throughput_ops_per_sec": 198.93198390959822
+        }
+      ]
+    }
+  }
+}
