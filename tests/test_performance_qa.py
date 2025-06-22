@@ -38,7 +38,7 @@ from coral.core.weight_tensor import WeightTensor, WeightMetadata
 from coral.core.deduplicator import Deduplicator
 from coral.storage.hdf5_store import HDF5Store
 from coral.version_control.repository import Repository
-from coral.delta.delta_encoder import DeltaEncoder, DeltaStrategy
+from coral.delta.delta_encoder import DeltaEncoder, DeltaType, DeltaConfig
 from coral.training.checkpoint_manager import CheckpointManager
 
 
