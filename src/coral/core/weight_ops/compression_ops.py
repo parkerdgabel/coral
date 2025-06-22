@@ -69,6 +69,7 @@ class SVDOp(WeightOp):
             self._output_shape = (U.shape[0], V.shape[1])
         
         self._output_dtype = np.result_type(U.dtype, V.dtype)
+        self.op_type = OpType.SVD
     
     def forward(self) -> np.ndarray:
         """Reconstruct the weight matrix from SVD components."""
@@ -96,7 +97,7 @@ class SVDOp(WeightOp):
     def serialize(self) -> Dict[str, Any]:
         """Serialize operation for storage."""
         return {
-            "type": "SVD",
+            "op_type": "SVD",
             "U": self.U.tolist(),
             "S": self.S.tolist(),
             "V": self.V.tolist(),
@@ -183,6 +184,7 @@ class SparseOp(WeightOp):
             self._output_shape = shape
         
         self._output_dtype = self.data.dtype
+        self.op_type = OpType.SPARSE
     
     def forward(self) -> np.ndarray:
         """Convert sparse matrix to dense array."""
@@ -226,7 +228,7 @@ class SparseOp(WeightOp):
     def serialize(self) -> Dict[str, Any]:
         """Serialize operation for storage."""
         result = {
-            "type": "SPARSE",
+            "op_type": "SPARSE",
             "format": self.format,
             "data": self.data.tolist(),
             "shape": self._output_shape,
@@ -295,6 +297,7 @@ class QuantizeOp(WeightOp):
         
         self._output_shape = quantized_data.shape
         self._output_dtype = np.dtype(self.original_dtype)
+        self.op_type = OpType.QUANTIZE
     
     def forward(self) -> np.ndarray:
         """Dequantize to reconstruct weight tensor."""
@@ -323,7 +326,7 @@ class QuantizeOp(WeightOp):
     def serialize(self) -> Dict[str, Any]:
         """Serialize operation for storage."""
         return {
-            "type": "QUANTIZE",
+            "op_type": "QUANTIZE",
             "quantized_data": self.quantized_data.tolist(),
             "scale": self.scale,
             "zero_point": self.zero_point,
@@ -390,6 +393,7 @@ class PQOp(WeightOp):
             self._output_shape = (total_dim,)
         
         self._output_dtype = codebooks[0].dtype
+        self.op_type = OpType.PQ
     
     def forward(self) -> np.ndarray:
         """Decode using product quantization."""
@@ -431,7 +435,7 @@ class PQOp(WeightOp):
     def serialize(self) -> Dict[str, Any]:
         """Serialize operation for storage."""
         return {
-            "type": "PQ",
+            "op_type": "PQ",
             "indices": self.indices.tolist(),
             "codebooks": [cb.tolist() for cb in self.codebooks],
             "codebook_shapes": [cb.shape for cb in self.codebooks],

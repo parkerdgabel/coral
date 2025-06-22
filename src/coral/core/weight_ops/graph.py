@@ -21,11 +21,12 @@ class ComputationGraph:
         _evaluated: Whether the graph has been evaluated
     """
     
-    def __init__(self, root_op: WeightOp):
+    def __init__(self, root_op: WeightOp, validate: bool = True):
         """Initialize computation graph with root operation.
         
         Args:
             root_op: The root operation that produces the final output
+            validate: Whether to validate graph structure (check for cycles)
             
         Raises:
             TypeError: If root_op is not a WeightOp instance
@@ -38,7 +39,8 @@ class ComputationGraph:
         self._evaluated = False
         
         # Validate graph structure (check for cycles)
-        self._validate_graph()
+        if validate:
+            self._validate_graph()
     
     def evaluate(self) -> np.ndarray:
         """Lazily evaluate the graph and return the weight tensor.
@@ -151,7 +153,7 @@ class ComputationGraph:
         return self._evaluated
     
     def get_info(self) -> Dict[str, Any]:
-        """Get information about the graph.
+        """Get basic information about the graph.
         
         Returns:
             Dictionary with graph statistics
@@ -163,6 +165,50 @@ class ComputationGraph:
             "memory_usage": self.get_total_memory(),
             "is_evaluated": self._evaluated,
             "cache_size": len(self._cache)
+        }
+    
+    def get_graph_info(self) -> Dict[str, Any]:
+        """Get detailed information about the graph structure.
+        
+        Returns:
+            Dictionary with graph statistics including operation counts
+        """
+        from collections import defaultdict
+        
+        # Count operations and calculate depth
+        visited = set()
+        operation_counts = defaultdict(int)
+        max_depth = 0
+        
+        def traverse(op: WeightOp, depth: int = 0) -> None:
+            nonlocal max_depth
+            if id(op) in visited:
+                return
+            visited.add(id(op))
+            
+            # Count this operation
+            operation_counts[op.op_type.name] += 1
+            max_depth = max(max_depth, depth)
+            
+            # Traverse inputs
+            if hasattr(op, '_inputs') and op._inputs:
+                for input_op in op._inputs:
+                    traverse(input_op, depth + 1)
+            elif hasattr(op, '_input') and op._input:
+                traverse(op._input, depth + 1)
+            elif hasattr(op, '_left') and op._left:
+                traverse(op._left, depth + 1)
+                if hasattr(op, '_right') and op._right:
+                    traverse(op._right, depth + 1)
+        
+        traverse(self.root)
+        
+        return {
+            "num_operations": len(visited),
+            "operation_counts": dict(operation_counts),
+            "output_shape": self.get_output_shape(),
+            "output_dtype": str(self.get_output_dtype()),
+            "max_depth": max_depth
         }
     
     def _validate_graph(self):
@@ -178,24 +224,63 @@ class ComputationGraph:
     
     def __repr__(self) -> str:
         """String representation of the graph."""
-        info = self.get_info()
+        graph_info = self.get_graph_info()
         return (
             f"ComputationGraph("
-            f"root={info['root_type']}, "
-            f"shape={info['output_shape']}, "
-            f"dtype={info['output_dtype']}, "
-            f"evaluated={info['is_evaluated']})"
+            f"operations={graph_info['num_operations']}, "
+            f"depth={graph_info['max_depth']}, "
+            f"output_shape={graph_info['output_shape']})"
         )
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert graph to dictionary representation.
+        """Convert graph to dictionary representation with nodes and edges.
         
         Returns:
-            Dictionary suitable for serialization
+            Dictionary containing graph structure
         """
+        nodes = []
+        edges = []
+        visited = set()
+        
+        def traverse(op: WeightOp) -> str:
+            """Traverse graph and collect nodes/edges."""
+            op_id = str(id(op))
+            if op_id in visited:
+                return op_id
+            visited.add(op_id)
+            
+            # Add node
+            node_info = {
+                "id": op_id,
+                "type": op.op_type.name,
+                "shape": op.get_output_shape(),
+                "dtype": str(op.get_output_dtype())
+            }
+            nodes.append(node_info)
+            
+            # Process inputs and add edges
+            if hasattr(op, '_inputs') and op._inputs:
+                for input_op in op._inputs:
+                    input_id = traverse(input_op)
+                    edges.append({"from": input_id, "to": op_id})
+            elif hasattr(op, '_input') and op._input:
+                input_id = traverse(op._input)
+                edges.append({"from": input_id, "to": op_id})
+            elif hasattr(op, '_left') and op._left:
+                left_id = traverse(op._left)
+                edges.append({"from": left_id, "to": op_id})
+                if hasattr(op, '_right') and op._right:
+                    right_id = traverse(op._right)
+                    edges.append({"from": right_id, "to": op_id})
+            
+            return op_id
+        
+        root_id = traverse(self.root)
+        
         return {
-            "root": self.root.serialize(),
-            "info": self.get_info()
+            "root": root_id,
+            "nodes": nodes,
+            "edges": edges
         }
     
     @classmethod

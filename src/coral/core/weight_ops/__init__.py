@@ -15,7 +15,9 @@ The module is organized as:
 - graph.py: Computation graph implementation with caching
 """
 
-from coral.core.weight_ops.base import WeightOp, OpType
+from coral.core.weight_ops.base import (
+    WeightOp, OpType, register_operation, deserialize_op, OPERATION_REGISTRY
+)
 
 # Import operations from the basic_ops module
 from coral.core.weight_ops.basic_ops import (
@@ -52,6 +54,10 @@ __all__ = [
     # Base classes
     "WeightOp",
     "OpType",
+    # Registry functions
+    "register_operation",
+    "deserialize_op",
+    "OPERATION_REGISTRY",
     # Basic operations
     "IdentityOp",
     "AddOp",
@@ -74,3 +80,14 @@ __all__ = [
     "dequantize_array",
     "recommend_compression_method",
 ]
+
+# Register all operations with the registry
+register_operation("IDENTITY", IdentityOp)
+register_operation("ADD", AddOp)
+register_operation("MATMUL", MatMulOp)
+register_operation("SCALE", ScaleOp)
+register_operation("RESHAPE", ReshapeOp)
+register_operation("SVD", SVDOp)
+register_operation("SPARSE", SparseOp)
+register_operation("QUANTIZE", QuantizeOp)
+register_operation("PQ", PQOp)

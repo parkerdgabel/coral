@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
 
-from .base import OpType, WeightOp, validate_array, validate_compatible_shapes, validate_matmul_shapes, validate_shape
+from .base import OpType, WeightOp, validate_array, validate_compatible_shapes, validate_matmul_shapes, validate_shape, deserialize_op
 
 
 class IdentityOp(WeightOp):
@@ -128,16 +128,16 @@ class AddOp(WeightOp):
     def serialize(self) -> Dict[str, Any]:
         """Serialize operation for storage."""
         return {
-            "type": OpType.ADD.value,
+            "op_type": OpType.ADD.name,
             "inputs": [op.serialize() for op in self._inputs]
         }
     
     @classmethod
     def deserialize(cls, data: Dict[str, Any]) -> "AddOp":
         """Deserialize from stored representation."""
-        # This would need a registry of operation types to deserialize inputs
-        # For now, we'll raise NotImplementedError
-        raise NotImplementedError("Deserialization requires operation registry")
+        # Deserialize input operations recursively
+        inputs = [deserialize_op(input_data) for input_data in data["inputs"]]
+        return cls(inputs)
     
     def __repr__(self) -> str:
         """String representation of operation."""
@@ -206,7 +206,7 @@ class MatMulOp(WeightOp):
     def serialize(self) -> Dict[str, Any]:
         """Serialize operation for storage."""
         return {
-            "type": OpType.MATMUL.value,
+            "op_type": OpType.MATMUL.name,
             "left": self._left.serialize(),
             "right": self._right.serialize()
         }
@@ -214,7 +214,9 @@ class MatMulOp(WeightOp):
     @classmethod
     def deserialize(cls, data: Dict[str, Any]) -> "MatMulOp":
         """Deserialize from stored representation."""
-        raise NotImplementedError("Deserialization requires operation registry")
+        left = deserialize_op(data["left"])
+        right = deserialize_op(data["right"])
+        return cls(left, right)
     
     def __repr__(self) -> str:
         """String representation of operation."""
@@ -245,7 +247,7 @@ class ScaleOp(WeightOp):
         self._input = input_op
         self._scale = float(scale)
         self._output_shape = input_op.get_output_shape()
-        self._output_dtype = input_op.get_output_dtype()
+        # Don't store dtype - compute it dynamically for proper type promotion
         self.op_type = OpType.SCALE
     
     def forward(self) -> np.ndarray:
@@ -258,7 +260,8 @@ class ScaleOp(WeightOp):
     
     def get_output_dtype(self) -> np.dtype:
         """Return output dtype without computing."""
-        return self._output_dtype
+        # Handle type promotion for scalar multiplication
+        return np.result_type(self._input.get_output_dtype(), type(self._scale))
     
     def get_memory_usage(self) -> int:
         """Return memory usage of this operation (not inputs)."""
@@ -268,7 +271,7 @@ class ScaleOp(WeightOp):
     def serialize(self) -> Dict[str, Any]:
         """Serialize operation for storage."""
         return {
-            "type": OpType.SCALE.value,
+            "op_type": OpType.SCALE.name,
             "input": self._input.serialize(),
             "scale": self._scale
         }
@@ -276,7 +279,13 @@ class ScaleOp(WeightOp):
     @classmethod
     def deserialize(cls, data: Dict[str, Any]) -> "ScaleOp":
         """Deserialize from stored representation."""
-        raise NotImplementedError("Deserialization requires operation registry")
+        input_op = deserialize_op(data["input"])
+        scale = data["scale"]
+        return cls(input_op, scale)
+    
+    def __repr__(self) -> str:
+        """String representation of operation."""
+        return f"ScaleOp(scale={self._scale}, shape={self._output_shape})"
 
 
 class ReshapeOp(WeightOp):
@@ -295,8 +304,8 @@ class ReshapeOp(WeightOp):
         self._input = input_op
         input_shape = input_op.get_output_shape()
         
-        # Validate and normalize shape
-        shape = validate_shape(shape)
+        # Validate and normalize shape (allow -1 for auto-inference)
+        shape = validate_shape(shape, allow_minus_one=True)
         
         # Calculate total size
         input_size = np.prod(input_shape)
@@ -304,7 +313,7 @@ class ReshapeOp(WeightOp):
         # Handle -1 in shape (auto-infer dimension)
         if -1 in shape:
             if shape.count(-1) > 1:
-                raise ValueError("Can only have one -1 dimension in reshape")
+                raise ValueError("Only one dimension can be -1")
             
             # Calculate the inferred dimension
             known_size = 1
@@ -352,7 +361,7 @@ class ReshapeOp(WeightOp):
     def serialize(self) -> Dict[str, Any]:
         """Serialize operation for storage."""
         return {
-            "type": OpType.RESHAPE.value,
+            "op_type": OpType.RESHAPE.name,
             "input": self._input.serialize(),
             "shape": self._output_shape
         }
@@ -360,4 +369,11 @@ class ReshapeOp(WeightOp):
     @classmethod 
     def deserialize(cls, data: Dict[str, Any]) -> "ReshapeOp":
         """Deserialize from stored representation."""
-        raise NotImplementedError("Deserialization requires operation registry")
+        input_op = deserialize_op(data["input"])
+        shape = tuple(data["shape"])
+        return cls(input_op, shape)
+    
+    def __repr__(self) -> str:
+        """String representation of operation."""
+        input_shape = self._input.get_output_shape()
+        return f"ReshapeOp({input_shape} -> {self._output_shape})"

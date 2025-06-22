@@ -46,31 +46,8 @@ class WeightOp(ABC):
     created to ensure graph consistency.
     
     Attributes:
-        op_type: The type of this operation
-        inputs: List of input operations (if any)
+        op_type: The type of this operation (must be set by subclasses)
     """
-    
-    def __init__(self, op_type: OpType, inputs: Optional[List['WeightOp']] = None):
-        """Initialize weight operation.
-        
-        Args:
-            op_type: The type of this operation
-            inputs: List of input operations (if any)
-        """
-        self.op_type = op_type
-        self.inputs = inputs or []
-        self._validate_inputs()
-    
-    def _validate_inputs(self) -> None:
-        """Validate input operations.
-        
-        Subclasses should override this to add specific validation logic.
-        """
-        for i, inp in enumerate(self.inputs):
-            if not isinstance(inp, WeightOp):
-                raise TypeError(
-                    f"Input {i} must be a WeightOp instance, got {type(inp)}"
-                )
     
     @abstractmethod
     def forward(self) -> np.ndarray:
@@ -171,12 +148,14 @@ def validate_array(array: np.ndarray, name: str = "array") -> None:
         raise ValueError(f"{name} contains non-finite values (NaN or Inf)")
 
 
-def validate_shape(shape: Union[Tuple[int, ...], List[int]], name: str = "shape") -> Tuple[int, ...]:
+def validate_shape(shape: Union[Tuple[int, ...], List[int]], name: str = "shape", 
+                  allow_minus_one: bool = False) -> Tuple[int, ...]:
     """Validate and normalize a shape specification.
     
     Args:
         shape: The shape to validate (tuple or list of ints)
         name: Name for error messages
+        allow_minus_one: Whether to allow -1 for automatic dimension inference
         
     Returns:
         Normalized shape as a tuple
@@ -196,6 +175,8 @@ def validate_shape(shape: Union[Tuple[int, ...], List[int]], name: str = "shape"
     for i, dim in enumerate(shape):
         if not isinstance(dim, int):
             raise TypeError(f"{name}[{i}] must be an integer, got {type(dim)}")
+        if allow_minus_one and dim == -1:
+            continue  # -1 is allowed for reshape
         if dim <= 0:
             raise ValueError(f"{name}[{i}] must be positive, got {dim}")
     
@@ -277,3 +258,40 @@ def calculate_array_memory(shape: Tuple[int, ...], dtype: np.dtype) -> int:
     """
     num_elements = int(np.prod(shape))
     return num_elements * dtype.itemsize
+
+
+# Operation registry for deserialization
+OPERATION_REGISTRY: Dict[str, type] = {}
+
+
+def register_operation(op_type: str, op_class: type) -> None:
+    """Register an operation class for deserialization.
+    
+    Args:
+        op_type: Operation type name (e.g., "IDENTITY", "ADD")
+        op_class: The operation class
+    """
+    OPERATION_REGISTRY[op_type] = op_class
+
+
+def deserialize_op(data: Dict[str, Any]) -> 'WeightOp':
+    """Deserialize any weight operation from stored data.
+    
+    Args:
+        data: Dictionary containing serialized operation data
+        
+    Returns:
+        Reconstructed WeightOp instance
+        
+    Raises:
+        ValueError: If operation type is unknown
+    """
+    op_type = data.get("op_type")
+    if not op_type:
+        raise ValueError("Missing 'op_type' in serialized data")
+    
+    if op_type not in OPERATION_REGISTRY:
+        raise ValueError(f"Unknown operation type: {op_type}")
+    
+    op_class = OPERATION_REGISTRY[op_type]
+    return op_class.deserialize(data)
