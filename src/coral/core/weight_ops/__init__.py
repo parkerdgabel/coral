@@ -26,8 +26,27 @@ from coral.core.weight_ops.basic_ops import (
     ReshapeOp,
 )
 
+# Import compression operations
+from coral.core.weight_ops.compression_ops import (
+    SVDOp,
+    SparseOp,
+    QuantizeOp,
+    PQOp,
+)
+
 # Import graph
 from coral.core.weight_ops.graph import ComputationGraph
+
+# Import utilities
+from coral.core.weight_ops.compression_utils import (
+    select_rank_by_energy,
+    analyze_sparsity,
+    select_sparse_format,
+    calculate_quantization_params,
+    quantize_array,
+    dequantize_array,
+    recommend_compression_method,
+)
 
 __all__ = [
     # Base classes
@@ -39,6 +58,19 @@ __all__ = [
     "MatMulOp",
     "ScaleOp",
     "ReshapeOp",
+    # Compression operations
+    "SVDOp",
+    "SparseOp",
+    "QuantizeOp",
+    "PQOp",
     # Graph
     "ComputationGraph",
+    # Utilities
+    "select_rank_by_energy",
+    "analyze_sparsity",
+    "select_sparse_format",
+    "calculate_quantization_params",
+    "quantize_array",
+    "dequantize_array",
+    "recommend_compression_method",
 ]

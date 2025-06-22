@@ -1,10 +1,16 @@
 """Base class for representing neural network weights"""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
+import warnings
 
 import numpy as np
 import xxhash
+
+# Import computation graph components when available
+# Using TYPE_CHECKING to avoid circular imports and handle when components aren't ready
+if TYPE_CHECKING:
+    from coral.core.weight_ops import ComputationGraph, WeightOp
 
 
 @dataclass
@@ -29,6 +35,7 @@ class WeightTensor:
     - Metadata tracking
     - Lazy loading from storage
     - Compression support
+    - Computation graph-based representation (NEW)
     """
 
     def __init__(
@@ -36,6 +43,7 @@ class WeightTensor:
         data: Optional[np.ndarray] = None,
         metadata: Optional[WeightMetadata] = None,
         store_ref: Optional[str] = None,
+        computation_graph: Optional["ComputationGraph"] = None,
     ):
         """
         Initialize a WeightTensor.
@@ -44,23 +52,63 @@ class WeightTensor:
             data: The actual weight data as numpy array
             metadata: Metadata about the weight tensor
             store_ref: Reference to data in storage (for lazy loading)
+            computation_graph: Computation graph for lazy evaluation (NEW)
         """
         self._data = data
         self._metadata = metadata
         self._store_ref = store_ref
         self._hash: Optional[str] = None
+        self._graph = computation_graph
+        self._materialized = False  # Track if graph has been evaluated
 
-        if data is not None and metadata is None:
-            # Auto-create metadata from data
-            self._metadata = WeightMetadata(
-                name="unnamed", shape=data.shape, dtype=data.dtype
-            )
+        # Handle computation graph initialization
+        if computation_graph is not None:
+            # Graph mode - data will be lazily evaluated
+            self._data = None
+            self._materialized = False
+            
+            # Try to infer metadata from graph if not provided
+            if metadata is None:
+                try:
+                    # Get shape and dtype from graph without full evaluation
+                    shape = computation_graph.get_output_shape()
+                    dtype = computation_graph.get_output_dtype()
+                    self._metadata = WeightMetadata(
+                        name="graph_based", shape=shape, dtype=dtype
+                    )
+                except (AttributeError, NotImplementedError):
+                    # Graph doesn't support metadata inference yet
+                    pass
+        else:
+            # Legacy mode - wrap raw data in graph for uniformity
+            if data is not None:
+                try:
+                    # Try to create IdentityOp if available
+                    from coral.core.weight_ops import IdentityOp, ComputationGraph
+                    self._graph = ComputationGraph(IdentityOp(data))
+                except ImportError:
+                    # Weight ops not available yet, continue in legacy mode
+                    self._graph = None
+                
+                if metadata is None:
+                    # Auto-create metadata from data
+                    self._metadata = WeightMetadata(
+                        name="unnamed", shape=data.shape, dtype=data.dtype
+                    )
 
     @property
     def data(self) -> np.ndarray:
-        """Get the weight data, loading from storage if necessary"""
+        """Get the weight data, evaluating computation graph if necessary"""
         if self._data is None:
-            raise ValueError("Weight data not loaded and no store reference available")
+            # Try to evaluate from computation graph
+            if self._graph is not None:
+                try:
+                    self._data = self._graph.evaluate()
+                    self._materialized = True
+                except Exception as e:
+                    raise ValueError(f"Failed to evaluate computation graph: {e}")
+            else:
+                raise ValueError("Weight data not loaded and no computation graph available")
         return self._data
 
     @data.setter
@@ -68,6 +116,11 @@ class WeightTensor:
         """Set the weight data and invalidate hash"""
         self._data = value
         self._hash = None  # Invalidate cached hash when data changes
+        self._materialized = True
+        
+        # Clear graph since we're setting raw data
+        self._graph = None
+        
         # Update metadata shape if it exists
         if self._metadata is not None:
             self._metadata.shape = value.shape
@@ -98,7 +151,15 @@ class WeightTensor:
     @property
     def nbytes(self) -> int:
         """Get the number of bytes used by the tensor"""
-        # Use the data's nbytes directly if available, otherwise calculate
+        # If we have a computation graph, use its memory calculation
+        if self._graph is not None and not self._materialized:
+            try:
+                return self._graph.get_total_memory()
+            except (AttributeError, NotImplementedError):
+                # Fall back to regular calculation
+                pass
+        
+        # Use the data's nbytes directly if available
         if self._data is not None:
             return self._data.nbytes
         else:
@@ -108,6 +169,9 @@ class WeightTensor:
     def compute_hash(self, force: bool = False) -> str:
         """
         Compute content-based hash of the weight tensor.
+
+        For computation graphs, hashes the graph structure rather than 
+        evaluating the full data (unless already materialized).
 
         Args:
             force: If True, recompute hash even if cached
@@ -130,8 +194,18 @@ class WeightTensor:
         hasher.update(str(normalized_shape).encode())
         hasher.update(normalized_dtype.encode())
 
-        # Hash the actual data
-        hasher.update(self.data.tobytes())
+        # Hash based on graph structure if available and not materialized
+        if self._graph is not None and not self._materialized:
+            try:
+                # Hash the graph structure instead of evaluating
+                graph_hash = self._graph.compute_hash()
+                hasher.update(graph_hash.encode())
+            except (AttributeError, NotImplementedError):
+                # Fall back to data hashing
+                hasher.update(self.data.tobytes())
+        else:
+            # Hash the actual data
+            hasher.update(self.data.tobytes())
 
         self._hash = hasher.hexdigest()
         if self._metadata:
@@ -201,7 +275,7 @@ class WeightTensor:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization"""
-        return {
+        result = {
             "metadata": {
                 "name": self.metadata.name,
                 "shape": list(self.metadata.shape),
@@ -216,6 +290,17 @@ class WeightTensor:
             "store_ref": self._store_ref,
             "has_data": self._data is not None,
         }
+        
+        # Add graph serialization if available
+        if self._graph is not None:
+            try:
+                result["computation_graph"] = self._graph.serialize()
+                result["materialized"] = self._materialized
+            except (AttributeError, NotImplementedError):
+                # Graph serialization not implemented yet
+                pass
+                
+        return result
 
     @classmethod
     def from_dict(
@@ -232,11 +317,95 @@ class WeightTensor:
             hash=data["metadata"].get("hash"),
         )
 
-        return cls(data=weight_data, metadata=metadata, store_ref=data.get("store_ref"))
+        # Check if computation graph data is available
+        computation_graph = None
+        if "computation_graph" in data:
+            try:
+                from coral.core.weight_ops import ComputationGraph
+                computation_graph = ComputationGraph.deserialize(data["computation_graph"])
+            except (ImportError, AttributeError, NotImplementedError):
+                # Graph deserialization not available yet
+                pass
+
+        tensor = cls(
+            data=weight_data, 
+            metadata=metadata, 
+            store_ref=data.get("store_ref"),
+            computation_graph=computation_graph
+        )
+        
+        # Restore materialization state
+        if computation_graph is not None and data.get("materialized", False):
+            tensor._materialized = True
+            
+        return tensor
+
+    def get_computation_graph(self) -> Optional["ComputationGraph"]:
+        """Return the underlying computation graph if available"""
+        return self._graph
+
+    def materialize(self) -> np.ndarray:
+        """Force evaluation of computation graph and cache result"""
+        if not self._materialized and self._graph is not None:
+            self._data = self._graph.evaluate()
+            self._materialized = True
+        return self.data
+
+    def get_operation_type(self) -> Optional[str]:
+        """Return the type of the root operation in the computation graph"""
+        if self._graph is not None:
+            try:
+                # Try to get op_type from the root operation
+                if hasattr(self._graph.root, 'op_type'):
+                    op_type = self._graph.root.op_type
+                    # Handle enum
+                    if hasattr(op_type, 'name'):
+                        return op_type.name
+                    return str(op_type)
+                # Fall back to class name
+                return self._graph.root.__class__.__name__
+            except (AttributeError, NotImplementedError):
+                return "unknown"
+        return None
+
+    def compress_with(self, operation: "WeightOp") -> "WeightTensor":
+        """
+        Create a new WeightTensor with a compression operation applied.
+        
+        Args:
+            operation: A WeightOp that compresses this tensor
+            
+        Returns:
+            New WeightTensor with the compression operation
+        """
+        try:
+            from coral.core.weight_ops import ComputationGraph
+            
+            # Create new graph with compression operation
+            new_graph = ComputationGraph(operation)
+            
+            # Create new tensor with compressed representation
+            return WeightTensor(
+                computation_graph=new_graph,
+                metadata=self._metadata  # Preserve metadata
+            )
+        except ImportError:
+            warnings.warn(
+                "Computation graph support not available. "
+                "Cannot apply compression operation.",
+                RuntimeWarning
+            )
+            return self
 
     def __repr__(self) -> str:
-        return (
+        base = (
             f"WeightTensor(name='{self.metadata.name}', "
             f"shape={self.shape}, dtype={self.dtype}, "
-            f"size={self.size}, nbytes={self.nbytes})"
+            f"size={self.size}, nbytes={self.nbytes}"
         )
+        if self._graph is not None:
+            op_type = self.get_operation_type()
+            if op_type:
+                base += f", op_type='{op_type}'"
+        base += ")"
+        return base

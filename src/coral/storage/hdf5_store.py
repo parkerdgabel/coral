@@ -15,6 +15,7 @@ from coral.core.weight_tensor import WeightMetadata, WeightTensor
 from coral.delta.delta_encoder import Delta
 from coral.delta.product_quantization import PQCodebook
 from coral.storage.weight_store import WeightStore
+from coral.storage.graph_storage import GraphSerializer, GraphStorageFormat
 from coral.utils.thread_safety import FileLock, RepositoryLockManager
 
 logger = logging.getLogger(__name__)
@@ -92,21 +93,31 @@ class HDF5Store(WeightStore):
                         self.file.create_group("centroids")
                     if "pq_codebooks" not in self.file:
                         self.file.create_group("pq_codebooks")
+                    if "computation_graphs" not in self.file:
+                        self.file.create_group("computation_graphs")
                     
                     # Store version info for migration support
                     if "version" not in self.file.attrs:
-                        self.file.attrs["version"] = "2.0"  # Version with PQ support
+                        self.file.attrs["version"] = "3.0"  # Version with computation graph support
                         self.file.attrs["created_at"] = str(np.datetime64('now'))
                 
                 # Handle migration for older files
                 elif self.mode in ["r+", "a"]:
                     # Check version and migrate if needed
                     file_version = self.file.attrs.get("version", "1.0")
+                    
+                    # Migrate to 2.0 if needed (PQ support)
                     if file_version < "2.0":
                         logger.info(f"Migrating HDF5 file from version {file_version} to 2.0")
                         if "pq_codebooks" not in self.file:
                             self.file.create_group("pq_codebooks")
-                        self.file.attrs["version"] = "2.0"
+                    
+                    # Migrate to 3.0 if needed (computation graph support)
+                    if file_version < "3.0":
+                        logger.info(f"Migrating HDF5 file from version {file_version} to 3.0")
+                        if "computation_graphs" not in self.file:
+                            self.file.create_group("computation_graphs")
+                        self.file.attrs["version"] = "3.0"
                         self.file.attrs["migrated_at"] = str(np.datetime64('now'))
                         
             except Exception:
@@ -292,11 +303,13 @@ class HDF5Store(WeightStore):
             clustered_group = f["clustered_weights"] if "clustered_weights" in f else None
             centroids_group = f["centroids"] if "centroids" in f else None
             pq_group = f["pq_codebooks"] if "pq_codebooks" in f else None
+            graphs_group = f.get(GraphStorageFormat.GROUP_NAME)
 
             total_weights = len(weights_group)
             total_clustered = len(clustered_group) if clustered_group else 0
             total_centroids = len(centroids_group) if centroids_group else 0
             total_pq_codebooks = len(pq_group) if pq_group else 0
+            total_graphs = len(graphs_group) if graphs_group else 0
             
             total_bytes = 0
             compressed_bytes = 0
@@ -322,6 +335,13 @@ class HDF5Store(WeightStore):
                         dataset = codebook_group["codebooks"]
                         total_bytes += dataset.nbytes
                         compressed_bytes += dataset.id.get_storage_size()
+            
+            # Computation graphs
+            if graphs_group:
+                graph_info = self.get_graph_storage_info()
+                total_bytes += graph_info["total_graph_bytes"]
+                # Graphs are already compressed via node data compression
+                compressed_bytes += graph_info["total_graph_bytes"]
 
             compression_ratio = (
                 1.0 - (compressed_bytes / total_bytes) if total_bytes > 0 else 0.0
@@ -336,6 +356,7 @@ class HDF5Store(WeightStore):
                 "total_clustered_weights": total_clustered,
                 "total_centroids": total_centroids,
                 "total_pq_codebooks": total_pq_codebooks,
+                "total_graphs": total_graphs,
                 "total_bytes": total_bytes,
                 "compressed_bytes": compressed_bytes,
                 "compression_ratio": compression_ratio,
@@ -1121,12 +1142,262 @@ class HDF5Store(WeightStore):
                 logger.debug("No orphaned objects found during garbage collection")
             
             return deleted_counts
+    
+    # Computation graph operations
+    
+    def store_computation_graph(self, graph_hash: str, graph) -> str:
+        """Store a computation graph.
+        
+        Args:
+            graph_hash: Hash identifier for the graph
+            graph: ComputationGraph object to store
+            
+        Returns:
+            Hash of the stored graph
+        """
+        # Import here to avoid circular imports
+        from coral.core.weight_ops import ComputationGraph
+        
+        if not isinstance(graph, ComputationGraph):
+            raise TypeError(f"Expected ComputationGraph, got {type(graph)}")
+        
+        with self._file_operation() as f:
+            graphs_group = f[GraphStorageFormat.GROUP_NAME]
+            
+            # Check if already exists
+            if graph_hash in graphs_group:
+                logger.debug(f"Computation graph {graph_hash} already exists")
+                return graph_hash
+            
+            # Serialize the graph
+            serializer = GraphSerializer()
+            serialized_data = serializer.serialize_graph(graph)
+            
+            # Create group for this graph
+            graph_group = graphs_group.create_group(graph_hash)
+            
+            # Store metadata
+            graph_group.attrs["version"] = GraphStorageFormat.VERSION
+            graph_group.attrs["created_at"] = str(np.datetime64('now'))
+            graph_group.attrs["root_id"] = serialized_data["root_id"]
+            graph_group.attrs["num_nodes"] = serialized_data["metadata"]["num_nodes"]
+            graph_group.attrs["num_edges"] = serialized_data["metadata"]["num_edges"]
+            
+            # Store nodes
+            nodes_group = graph_group.create_group("nodes")
+            for node_data in serialized_data["nodes"]:
+                node_id = str(node_data["id"])
+                node_group = nodes_group.create_group(node_id)
+                
+                # Store node attributes
+                node_group.attrs["type"] = node_data["type"]
+                node_group.attrs["metadata"] = json.dumps(node_data["data"])
+                
+                # If node has raw data (like IdentityOp), store it as dataset
+                if "raw_data" in node_data["data"]:
+                    raw_data = np.array(node_data["data"]["raw_data"])
+                    node_group.create_dataset(
+                        "data",
+                        data=raw_data,
+                        compression=self.compression,
+                        compression_opts=self.compression_opts
+                    )
+            
+            # Store edges as a dataset
+            if serialized_data["edges"]:
+                edges_array = np.array(serialized_data["edges"], dtype=np.int32)
+                graph_group.create_dataset(
+                    "edges",
+                    data=edges_array,
+                    compression=self.compression,
+                    compression_opts=self.compression_opts
+                )
+            else:
+                # Create empty edges dataset
+                graph_group.create_dataset(
+                    "edges",
+                    shape=(0, 2),
+                    dtype=np.int32
+                )
+            
+            # Store additional metadata
+            graph_group.attrs["metadata"] = json.dumps(serialized_data["metadata"])
+            
+            f.flush()
+            logger.debug(f"Stored computation graph {graph_hash}")
+            return graph_hash
+    
+    def load_computation_graph(self, graph_hash: str):
+        """Load a computation graph by hash.
+        
+        Args:
+            graph_hash: Hash identifier for the graph
+            
+        Returns:
+            ComputationGraph object or None if not found
+        """
+        with self._file_operation() as f:
+            graphs_group = f.get(GraphStorageFormat.GROUP_NAME)
+            if graphs_group is None or graph_hash not in graphs_group:
+                return None
+            
+            graph_group = graphs_group[graph_hash]
+            
+            # Check version compatibility
+            version = graph_group.attrs.get("version", "1.0")
+            if not GraphStorageFormat.validate_version(version):
+                logger.warning(f"Incompatible graph format version: {version}")
+                return None
+            
+            # Reconstruct serialized data
+            nodes = []
+            nodes_group = graph_group["nodes"]
+            
+            for node_id in sorted(nodes_group.keys(), key=int):
+                node_group = nodes_group[node_id]
+                node_data = {
+                    "id": int(node_id),
+                    "type": node_group.attrs["type"],
+                    "data": json.loads(node_group.attrs["metadata"])
+                }
+                
+                # Load raw data if present
+                if "data" in node_group:
+                    node_data["data"]["raw_data"] = np.array(node_group["data"])
+                
+                nodes.append(node_data)
+            
+            # Load edges
+            if "edges" in graph_group:
+                edges = np.array(graph_group["edges"]).tolist()
+            else:
+                edges = []
+            
+            # Reconstruct serialized format
+            serialized_data = {
+                "nodes": nodes,
+                "edges": edges,
+                "root_id": int(graph_group.attrs["root_id"]),
+                "metadata": json.loads(graph_group.attrs.get("metadata", "{}"))
+            }
+            
+            # Deserialize the graph
+            serializer = GraphSerializer()
+            graph = serializer.deserialize_graph(serialized_data)
+            
+            logger.debug(f"Loaded computation graph {graph_hash}")
+            return graph
+    
+    def list_computation_graphs(self) -> List[str]:
+        """List all computation graph hashes in storage.
+        
+        Returns:
+            List of graph hash identifiers
+        """
+        with self._file_operation() as f:
+            graphs_group = f.get(GraphStorageFormat.GROUP_NAME)
+            if graphs_group is None:
+                return []
+            return list(graphs_group.keys())
+    
+    def delete_computation_graph(self, graph_hash: str) -> bool:
+        """Delete a computation graph from storage.
+        
+        Args:
+            graph_hash: Hash identifier for the graph
+            
+        Returns:
+            True if deleted, False if not found
+        """
+        with self._file_operation() as f:
+            graphs_group = f.get(GraphStorageFormat.GROUP_NAME)
+            if graphs_group is None or graph_hash not in graphs_group:
+                return False
+            
+            del graphs_group[graph_hash]
+            f.flush()
+            logger.debug(f"Deleted computation graph {graph_hash}")
+            return True
+    
+    def get_computation_graph_info(self, graph_hash: str) -> Optional[Dict[str, Any]]:
+        """Get information about a stored computation graph.
+        
+        Args:
+            graph_hash: Hash identifier for the graph
+            
+        Returns:
+            Dictionary with graph information or None if not found
+        """
+        with self._file_operation() as f:
+            graphs_group = f.get(GraphStorageFormat.GROUP_NAME)
+            if graphs_group is None or graph_hash not in graphs_group:
+                return None
+            
+            graph_group = graphs_group[graph_hash]
+            
+            # Calculate storage size
+            total_bytes = 0
+            nodes_group = graph_group["nodes"]
+            for node_id in nodes_group:
+                node_group = nodes_group[node_id]
+                if "data" in node_group:
+                    total_bytes += node_group["data"].nbytes
+            
+            if "edges" in graph_group:
+                total_bytes += graph_group["edges"].nbytes
+            
+            return {
+                "hash": graph_hash,
+                "version": graph_group.attrs.get("version", "unknown"),
+                "created_at": graph_group.attrs.get("created_at", "unknown"),
+                "root_id": int(graph_group.attrs.get("root_id", -1)),
+                "num_nodes": int(graph_group.attrs.get("num_nodes", 0)),
+                "num_edges": int(graph_group.attrs.get("num_edges", 0)),
+                "storage_bytes": total_bytes
+            }
+    
+    def get_graph_storage_info(self) -> Dict[str, Any]:
+        """Get information about computation graph storage.
+        
+        Returns:
+            Dictionary with storage statistics
+        """
+        with self._file_operation() as f:
+            graphs_group = f.get(GraphStorageFormat.GROUP_NAME)
+            if graphs_group is None:
+                return {
+                    "total_graphs": 0,
+                    "total_graph_bytes": 0,
+                    "graph_stats": []
+                }
+            
+            total_graphs = len(graphs_group)
+            total_bytes = 0
+            graph_stats = []
+            
+            for graph_hash in graphs_group:
+                info = self.get_computation_graph_info(graph_hash)
+                if info:
+                    total_bytes += info["storage_bytes"]
+                    graph_stats.append({
+                        "hash": graph_hash,
+                        "num_nodes": info["num_nodes"],
+                        "num_edges": info["num_edges"],
+                        "bytes": info["storage_bytes"]
+                    })
+            
+            return {
+                "total_graphs": total_graphs,
+                "total_graph_bytes": total_bytes,
+                "graph_stats": graph_stats
+            }
 
     def __repr__(self) -> str:
         info = self.get_storage_info()
         delta_info = self.get_delta_storage_info()
         clustered_info = self.get_clustered_storage_info()
         pq_info = self.get_pq_storage_info()
+        graph_info = self.get_graph_storage_info()
         return (
             f"HDF5Store(filepath='{self.filepath}', "
             f"weights={info['total_weights']}, "
@@ -1134,6 +1405,7 @@ class HDF5Store(WeightStore):
             f"centroids={clustered_info['total_centroids']}, "
             f"deltas={delta_info['total_deltas']}, "
             f"pq_codebooks={pq_info['total_pq_codebooks']}, "
+            f"graphs={graph_info['total_graphs']}, "
             f"compression={self.compression})"
         )
     
