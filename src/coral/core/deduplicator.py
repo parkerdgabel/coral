@@ -235,18 +235,40 @@ class Deduplicator:
     def _compute_similarity(
         self, weight1: WeightTensor, weight2: WeightTensor
     ) -> float:
-        """Compute cosine similarity between two weights"""
+        """Compute cosine similarity between two weights with numerical stability"""
         a = weight1.data.flatten()
         b = weight2.data.flatten()
 
-        dot_product = np.dot(a, b)
+        # Check for special values
+        if np.any(np.isnan(a)) or np.any(np.isnan(b)):
+            return 0.0
+        if np.any(np.isinf(a)) or np.any(np.isinf(b)):
+            return 1.0 if np.array_equal(a, b) else 0.0
+
+        # Check for extreme values
+        max_val = max(np.max(np.abs(a)), np.max(np.abs(b)))
+        if max_val > 1e20:  # Use float64 for large values
+            a = a.astype(np.float64)
+            b = b.astype(np.float64)
+
+        # Compute norms safely
         norm_a = np.linalg.norm(a)
         norm_b = np.linalg.norm(b)
 
         if norm_a == 0 or norm_b == 0:
             return 1.0 if norm_a == norm_b else 0.0
 
-        return dot_product / (norm_a * norm_b)
+        # Add epsilon for numerical stability
+        epsilon = np.finfo(a.dtype).eps * max(1.0, norm_a, norm_b)
+
+        # Safe computation
+        try:
+            dot_product = np.dot(a, b)
+            similarity = dot_product / (norm_a * norm_b + epsilon)
+            return np.clip(similarity, -1.0, 1.0)
+        except (RuntimeWarning, FloatingPointError):
+            # Fallback
+            return 1.0 if np.allclose(a, b, rtol=0.01, atol=1e-8) else 0.0
 
     def get_weight_by_name(self, name: str) -> Optional[WeightTensor]:
         """Get weight by name, reconstructing from delta if needed"""

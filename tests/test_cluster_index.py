@@ -1,886 +1,481 @@
-"""
-Comprehensive tests for ClusterIndex component.
-
-Tests cover:
-- Centroid management operations (CRUD)
-- Fast lookup operations with various data sizes
-- Spatial indexing performance and correctness
-- Hierarchical navigation and consistency
-- Thread safety and concurrent operations
-- Performance characteristics and memory usage
-- Index validation and error handling
-"""
+"""Tests for the ClusterIndex component."""
 
 import numpy as np
 import pytest
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Tuple
+from concurrent.futures import ThreadPoolExecutor
 
-from coral.clustering.cluster_index import ClusterIndex, IndexStats
-from coral.clustering.cluster_types import Centroid, ClusterInfo, ClusterLevel, ClusteringStrategy
-from coral.core.weight_tensor import WeightTensor, WeightMetadata
+from coral.clustering.cluster_index import (
+    ClusterIndex, WeightClusterInfo, ClusterCentroid, SimpleLSH
+)
+
+
+class TestWeightClusterInfo:
+    """Test WeightClusterInfo data class."""
+    
+    def test_creation(self):
+        """Test creating weight cluster info."""
+        weight_vector = np.array([1.0, 2.0, 3.0])
+        info = WeightClusterInfo(
+            weight_hash="hash123",
+            cluster_id="cluster1",
+            weight_vector=weight_vector,
+            distance_to_centroid=0.5
+        )
+        
+        assert info.weight_hash == "hash123"
+        assert info.cluster_id == "cluster1"
+        np.testing.assert_array_equal(info.weight_vector, weight_vector)
+        assert info.distance_to_centroid == 0.5
+    
+    def test_serialization(self):
+        """Test to_dict and from_dict."""
+        weight_vector = np.array([1.0, 2.0, 3.0])
+        info = WeightClusterInfo(
+            weight_hash="hash123",
+            cluster_id="cluster1", 
+            weight_vector=weight_vector,
+            distance_to_centroid=0.5
+        )
+        
+        # Serialize
+        data = info.to_dict()
+        assert isinstance(data, dict)
+        assert data["weight_hash"] == "hash123"
+        assert data["cluster_id"] == "cluster1"
+        assert data["weight_vector"] == [1.0, 2.0, 3.0]
+        
+        # Deserialize
+        info2 = WeightClusterInfo.from_dict(data)
+        assert info2.weight_hash == info.weight_hash
+        assert info2.cluster_id == info.cluster_id
+        np.testing.assert_array_equal(info2.weight_vector, info.weight_vector)
+
+
+class TestClusterCentroid:
+    """Test ClusterCentroid data class."""
+    
+    def test_creation(self):
+        """Test creating cluster centroid."""
+        centroid_vector = np.array([4.0, 5.0, 6.0])
+        centroid = ClusterCentroid(
+            cluster_id="cluster1",
+            centroid_vector=centroid_vector,
+            member_count=10
+        )
+        
+        assert centroid.cluster_id == "cluster1"
+        np.testing.assert_array_equal(centroid.centroid_vector, centroid_vector)
+        assert centroid.member_count == 10
+    
+    def test_serialization(self):
+        """Test to_dict and from_dict."""
+        centroid_vector = np.array([4.0, 5.0, 6.0])
+        centroid = ClusterCentroid(
+            cluster_id="cluster1",
+            centroid_vector=centroid_vector,
+            member_count=10
+        )
+        
+        # Serialize
+        data = centroid.to_dict()
+        assert data["cluster_id"] == "cluster1"
+        assert data["centroid_vector"] == [4.0, 5.0, 6.0]
+        assert data["member_count"] == 10
+        
+        # Deserialize
+        centroid2 = ClusterCentroid.from_dict(data)
+        assert centroid2.cluster_id == centroid.cluster_id
+        np.testing.assert_array_equal(centroid2.centroid_vector, centroid.centroid_vector)
+        assert centroid2.member_count == centroid.member_count
+
+
+class TestSimpleLSH:
+    """Test SimpleLSH implementation."""
+    
+    def test_fit_and_query(self):
+        """Test fitting LSH and querying neighbors."""
+        # Create test data
+        np.random.seed(42)
+        data = np.random.randn(100, 50)
+        ids = [f"point_{i}" for i in range(100)]
+        
+        # Fit LSH
+        lsh = SimpleLSH(n_projections=10, seed=42)
+        lsh.fit(data, ids)
+        
+        # Query with a point from the dataset
+        query_point = data[0]
+        indices, distances = lsh.query(query_point, k=5)
+        
+        assert len(indices) <= 5  # May return fewer if not enough candidates
+        assert len(distances) == len(indices)
+        assert indices[0] == 0  # Should find itself as nearest
+        assert distances[0] < 0.001  # Distance to itself should be ~0
+    
+    def test_query_unseen_point(self):
+        """Test querying with a new point."""
+        np.random.seed(42)
+        data = np.random.randn(50, 20)
+        ids = [f"point_{i}" for i in range(50)]
+        
+        lsh = SimpleLSH(n_projections=5)
+        lsh.fit(data, ids)
+        
+        # Query with new point
+        query_point = np.random.randn(20)
+        indices, distances = lsh.query(query_point, k=3)
+        
+        assert len(indices) == 3
+        assert len(distances) == 3
+        assert all(0 <= idx < 50 for idx in indices)
+    
+    def test_empty_buckets(self):
+        """Test handling of queries that hit empty buckets."""
+        # Create sparse data that will likely have empty buckets
+        data = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+        ids = ["a", "b", "c"]
+        
+        lsh = SimpleLSH(n_projections=5)
+        lsh.fit(data, ids)
+        
+        # Query with a very different point
+        query_point = np.array([-1, -1, -1])
+        indices, distances = lsh.query(query_point, k=2)
+        
+        assert len(indices) == 2
+        assert len(distances) == 2
 
 
 class TestClusterIndex:
-    """Test suite for ClusterIndex functionality."""
+    """Test the main ClusterIndex class."""
     
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.index = ClusterIndex()
-        self.test_centroids = self._create_test_centroids()
-        self.test_cluster_infos = self._create_test_cluster_infos()
+    def test_initialization(self):
+        """Test index initialization."""
+        index = ClusterIndex(dimension_threshold=500)
+        assert index.get_cluster_count() == 0
+        assert index.get_weight_count() == 0
     
-    def _create_test_centroids(self) -> List[Centroid]:
-        """Create test centroids with various characteristics."""
-        centroids = []
-        
-        # Create centroids with different shapes and patterns
-        shapes_and_patterns = [
-            ((10,), lambda: np.random.randn(10)),
-            ((5, 5), lambda: np.random.randn(5, 5)),
-            ((3, 3, 3), lambda: np.random.randn(3, 3, 3)),
-            ((100,), lambda: np.linspace(0, 1, 100)),
-            ((20, 5), lambda: np.ones((20, 5)) * 0.5),
-        ]
-        
-        for i, (shape, pattern_func) in enumerate(shapes_and_patterns):
-            data = pattern_func()
-            centroid = Centroid(
-                data=data,
-                cluster_id=f"cluster_{i}",
-                shape=shape,
-                dtype=data.dtype
-            )
-            centroids.append(centroid)
-        
-        return centroids
-    
-    def _create_test_cluster_infos(self) -> List[ClusterInfo]:
-        """Create test cluster info objects."""
-        infos = []
-        levels = [ClusterLevel.TENSOR, ClusterLevel.BLOCK, ClusterLevel.LAYER, ClusterLevel.MODEL]
-        
-        for i, centroid in enumerate(self.test_centroids):
-            info = ClusterInfo(
-                cluster_id=centroid.cluster_id,
-                strategy=ClusteringStrategy.KMEANS,
-                level=levels[i % len(levels)],
-                member_count=np.random.randint(2, 10),
-                centroid_hash=centroid.compute_hash(),
-                created_at="2024-01-01T00:00:00Z",
-            )
-            infos.append(info)
-        
-        return infos
-    
-    def test_index_initialization(self):
-        """Test ClusterIndex initialization with various parameters."""
-        # Default initialization
-        index1 = ClusterIndex()
-        assert len(index1) == 0
-        assert index1._spatial_index_type == "kdtree"
-        assert index1._cache_size == 1000
-        
-        # Custom initialization
-        index2 = ClusterIndex(
-            spatial_index_type="lsh",
-            cache_size=500,
-            enable_lsh=True,
-            lsh_n_estimators=5
-        )
-        assert index2._spatial_index_type == "lsh"
-        assert index2._cache_size == 500
-        assert index2._enable_lsh is True
-        assert index2._lsh_n_estimators == 5
-    
-    def test_add_centroid_basic(self):
-        """Test basic centroid addition."""
-        centroid = self.test_centroids[0]
-        cluster_info = self.test_cluster_infos[0]
-        
-        # Add centroid without cluster info
-        self.index.add_centroid(centroid)
-        assert len(self.index) == 1
-        assert centroid.cluster_id in self.index
-        
-        # Add centroid with cluster info
-        index2 = ClusterIndex()
-        index2.add_centroid(centroid, cluster_info)
-        assert len(index2) == 1
-        assert centroid.cluster_id in index2
-        assert index2._cluster_info[centroid.cluster_id] == cluster_info
-    
-    def test_add_centroid_duplicate(self):
-        """Test adding duplicate centroids raises error."""
-        centroid = self.test_centroids[0]
-        
-        self.index.add_centroid(centroid)
-        
-        # Adding same cluster_id should raise ValueError
-        with pytest.raises(ValueError, match="already exists"):
-            self.index.add_centroid(centroid)
-    
-    def test_get_centroid(self):
-        """Test centroid retrieval."""
-        centroid = self.test_centroids[0]
-        self.index.add_centroid(centroid)
-        
-        # Successful retrieval
-        retrieved = self.index.get_centroid(centroid.cluster_id)
-        assert retrieved is not None
-        assert retrieved.cluster_id == centroid.cluster_id
-        assert np.array_equal(retrieved.data, centroid.data)
-        
-        # Non-existent centroid
-        assert self.index.get_centroid("non_existent") is None
-    
-    def test_update_centroid(self):
-        """Test centroid updating."""
-        centroid = self.test_centroids[0]
-        self.index.add_centroid(centroid)
-        
-        # Create updated centroid
-        new_data = np.random.randn(*centroid.shape)
-        new_centroid = Centroid(
-            data=new_data,
-            cluster_id="different_id",  # This should be overridden
-            shape=centroid.shape,
-            dtype=centroid.dtype
-        )
-        
-        # Update existing centroid
-        success = self.index.update_centroid(centroid.cluster_id, new_centroid)
-        assert success is True
-        
-        # Verify update
-        retrieved = self.index.get_centroid(centroid.cluster_id)
-        assert retrieved is not None
-        assert retrieved.cluster_id == centroid.cluster_id  # Should preserve original ID
-        assert np.array_equal(retrieved.data, new_data)
-        
-        # Update non-existent centroid
-        success = self.index.update_centroid("non_existent", new_centroid)
-        assert success is False
-    
-    def test_remove_centroid(self):
-        """Test centroid removal."""
-        centroid = self.test_centroids[0]
-        cluster_info = self.test_cluster_infos[0]
-        
-        self.index.add_centroid(centroid, cluster_info)
-        assert len(self.index) == 1
-        
-        # Remove existing centroid
-        success = self.index.remove_centroid(centroid.cluster_id)
-        assert success is True
-        assert len(self.index) == 0
-        assert centroid.cluster_id not in self.index
-        
-        # Remove non-existent centroid
-        success = self.index.remove_centroid("non_existent")
-        assert success is False
-    
-    def test_find_nearest_centroid_empty_index(self):
-        """Test nearest centroid search on empty index."""
-        weight = WeightTensor(
-            data=np.random.randn(10),
-            metadata=WeightMetadata(name="test", shape=(10,), dtype=np.float32)
-        )
-        
-        result = self.index.find_nearest_centroid(weight)
-        assert result is None
-    
-    def test_find_nearest_centroid_single(self):
-        """Test nearest centroid search with single centroid."""
-        centroid = self.test_centroids[0]  # Shape (10,)
-        self.index.add_centroid(centroid)
-        
-        # Create similar weight
-        weight_data = centroid.data + np.random.randn(*centroid.shape) * 0.1
-        weight = WeightTensor(
-            data=weight_data,
-            metadata=WeightMetadata(name="test", shape=centroid.shape, dtype=centroid.dtype)
-        )
-        
-        result = self.index.find_nearest_centroid(weight)
-        assert result is not None
-        cluster_id, distance = result
-        assert cluster_id == centroid.cluster_id
-        assert distance >= 0
-    
-    def test_find_nearest_centroid_multiple(self):
-        """Test nearest centroid search with multiple centroids."""
-        # Add centroids with same shape
-        centroids = []
-        for i in range(3):
-            data = np.random.randn(10)
-            centroid = Centroid(
-                data=data,
-                cluster_id=f"cluster_{i}",
-                shape=(10,),
-                dtype=data.dtype
-            )
-            centroids.append(centroid)
-            self.index.add_centroid(centroid)
-        
-        # Create weight very close to first centroid
-        weight_data = centroids[0].data + np.random.randn(10) * 0.01
-        weight = WeightTensor(
-            data=weight_data,
-            metadata=WeightMetadata(name="test", shape=(10,), dtype=np.float32)
-        )
-        
-        result = self.index.find_nearest_centroid(weight)
-        assert result is not None
-        cluster_id, distance = result
-        # Should find the first centroid as nearest
-        assert cluster_id == centroids[0].cluster_id
-        assert distance < 1.0  # Should be quite close
-    
-    def test_find_nearest_centroid_numpy_array(self):
-        """Test nearest centroid search with numpy array input."""
-        centroid = self.test_centroids[0]
-        self.index.add_centroid(centroid)
-        
-        # Use numpy array directly
-        weight_array = centroid.data + np.random.randn(*centroid.shape) * 0.1
-        
-        result = self.index.find_nearest_centroid(weight_array)
-        assert result is not None
-        cluster_id, distance = result
-        assert cluster_id == centroid.cluster_id
-    
-    def test_find_similar_centroids(self):
-        """Test finding centroids within similarity threshold."""
-        # Add multiple centroids
-        centroids = []
-        for i in range(5):
-            data = np.random.randn(10)
-            centroid = Centroid(
-                data=data,
-                cluster_id=f"cluster_{i}",
-                shape=(10,),
-                dtype=data.dtype
-            )
-            centroids.append(centroid)
-            self.index.add_centroid(centroid)
-        
-        # Create weight similar to first few centroids
-        base_weight = centroids[0].data
-        weight = base_weight + np.random.randn(10) * 0.1
-        
-        # Find similar centroids with generous threshold
-        results = self.index.find_similar_centroids(weight, threshold=5.0)
-        assert len(results) > 0
-        
-        # Results should be sorted by distance
-        distances = [distance for _, distance in results]
-        assert distances == sorted(distances)
-        
-        # Find similar centroids with strict threshold
-        results_strict = self.index.find_similar_centroids(weight, threshold=0.1)
-        assert len(results_strict) <= len(results)
-    
-    def test_batch_lookup(self):
-        """Test batch lookup operations."""
-        # Add multiple centroids
-        for centroid in self.test_centroids[:3]:
-            if centroid.shape == (10,):  # Use consistent shape
-                self.index.add_centroid(centroid)
-        
-        if len(self.index) == 0:
-            # Create consistent centroids if none match
-            for i in range(3):
-                data = np.random.randn(10)
-                centroid = Centroid(
-                    data=data,
-                    cluster_id=f"batch_cluster_{i}",
-                    shape=(10,),
-                    dtype=data.dtype
-                )
-                self.index.add_centroid(centroid)
-        
-        # Create batch of weights
-        weights = []
-        for i in range(5):
-            weight_data = np.random.randn(10)
-            weight = WeightTensor(
-                data=weight_data,
-                metadata=WeightMetadata(name=f"weight_{i}", shape=(10,), dtype=np.float32)
-            )
-            weights.append(weight)
-        
-        # Batch lookup
-        results = self.index.batch_lookup(weights)
-        assert len(results) == len(weights)
-        
-        # All results should be valid
-        for result in results:
-            assert result is not None
-            cluster_id, distance = result
-            assert cluster_id in self.index
-            assert distance >= 0
-    
-    def test_get_centroids_by_level(self):
-        """Test retrieving centroids by hierarchy level."""
-        # Add centroids with different levels
-        for centroid, cluster_info in zip(self.test_centroids, self.test_cluster_infos):
-            self.index.add_centroid(centroid, cluster_info)
-        
-        # Test each level
-        for level in ClusterLevel:
-            centroids = self.index.get_centroids_by_level(level)
-            assert isinstance(centroids, list)
-            
-            # Verify all returned centroids have correct level
-            for centroid in centroids:
-                cluster_info = self.index._cluster_info[centroid.cluster_id]
-                assert cluster_info.level == level
-    
-    def test_build_hierarchy(self):
-        """Test building and navigating hierarchy."""
-        # Add centroids
-        for centroid in self.test_centroids[:4]:
-            self.index.add_centroid(centroid)
-        
-        # Define hierarchy relationships
-        relationships = {
-            "cluster_0": {"children": ["cluster_1", "cluster_2"]},
-            "cluster_1": {"parent": "cluster_0", "children": ["cluster_3"]},
-            "cluster_2": {"parent": "cluster_0"},
-            "cluster_3": {"parent": "cluster_1"},
-        }
-        
-        self.index.build_hierarchy(relationships)
-        
-        # Test parent-child relationships
-        assert self.index.get_parent_centroid("cluster_1").cluster_id == "cluster_0"
-        assert self.index.get_parent_centroid("cluster_2").cluster_id == "cluster_0"
-        assert self.index.get_parent_centroid("cluster_3").cluster_id == "cluster_1"
-        assert self.index.get_parent_centroid("cluster_0") is None  # Root node
-        
-        # Test children relationships
-        children_0 = self.index.get_child_centroids("cluster_0")
-        child_ids_0 = {c.cluster_id for c in children_0}
-        assert child_ids_0 == {"cluster_1", "cluster_2"}
-        
-        children_1 = self.index.get_child_centroids("cluster_1")
-        assert len(children_1) == 1
-        assert children_1[0].cluster_id == "cluster_3"
-        
-        children_3 = self.index.get_child_centroids("cluster_3")
-        assert len(children_3) == 0  # Leaf node
-    
-    def test_find_level_centroids(self):
-        """Test finding centroids at specific hierarchy level."""
-        # Add centroids with level information
-        for centroid, cluster_info in zip(self.test_centroids, self.test_cluster_infos):
-            self.index.add_centroid(centroid, cluster_info)
-        
-        # Create test weight with consistent shape
-        weight_data = np.random.randn(10)
-        weight = WeightTensor(
-            data=weight_data,
-            metadata=WeightMetadata(name="test", shape=(10,), dtype=np.float32)
-        )
-        
-        # Find centroids at each level
-        for level in ClusterLevel:
-            results = self.index.find_level_centroids(level, weight)
-            
-            # Verify results are sorted by distance
-            if len(results) > 1:
-                distances = [distance for _, distance in results]
-                assert distances == sorted(distances)
-            
-            # Verify all results are from the correct level
-            for cluster_id, _ in results:
-                cluster_info = self.index._cluster_info[cluster_id]
-                assert cluster_info.level == level
-    
-    def test_index_stats(self):
-        """Test index statistics collection."""
-        # Initially empty
-        stats = self.index.get_index_stats()
-        assert stats["total_centroids"] == 0
-        assert stats["total_queries"] == 0
-        
-        # Add centroids and perform operations
-        for centroid, cluster_info in zip(self.test_centroids[:3], self.test_cluster_infos[:3]):
-            self.index.add_centroid(centroid, cluster_info)
-        
-        # Perform some queries
-        weight = WeightTensor(
-            data=np.random.randn(10),
-            metadata=WeightMetadata(name="test", shape=(10,), dtype=np.float32)
-        )
-        
-        for _ in range(5):
-            self.index.find_nearest_centroid(weight)
-        
-        # Check updated stats
-        stats = self.index.get_index_stats()
-        assert stats["total_centroids"] == 3
-        assert stats["total_queries"] >= 5
-        assert isinstance(stats["avg_query_time"], float)
-        assert stats["avg_query_time"] >= 0
-        assert isinstance(stats["memory_usage_mb"], float)
-        assert stats["memory_usage_mb"] >= 0
-    
-    def test_centroid_usage_tracking(self):
-        """Test centroid usage statistics."""
-        # Add centroids
-        for centroid in self.test_centroids[:3]:
-            self.index.add_centroid(centroid)
-        
-        # Initially empty usage
-        usage = self.index.get_centroid_usage()
-        assert len(usage) == 0
-        
-        # Perform queries to generate usage
-        weight = WeightTensor(
-            data=np.random.randn(10),
-            metadata=WeightMetadata(name="test", shape=(10,), dtype=np.float32)
-        )
-        
-        for _ in range(10):
-            self.index.find_nearest_centroid(weight)
-        
-        # Check usage statistics
-        usage = self.index.get_centroid_usage()
-        assert len(usage) > 0
-        
-        # Usage counts should be positive
-        for cluster_id, count in usage.items():
-            assert count > 0
-            assert cluster_id in self.index
-    
-    def test_optimize_index(self):
-        """Test index optimization."""
-        # Add centroids
-        for centroid in self.test_centroids:
-            self.index.add_centroid(centroid)
-        
-        # Record initial stats
-        initial_stats = self.index.get_index_stats()
-        
-        # Optimize index
-        self.index.optimize_index()
-        
-        # Check that optimization completed
-        final_stats = self.index.get_index_stats()
-        assert final_stats["last_optimization"] is not None
-        assert final_stats["index_build_time"] >= 0
-        assert not final_stats["index_needs_rebuild"]
-    
-    def test_validate_index(self):
-        """Test index validation."""
-        # Empty index should be valid
-        validation = self.index.validate_index()
-        assert validation["is_valid"] is True
-        assert len(validation["issues"]) == 0
-        
-        # Add valid centroids
-        for centroid, cluster_info in zip(self.test_centroids, self.test_cluster_infos):
-            self.index.add_centroid(centroid, cluster_info)
-        
-        # Validate populated index
-        validation = self.index.validate_index()
-        assert validation["is_valid"] is True
-        assert validation["total_centroids"] == len(self.test_centroids)
-        assert validation["total_cluster_info"] == len(self.test_cluster_infos)
-    
-    def test_caching_behavior(self):
-        """Test query caching and cache hit rates."""
-        # Add centroids
-        for centroid in self.test_centroids[:3]:
-            self.index.add_centroid(centroid)
-        
-        # Create weight for repeated queries
-        weight = WeightTensor(
-            data=np.random.randn(10),
-            metadata=WeightMetadata(name="test", shape=(10,), dtype=np.float32)
-        )
-        
-        # First query (cache miss)
-        result1 = self.index.find_nearest_centroid(weight)
-        stats_after_first = self.index.get_index_stats()
-        
-        # Second query with same weight (cache hit)
-        result2 = self.index.find_nearest_centroid(weight)
-        stats_after_second = self.index.get_index_stats()
-        
-        # Results should be identical
-        assert result1 == result2
-        
-        # Cache hit count should increase
-        assert stats_after_second["cache_hits"] > stats_after_first["cache_hits"]
-    
-    def test_different_spatial_index_types(self):
-        """Test different spatial index configurations."""
-        spatial_types = ["kdtree", "brute"]
-        
-        for spatial_type in spatial_types:
-            index = ClusterIndex(spatial_index_type=spatial_type)
-            
-            # Add test centroids
-            for centroid in self.test_centroids[:3]:
-                if centroid.shape == (10,):  # Use consistent shape
-                    index.add_centroid(centroid)
-            
-            if len(index) == 0:
-                continue  # Skip if no consistent centroids
-            
-            # Test basic functionality
-            weight = WeightTensor(
-                data=np.random.randn(10),
-                metadata=WeightMetadata(name="test", shape=(10,), dtype=np.float32)
-            )
-            
-            result = index.find_nearest_centroid(weight)
-            assert result is not None
-            
-            similar = index.find_similar_centroids(weight, threshold=10.0)
-            assert len(similar) > 0
-
-
-class TestClusterIndexPerformance:
-    """Performance and scalability tests for ClusterIndex."""
-    
-    def test_large_scale_operations(self):
-        """Test performance with large number of centroids."""
+    def test_add_weight_to_cluster(self):
+        """Test adding weights to clusters."""
         index = ClusterIndex()
         
-        # Add many centroids
-        num_centroids = 1000
-        centroids = []
+        # Add first weight
+        weight1 = np.array([1.0, 2.0, 3.0])
+        index.add_weight_to_cluster("w1", "c1", weight1)
         
-        for i in range(num_centroids):
-            data = np.random.randn(50)  # Moderate size
-            centroid = Centroid(
-                data=data,
-                cluster_id=f"perf_cluster_{i}",
-                shape=(50,),
-                dtype=data.dtype
-            )
-            centroids.append(centroid)
-            index.add_centroid(centroid)
+        assert index.get_weight_count() == 1
+        assert index.get_cluster_count() == 1
+        assert index.get_cluster_members("c1") == ["w1"]
         
-        assert len(index) == num_centroids
+        # Add second weight to same cluster
+        weight2 = np.array([1.1, 2.1, 3.1])
+        index.add_weight_to_cluster("w2", "c1", weight2)
         
-        # Test query performance
-        query_weight = np.random.randn(50)
+        assert index.get_weight_count() == 2
+        assert index.get_cluster_count() == 1
+        assert set(index.get_cluster_members("c1")) == {"w1", "w2"}
         
-        start_time = time.time()
-        result = index.find_nearest_centroid(query_weight)
-        query_time = time.time() - start_time
+        # Add weight to different cluster
+        weight3 = np.array([4.0, 5.0, 6.0])
+        index.add_weight_to_cluster("w3", "c2", weight3)
         
-        assert result is not None
-        assert query_time < 1.0  # Should be fast even with 1000 centroids
-        
-        # Test batch performance
-        batch_weights = [np.random.randn(50) for _ in range(100)]
-        
-        start_time = time.time()
-        batch_results = index.batch_lookup(batch_weights)
-        batch_time = time.time() - start_time
-        
-        assert len(batch_results) == 100
-        assert batch_time < 5.0  # Batch should be efficient
-        
-        # Check memory usage is reasonable
-        stats = index.get_index_stats()
-        assert stats["memory_usage_mb"] < 100  # Should be under 100MB
+        assert index.get_weight_count() == 3
+        assert index.get_cluster_count() == 2
     
-    def test_query_time_complexity(self):
-        """Test that query time scales logarithmically with index size."""
-        sizes = [100, 500, 1000]
-        query_times = []
-        
-        for size in sizes:
-            index = ClusterIndex()
-            
-            # Add centroids
-            for i in range(size):
-                data = np.random.randn(20)
-                centroid = Centroid(
-                    data=data,
-                    cluster_id=f"timing_cluster_{i}",
-                    shape=(20,),
-                    dtype=data.dtype
-                )
-                index.add_centroid(centroid)
-            
-            # Measure query time
-            query_weight = np.random.randn(20)
-            
-            start_time = time.time()
-            for _ in range(10):  # Average over multiple queries
-                index.find_nearest_centroid(query_weight)
-            avg_time = (time.time() - start_time) / 10
-            
-            query_times.append(avg_time)
-        
-        # Query time should not increase linearly with size
-        # (should be sub-linear due to spatial indexing)
-        assert query_times[2] < query_times[0] * 10  # Much better than linear
-    
-    def test_memory_efficiency(self):
-        """Test memory usage efficiency."""
+    def test_add_duplicate_weight_error(self):
+        """Test error when adding weight to different cluster."""
         index = ClusterIndex()
         
-        # Add centroids and track memory
-        memory_usages = []
+        weight = np.array([1.0, 2.0, 3.0])
+        index.add_weight_to_cluster("w1", "c1", weight)
         
-        for i in range(0, 500, 100):
-            for j in range(100):
-                data = np.random.randn(10)
-                centroid = Centroid(
-                    data=data,
-                    cluster_id=f"mem_cluster_{i + j}",
-                    shape=(10,),
-                    dtype=data.dtype
-                )
-                index.add_centroid(centroid)
-            
-            stats = index.get_index_stats()
-            memory_usages.append(stats["memory_usage_mb"])
-        
-        # Memory usage should grow roughly linearly with centroids
-        # (allowing for some overhead from indexing structures)
-        final_memory = memory_usages[-1]
-        initial_memory = memory_usages[0]
-        
-        assert final_memory > initial_memory  # Memory should increase
-        assert final_memory < initial_memory * 10  # But not excessively
-
-
-class TestClusterIndexThreadSafety:
-    """Thread safety tests for ClusterIndex."""
+        # Try to add same weight to different cluster
+        with pytest.raises(ValueError, match="already assigned"):
+            index.add_weight_to_cluster("w1", "c2", weight)
     
-    def test_concurrent_reads(self):
-        """Test concurrent read operations."""
+    def test_remove_weight_from_cluster(self):
+        """Test removing weights from clusters."""
         index = ClusterIndex()
         
-        # Add test centroids
-        for i in range(50):
-            data = np.random.randn(10)
-            centroid = Centroid(
-                data=data,
-                cluster_id=f"thread_cluster_{i}",
-                shape=(10,),
-                dtype=data.dtype
-            )
-            index.add_centroid(centroid)
+        # Add weights
+        index.add_weight_to_cluster("w1", "c1", np.array([1.0, 2.0]))
+        index.add_weight_to_cluster("w2", "c1", np.array([1.1, 2.1]))
+        index.add_weight_to_cluster("w3", "c2", np.array([3.0, 4.0]))
         
-        # Define read worker
-        def read_worker():
-            results = []
-            for _ in range(20):
-                weight = np.random.randn(10)
-                result = index.find_nearest_centroid(weight)
-                results.append(result)
-            return results
+        # Remove weight
+        assert index.remove_weight_from_cluster("w1") is True
+        assert index.get_weight_count() == 2
+        assert index.get_cluster_members("c1") == ["w2"]
         
-        # Run concurrent reads
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(read_worker) for _ in range(10)]
-            
-            all_results = []
-            for future in as_completed(futures):
-                worker_results = future.result()
-                all_results.extend(worker_results)
+        # Remove non-existent weight
+        assert index.remove_weight_from_cluster("w_unknown") is False
         
-        # All operations should succeed
-        assert len(all_results) == 200  # 10 workers * 20 queries each
-        for result in all_results:
-            assert result is not None
+        # Remove last weight from cluster (should remove cluster)
+        assert index.remove_weight_from_cluster("w2") is True
+        assert index.get_cluster_count() == 1
+        assert index.get_cluster_members("c1") == []
     
-    def test_concurrent_writes_and_reads(self):
-        """Test concurrent write and read operations."""
+    def test_find_nearest_cluster_empty(self):
+        """Test finding nearest cluster with no clusters."""
+        index = ClusterIndex()
+        weight = np.array([1.0, 2.0, 3.0])
+        
+        result = index.find_nearest_cluster(weight, k=1)
+        assert result == []
+    
+    def test_find_nearest_cluster_single(self):
+        """Test finding nearest cluster with one cluster."""
         index = ClusterIndex()
         
-        # Add initial centroids
-        for i in range(20):
-            data = np.random.randn(10)
-            centroid = Centroid(
-                data=data,
-                cluster_id=f"concurrent_cluster_{i}",
-                shape=(10,),
-                dtype=data.dtype
-            )
-            index.add_centroid(centroid)
+        # Add weights to create cluster
+        index.add_weight_to_cluster("w1", "c1", np.array([1.0, 2.0, 3.0]))
+        index.add_weight_to_cluster("w2", "c1", np.array([1.1, 2.1, 3.1]))
         
-        results = {"read_errors": 0, "write_errors": 0}
+        # Query
+        query = np.array([1.05, 2.05, 3.05])
+        result = index.find_nearest_cluster(query, k=1)
         
-        def read_worker():
-            try:
-                for _ in range(50):
-                    weight = np.random.randn(10)
-                    index.find_nearest_centroid(weight)
-            except Exception:
-                results["read_errors"] += 1
+        assert len(result) == 1
+        assert result[0][0] == "c1"
+        assert result[0][1] >= 0  # Distance (can be 0 if query is at centroid)
+    
+    def test_find_nearest_cluster_multiple(self):
+        """Test finding multiple nearest clusters."""
+        index = ClusterIndex()
         
-        def write_worker(start_id):
+        # Create multiple clusters
+        index.add_weight_to_cluster("w1", "c1", np.array([1.0, 0.0]))
+        index.add_weight_to_cluster("w2", "c2", np.array([0.0, 1.0]))
+        index.add_weight_to_cluster("w3", "c3", np.array([-1.0, 0.0]))
+        
+        # Query for 2 nearest
+        query = np.array([0.5, 0.5])
+        result = index.find_nearest_cluster(query, k=2)
+        
+        assert len(result) == 2
+        assert all(isinstance(r[0], str) for r in result)
+        assert all(isinstance(r[1], float) for r in result)
+        assert result[0][1] <= result[1][1]  # Sorted by distance
+    
+    def test_get_cluster_members(self):
+        """Test getting cluster members."""
+        index = ClusterIndex()
+        
+        # Add weights
+        index.add_weight_to_cluster("w1", "c1", np.array([1.0]))
+        index.add_weight_to_cluster("w2", "c1", np.array([2.0]))
+        index.add_weight_to_cluster("w3", "c2", np.array([3.0]))
+        
+        assert set(index.get_cluster_members("c1")) == {"w1", "w2"}
+        assert index.get_cluster_members("c2") == ["w3"]
+        assert index.get_cluster_members("c_unknown") == []
+    
+    def test_rebalance_by_size(self):
+        """Test rebalancing clusters by size."""
+        index = ClusterIndex()
+        
+        # Create imbalanced clusters
+        # Cluster 1: 6 weights
+        for i in range(6):
+            index.add_weight_to_cluster(f"w1_{i}", "c1", np.random.randn(5))
+        
+        # Cluster 2: 1 weight
+        index.add_weight_to_cluster("w2_0", "c2", np.random.randn(5))
+        
+        # Cluster 3: 1 weight  
+        index.add_weight_to_cluster("w3_0", "c3", np.random.randn(5))
+        
+        initial_sizes = index.get_cluster_sizes()
+        assert initial_sizes["c1"] == 6
+        assert initial_sizes["c2"] == 1
+        assert initial_sizes["c3"] == 1
+        
+        # Rebalance
+        reassignments = index.rebalance_clusters(strategy="size")
+        
+        # Check that some weights were reassigned
+        assert len(reassignments) > 0
+        
+        # Check new sizes are more balanced
+        new_sizes = index.get_cluster_sizes()
+        size_variance = np.var(list(new_sizes.values()))
+        initial_variance = np.var(list(initial_sizes.values()))
+        assert size_variance < initial_variance
+    
+    def test_rebalance_by_distance(self):
+        """Test rebalancing clusters by distance."""
+        index = ClusterIndex()
+        
+        # Create clusters with misassigned weights
+        # Cluster 1 centroid around [1, 0]
+        index.add_weight_to_cluster("w1", "c1", np.array([1.0, 0.0]))
+        index.add_weight_to_cluster("w2", "c1", np.array([1.1, 0.1]))
+        
+        # Cluster 2 centroid around [0, 1]
+        index.add_weight_to_cluster("w3", "c2", np.array([0.0, 1.0]))
+        index.add_weight_to_cluster("w4", "c2", np.array([0.1, 1.1]))
+        
+        # Add misassigned weight (closer to c2 but in c1)
+        index.add_weight_to_cluster("w_mis", "c1", np.array([0.2, 0.9]))
+        
+        # Rebalance by distance
+        reassignments = index.rebalance_clusters(strategy="distance")
+        
+        # The misassigned weight should be moved
+        assert len(reassignments) > 0
+    
+    def test_high_dimensional_data(self):
+        """Test with high-dimensional data (triggers LSH)."""
+        index = ClusterIndex(dimension_threshold=100)
+        
+        # Create high-dimensional weights
+        dim = 200
+        index.add_weight_to_cluster("w1", "c1", np.random.randn(dim))
+        index.add_weight_to_cluster("w2", "c1", np.random.randn(dim))
+        index.add_weight_to_cluster("w3", "c2", np.random.randn(dim))
+        
+        # Query should work with LSH
+        query = np.random.randn(dim)
+        result = index.find_nearest_cluster(query, k=1)
+        
+        assert len(result) == 1
+        assert result[0][0] in ["c1", "c2"]
+    
+    def test_serialization(self):
+        """Test index serialization and deserialization."""
+        index = ClusterIndex()
+        
+        # Add some data
+        index.add_weight_to_cluster("w1", "c1", np.array([1.0, 2.0]))
+        index.add_weight_to_cluster("w2", "c1", np.array([1.1, 2.1]))
+        index.add_weight_to_cluster("w3", "c2", np.array([3.0, 4.0]))
+        
+        # Serialize
+        data = index.to_dict()
+        assert "weight_to_cluster" in data
+        assert "cluster_centroids" in data
+        assert "dimension_threshold" in data
+        
+        # Deserialize
+        index2 = ClusterIndex.from_dict(data)
+        assert index2.get_weight_count() == 3
+        assert index2.get_cluster_count() == 2
+        assert set(index2.get_cluster_members("c1")) == {"w1", "w2"}
+        assert index2.get_cluster_members("c2") == ["w3"]
+    
+    def test_thread_safety(self):
+        """Test concurrent operations."""
+        index = ClusterIndex()
+        errors = []
+        
+        def add_weights(start_idx):
             try:
                 for i in range(10):
-                    data = np.random.randn(10)
-                    centroid = Centroid(
-                        data=data,
-                        cluster_id=f"write_cluster_{start_id}_{i}",
-                        shape=(10,),
-                        dtype=data.dtype
-                    )
-                    index.add_centroid(centroid)
-                    time.sleep(0.001)  # Small delay to allow interleaving
-            except Exception:
-                results["write_errors"] += 1
+                    weight_id = f"w_{start_idx}_{i}"
+                    cluster_id = f"c_{start_idx % 3}"
+                    weight = np.random.randn(10)
+                    index.add_weight_to_cluster(weight_id, cluster_id, weight)
+            except Exception as e:
+                errors.append(e)
         
-        # Run concurrent operations
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            # Start read workers
-            read_futures = [executor.submit(read_worker) for _ in range(4)]
-            
-            # Start write workers  
-            write_futures = [executor.submit(write_worker, i * 100) for i in range(4)]
-            
-            # Wait for completion
-            for future in as_completed(read_futures + write_futures):
-                future.result()
-        
-        # Should have minimal errors (thread safety)
-        assert results["read_errors"] == 0
-        assert results["write_errors"] == 0
-        
-        # Index should be in valid state
-        validation = index.validate_index()
-        assert validation["is_valid"]
-    
-    def test_concurrent_index_optimization(self):
-        """Test concurrent access during index optimization."""
-        index = ClusterIndex()
-        
-        # Add many centroids
-        for i in range(100):
-            data = np.random.randn(10)
-            centroid = Centroid(
-                data=data,
-                cluster_id=f"opt_cluster_{i}",
-                shape=(10,),
-                dtype=data.dtype
-            )
-            index.add_centroid(centroid)
-        
-        optimization_complete = threading.Event()
-        
-        def optimization_worker():
-            index.optimize_index()
-            optimization_complete.set()
-        
-        def query_worker():
-            while not optimization_complete.is_set():
-                weight = np.random.randn(10)
-                try:
-                    result = index.find_nearest_centroid(weight)
-                    assert result is not None
-                except Exception:
-                    pass  # Some queries might fail during optimization
-                time.sleep(0.001)
-        
-        # Run optimization and queries concurrently
+        # Run concurrent additions
         with ThreadPoolExecutor(max_workers=5) as executor:
-            opt_future = executor.submit(optimization_worker)
-            query_futures = [executor.submit(query_worker) for _ in range(4)]
-            
-            # Wait for completion
-            for future in [opt_future] + query_futures:
+            futures = [executor.submit(add_weights, i*10) for i in range(5)]
+            for future in futures:
                 future.result()
         
-        # Index should be optimized and valid
-        stats = index.get_index_stats()
-        assert stats["last_optimization"] is not None
-        
-        validation = index.validate_index()
-        assert validation["is_valid"]
-
-
-class TestClusterIndexErrorHandling:
-    """Error handling and edge case tests."""
+        assert len(errors) == 0
+        assert index.get_weight_count() == 50
+        assert index.get_cluster_count() == 3
     
-    def test_empty_data_handling(self):
-        """Test handling of empty or invalid data."""
+    def test_edge_cases(self):
+        """Test various edge cases."""
         index = ClusterIndex()
         
-        # Empty weight tensor
-        empty_weight = WeightTensor(
-            data=np.array([]),
-            metadata=WeightMetadata(name="empty", shape=(), dtype=np.float32)
-        )
+        # Empty cluster members
+        assert index.get_cluster_members("nonexistent") == []
         
-        # Should handle gracefully
-        result = index.find_nearest_centroid(empty_weight)
-        assert result is None
+        # Remove from empty index
+        assert index.remove_weight_from_cluster("nonexistent") is False
+        
+        # Single weight cluster
+        index.add_weight_to_cluster("w1", "c1", np.array([1.0]))
+        assert index.get_cluster_count() == 1
+        
+        # Remove single weight (cluster should disappear)
+        index.remove_weight_from_cluster("w1")
+        assert index.get_cluster_count() == 0
+        
+        # Clear index
+        index.add_weight_to_cluster("w1", "c1", np.array([1.0]))
+        index.add_weight_to_cluster("w2", "c2", np.array([2.0]))
+        index.clear()
+        assert index.get_weight_count() == 0
+        assert index.get_cluster_count() == 0
     
-    def test_mismatched_shapes(self):
-        """Test handling of mismatched tensor shapes."""
+    def test_centroid_updates(self):
+        """Test that centroids are properly updated."""
         index = ClusterIndex()
         
-        # Add centroid with one shape
-        centroid = Centroid(
-            data=np.random.randn(10),
-            cluster_id="shape_test",
-            shape=(10,),
-            dtype=np.float32
-        )
-        index.add_centroid(centroid)
+        # Add initial weights
+        index.add_weight_to_cluster("w1", "c1", np.array([1.0, 0.0]))
+        index.add_weight_to_cluster("w2", "c1", np.array([3.0, 0.0]))
         
-        # Query with different shape
-        weight = WeightTensor(
-            data=np.random.randn(5),
-            metadata=WeightMetadata(name="different", shape=(5,), dtype=np.float32)
-        )
+        # Centroid should be at [2.0, 0.0]
+        query = np.array([2.0, 0.0])
+        result = index.find_nearest_cluster(query, k=1)
+        assert result[0][0] == "c1"
+        assert result[0][1] < 0.1  # Very close to centroid
         
-        # Should handle gracefully (flatten operation should work)
-        result = index.find_nearest_centroid(weight)
-        assert result is not None  # Different shapes but should still work
+        # Add another weight
+        index.add_weight_to_cluster("w3", "c1", np.array([2.0, 0.0]))
+        
+        # Centroid should still be at [2.0, 0.0]
+        result = index.find_nearest_cluster(query, k=1)
+        assert result[0][1] < 0.1
+        
+        # Remove a weight
+        index.remove_weight_from_cluster("w1")
+        
+        # Centroid should shift to [2.5, 0.0]
+        new_query = np.array([2.5, 0.0])
+        result = index.find_nearest_cluster(new_query, k=1)
+        assert result[0][1] < 0.1
     
-    def test_invalid_cluster_operations(self):
-        """Test invalid cluster operations."""
+    def test_get_cluster_sizes(self):
+        """Test getting cluster size information."""
         index = ClusterIndex()
         
-        # Operations on non-existent clusters
-        assert index.get_centroid("non_existent") is None
-        assert index.remove_centroid("non_existent") is False
-        assert index.update_centroid("non_existent", None) is False
+        # Add weights to different clusters
+        index.add_weight_to_cluster("w1", "c1", np.array([1.0]))
+        index.add_weight_to_cluster("w2", "c1", np.array([2.0]))
+        index.add_weight_to_cluster("w3", "c2", np.array([3.0]))
+        index.add_weight_to_cluster("w4", "c2", np.array([4.0]))
+        index.add_weight_to_cluster("w5", "c2", np.array([5.0]))
         
-        # Invalid hierarchy operations
-        assert index.get_parent_centroid("non_existent") is None
-        assert len(index.get_child_centroids("non_existent")) == 0
+        sizes = index.get_cluster_sizes()
+        assert sizes == {"c1": 2, "c2": 3}
     
-    def test_index_rebuild_handling(self):
-        """Test that index rebuilds are handled correctly."""
+    def test_rebalance_hybrid(self):
+        """Test hybrid rebalancing strategy."""
         index = ClusterIndex()
         
-        # Add centroid
-        centroid = Centroid(
-            data=np.random.randn(10),
-            cluster_id="rebuild_test",
-            shape=(10,),
-            dtype=np.float32
-        )
-        index.add_centroid(centroid)
+        # Create imbalanced clusters with some misassigned weights
+        # Large cluster
+        for i in range(5):
+            index.add_weight_to_cluster(f"w1_{i}", "c1", np.array([1.0 + i*0.1, 0.0]))
         
-        # Force index rebuild flag
-        index._index_needs_rebuild = True
+        # Small cluster with misassigned weight
+        index.add_weight_to_cluster("w2_0", "c2", np.array([10.0, 0.0]))
+        index.add_weight_to_cluster("w_mis", "c2", np.array([1.5, 0.0]))  # Should be in c1
         
-        # Query should trigger rebuild
-        weight = np.random.randn(10)
-        result = index.find_nearest_centroid(weight)
+        # Apply hybrid rebalancing
+        reassignments = index.rebalance_clusters(strategy="hybrid")
         
-        assert result is not None
-        assert not index._index_needs_rebuild  # Should be cleared after rebuild
+        # Should have some reassignments
+        assert len(reassignments) > 0
 
 
 if __name__ == "__main__":

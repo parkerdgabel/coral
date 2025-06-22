@@ -403,6 +403,8 @@ class TestCentroidEncoder:
             # Mock delta encoder
             mock_encoder_instance = Mock()
             mock_delta = Mock(spec=Delta)
+            mock_delta.delta_type = DeltaType.FLOAT32_RAW  # Add delta_type attribute
+            mock_delta.nbytes = 12  # Add nbytes for compression ratio calculation
             mock_encoder_instance.encode_delta.return_value = mock_delta
             mock_delta_encoder.return_value = mock_encoder_instance
             

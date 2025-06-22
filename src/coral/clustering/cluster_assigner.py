@@ -22,13 +22,13 @@ import numpy as np
 from scipy.spatial.distance import euclidean, cosine
 from scipy.optimize import linear_sum_assignment
 
-from coral.core.weight_tensor import WeightTensor
-from coral.clustering.cluster_types import (
+from ..core.weight_tensor import WeightTensor
+from .cluster_types import (
     ClusterAssignment, ClusterInfo, ClusterLevel, Centroid
 )
-from coral.clustering.cluster_index import ClusterIndex
-from coral.clustering.cluster_hierarchy import ClusterHierarchy
-from coral.clustering.centroid_encoder import CentroidEncoder
+from .cluster_index_centroid import ClusterIndex
+from .cluster_hierarchy import ClusterHierarchy
+from .centroid_encoder import CentroidEncoder
 
 logger = logging.getLogger(__name__)
 

@@ -261,6 +261,9 @@ def main() -> None:
     """Main benchmarking entry point."""
     try:
         run_benchmark()
+        print(f"\n{Colors.CYAN}💡 For clustering benchmarks, run:{Colors.ENDC}")
+        print(f"   {Colors.GREEN}python benchmarks/quick_clustering_test.py{Colors.ENDC} (for quick tests)")
+        print(f"   {Colors.GREEN}python benchmarks/clustering_benchmarks.py{Colors.ENDC} (for comprehensive benchmarks)")
     except KeyboardInterrupt:
         print(f"\n{Colors.YELLOW}⚠️  Benchmark interrupted by user{Colors.ENDC}")
         sys.exit(1)

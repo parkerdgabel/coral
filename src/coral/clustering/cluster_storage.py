@@ -86,20 +86,19 @@ class ClusterStorage:
         self.compression_opts = compression_opts
         self.mode = mode
         
-        # Use existing store or create new one
-        if base_store:
-            self.store = base_store
-            self.file = base_store.file
-            self._owns_store = False
-        else:
-            self.store = HDF5Store(
-                str(storage_path), 
-                compression=compression,
-                compression_opts=compression_opts,
-                mode=mode
-            )
-            self.file = self.store.file
-            self._owns_store = True
+        # Always create our own HDF5 file handle to avoid lifecycle issues
+        self._owns_file = True
+        self._owns_store = False
+        
+        # Ensure directory exists
+        self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Open HDF5 file directly
+        self.file = h5py.File(str(self.storage_path), mode)
+        
+        # Initialize HDF5Store for delta operations
+        self.store = HDF5Store(str(self.storage_path), mode=mode)
+        self._owns_store = True
         
         # Thread safety
         self._lock = threading.RLock()
@@ -462,6 +461,110 @@ class ClusterStorage:
             
             return centroids
     
+    def store_cluster_with_shape_metadata(
+        self,
+        cluster: ClusterInfo,
+        shape_metadata: Dict[str, Any]
+    ) -> str:
+        """
+        Store cluster with additional shape compatibility metadata.
+        
+        Args:
+            cluster: Cluster information
+            shape_metadata: Shape and dtype metadata for validation
+            
+        Returns:
+            Storage key for the cluster
+        """
+        with self._lock:
+            clusters_group = self.file["clusters"]
+            storage_key = f"cluster_{cluster.cluster_id}"
+            
+            # Store cluster data
+            cluster_data = cluster.to_dict()
+            
+            if storage_key in clusters_group:
+                del clusters_group[storage_key]
+            
+            dataset = clusters_group.create_dataset(
+                storage_key,
+                shape=(1,),
+                dtype=np.int32
+            )
+            
+            # Store cluster attributes
+            for key, value in cluster_data.items():
+                if value is None:
+                    dataset.attrs[key] = "None"
+                elif isinstance(value, (list, tuple)):
+                    dataset.attrs[key] = str(value)
+                else:
+                    dataset.attrs[key] = value
+            
+            # Store shape metadata for validation
+            dataset.attrs["shape_metadata"] = str(shape_metadata)
+            dataset.attrs["storage_key"] = storage_key
+            dataset.attrs["created_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+            
+            # Update stats
+            self._operation_stats['clusters_stored'] += 1
+            
+            # Flush to disk
+            self.file.flush()
+            
+            logger.debug(f"Stored cluster {cluster.cluster_id} with shape metadata")
+            return storage_key
+    
+    def validate_cluster_compatibility(
+        self,
+        cluster_id: str,
+        weight_shape: Tuple[int, ...],
+        weight_dtype: str
+    ) -> bool:
+        """
+        Validate that a weight is compatible with a cluster's shape requirements.
+        
+        Args:
+            cluster_id: ID of the cluster
+            weight_shape: Shape of the weight to validate
+            weight_dtype: Dtype of the weight to validate
+            
+        Returns:
+            True if compatible, False otherwise
+        """
+        try:
+            clusters = self.load_clusters(cluster_ids=[cluster_id])
+            if not clusters:
+                logger.warning(f"Cluster {cluster_id} not found for compatibility check")
+                return False
+            
+            cluster = clusters[0]
+            
+            # Check if cluster has shape metadata stored
+            clusters_group = self.file["clusters"]
+            storage_key = f"cluster_{cluster_id}"
+            
+            if storage_key in clusters_group:
+                dataset = clusters_group[storage_key]
+                if "shape_metadata" in dataset.attrs:
+                    import ast
+                    try:
+                        shape_metadata = ast.literal_eval(dataset.attrs["shape_metadata"])
+                        expected_shape = tuple(shape_metadata.get("shape", []))
+                        expected_dtype = shape_metadata.get("dtype", "")
+                        
+                        return (tuple(weight_shape) == expected_shape and 
+                                str(weight_dtype) == expected_dtype)
+                    except:
+                        logger.warning(f"Failed to parse shape metadata for cluster {cluster_id}")
+            
+            # Fallback: assume compatible if no metadata
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error validating cluster compatibility: {e}")
+            return False
+    
     # Hierarchy operations
     
     def store_hierarchy(self, hierarchy: ClusterHierarchy) -> str:
@@ -686,7 +789,14 @@ class ClusterStorage:
                 
                 # Store assignment data as attributes
                 for key, value in assignment_data.items():
-                    dataset.attrs[key] = value
+                    # Handle None values and ensure HDF5 compatibility
+                    if value is None:
+                        dataset.attrs[key] = "None"
+                    elif isinstance(value, (list, tuple)):
+                        # Convert lists/tuples to strings for HDF5
+                        dataset.attrs[key] = str(value)
+                    else:
+                        dataset.attrs[key] = value
                 
                 dataset.attrs["assignment_key"] = assignment_key
                 dataset.attrs["created_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -734,7 +844,12 @@ class ClusterStorage:
                     # Reconstruct assignment from attributes
                     assignment_data = {}
                     for attr_name in dataset.attrs:
-                        assignment_data[attr_name] = dataset.attrs[attr_name]
+                        value = dataset.attrs[attr_name]
+                        # Handle special values that were converted for HDF5
+                        if value == "None":
+                            assignment_data[attr_name] = None
+                        else:
+                            assignment_data[attr_name] = value
                     
                     assignment = ClusterAssignment.from_dict(assignment_data)
                     
@@ -786,10 +901,11 @@ class ClusterStorage:
             
             for delta in deltas:
                 # Use the existing store's delta storage functionality
-                delta_hash = self.store.store_delta(delta, delta.compute_hash() if hasattr(delta, 'compute_hash') else f"delta_{uuid.uuid4().hex[:8]}")
+                delta_hash = delta.compute_hash()
+                stored_hash = self.store.store_delta(delta, delta_hash)
                 
                 # Create reference in centroid_deltas group
-                storage_key = f"centroid_delta_{delta_hash}"
+                storage_key = f"centroid_delta_{stored_hash}"
                 
                 if storage_key not in centroid_deltas_group:
                     # Create reference dataset
@@ -798,12 +914,12 @@ class ClusterStorage:
                         shape=(1,),
                         dtype=np.int32
                     )
-                    ref_dataset.attrs["delta_hash"] = delta_hash
+                    ref_dataset.attrs["delta_hash"] = stored_hash
                     ref_dataset.attrs["reference_hash"] = delta.reference_hash
                     ref_dataset.attrs["delta_type"] = delta.delta_type.value
                     ref_dataset.attrs["created_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
                 
-                result[delta_hash] = storage_key
+                result[stored_hash] = storage_key
             
             self.file.flush()
             return result
@@ -908,6 +1024,160 @@ class ClusterStorage:
             except Exception as e:
                 logger.warning(f"Error loading metadata for {cluster_id}: {e}")
                 return None
+    
+    def delete_cluster(self, cluster_id: str) -> bool:
+        """
+        Delete a cluster from storage.
+        
+        Args:
+            cluster_id: Cluster identifier to delete
+            
+        Returns:
+            True if cluster was deleted, False if not found
+        """
+        with self._lock:
+            clusters_group = self.file["clusters"]
+            storage_key = f"cluster_{cluster_id}"
+            
+            if storage_key not in clusters_group:
+                return False
+            
+            try:
+                # Get metadata before deletion
+                dataset = clusters_group[storage_key]
+                centroid_hash = None
+                for attr_name in dataset.attrs:
+                    if attr_name == "centroid_hash":
+                        centroid_hash = dataset.attrs[attr_name]
+                        break
+                
+                # Delete the cluster
+                del clusters_group[storage_key]
+                
+                # Delete associated assignments
+                self.delete_assignments_for_cluster(cluster_id)
+                
+                # Also delete associated centroid if it exists
+                if centroid_hash:
+                    self.delete_centroid(centroid_hash)
+                
+                self.file.flush()
+                logger.debug(f"Deleted cluster {cluster_id}")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error deleting cluster {cluster_id}: {e}")
+                return False
+    
+    def delete_centroid(self, centroid_hash: str) -> bool:
+        """
+        Delete a centroid from storage.
+        
+        Args:
+            centroid_hash: Centroid hash to delete
+            
+        Returns:
+            True if centroid was deleted, False if not found
+        """
+        with self._lock:
+            centroids_group = self.file["centroids"]
+            storage_key = f"centroid_{centroid_hash}"
+            
+            if storage_key not in centroids_group:
+                return False
+            
+            try:
+                del centroids_group[storage_key]
+                self.file.flush()
+                logger.debug(f"Deleted centroid {centroid_hash}")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error deleting centroid {centroid_hash}: {e}")
+                return False
+    
+    def delete_assignment(self, weight_hash: str, cluster_id: str) -> bool:
+        """
+        Delete a specific assignment from storage.
+        
+        Args:
+            weight_hash: Weight hash of the assignment
+            cluster_id: Cluster ID of the assignment
+            
+        Returns:
+            True if assignment was deleted, False if not found
+        """
+        with self._lock:
+            assignments_group = self.file["assignments"]
+            assignment_key = f"{weight_hash}_{cluster_id}"
+            storage_key = f"assignment_{assignment_key}"
+            
+            if storage_key not in assignments_group:
+                return False
+            
+            try:
+                del assignments_group[storage_key]
+                self.file.flush()
+                logger.debug(f"Deleted assignment {assignment_key}")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error deleting assignment {assignment_key}: {e}")
+                return False
+    
+    def delete_assignments_for_cluster(self, cluster_id: str) -> int:
+        """
+        Delete all assignments for a specific cluster.
+        
+        Args:
+            cluster_id: Cluster ID whose assignments to delete
+            
+        Returns:
+            Number of assignments deleted
+        """
+        with self._lock:
+            assignments_group = self.file["assignments"]
+            deleted_count = 0
+            
+            # Find all assignments for this cluster
+            assignments_to_delete = []
+            for storage_key in assignments_group.keys():
+                try:
+                    dataset = assignments_group[storage_key]
+                    if dataset.attrs.get("cluster_id") == cluster_id:
+                        assignments_to_delete.append(storage_key)
+                except Exception:
+                    continue
+            
+            # Delete them
+            for storage_key in assignments_to_delete:
+                try:
+                    del assignments_group[storage_key]
+                    deleted_count += 1
+                except Exception as e:
+                    logger.warning(f"Error deleting assignment {storage_key}: {e}")
+            
+            if deleted_count > 0:
+                self.file.flush()
+                logger.debug(f"Deleted {deleted_count} assignments for cluster {cluster_id}")
+            
+            return deleted_count
+    
+    def get_cluster_members(self, cluster_id: str) -> List[str]:
+        """
+        Get all weight hashes that belong to a specific cluster.
+        
+        Args:
+            cluster_id: Cluster identifier
+            
+        Returns:
+            List of weight hashes assigned to this cluster
+        """
+        with self._lock:
+            assignments = self.load_assignments(
+                filter_criteria={'cluster_ids': [cluster_id]}
+            )
+            return [a.weight_hash for a in assignments]
     
     def batch_load_clusters(self, cluster_ids: List[str]) -> List[ClusterInfo]:
         """
@@ -1268,7 +1538,8 @@ class ClusterStorage:
             # Reopen file
             if self._owns_store:
                 self.file = h5py.File(self.storage_path, self.mode)
-                self.store.file = self.file
+                # Reinitialize store with new file handle
+                self.store = HDF5Store(str(self.storage_path), mode=self.mode)
     
     def restore_from_backup(self, backup_path: str) -> bool:
         """
@@ -1298,7 +1569,8 @@ class ClusterStorage:
             # Reopen file
             if self._owns_store:
                 self.file = h5py.File(self.storage_path, self.mode)
-                self.store.file = self.file
+                # Reinitialize store with new file handle
+                self.store = HDF5Store(str(self.storage_path), mode=self.mode)
                 
                 # Re-initialize storage groups
                 self._init_storage_groups()
@@ -1344,10 +1616,13 @@ class ClusterStorage:
     
     def close(self):
         """Close storage and clean up resources."""
-        if self._owns_store and hasattr(self, 'store'):
+        if self._owns_file and hasattr(self, 'file') and self.file:
+            try:
+                self.file.close()
+            except Exception:
+                pass  # Already closed
+        if self._owns_store and hasattr(self, 'store') and self.store:
             self.store.close()
-        elif hasattr(self, 'file') and self.file:
-            self.file.close()
     
     # Private helper methods
     
@@ -1448,6 +1723,11 @@ class ClusterStorage:
     
     def __enter__(self):
         """Context manager entry."""
+        # Reopen file if it was closed
+        if hasattr(self, 'file') and (not self.file or not self.file.id.valid):
+            self.file = h5py.File(str(self.storage_path), self.mode)
+            # Ensure groups exist
+            self._init_storage_groups()
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -1456,10 +1736,18 @@ class ClusterStorage:
     
     def __repr__(self) -> str:
         """String representation."""
-        info = self.get_storage_info()
-        return (
-            f"ClusterStorage(path='{self.storage_path}', "
-            f"clusters={info['group_counts']['clusters']}, "
-            f"centroids={info['group_counts']['centroids']}, "
-            f"assignments={info['group_counts']['assignments']})"
-        )
+        try:
+            # Try to get info if file is valid
+            if hasattr(self, 'file') and self.file and hasattr(self.file, 'id') and self.file.id.valid:
+                info = self.get_storage_info()
+                return (
+                    f"ClusterStorage(path='{self.storage_path}', "
+                    f"clusters={info['group_counts']['clusters']}, "
+                    f"centroids={info['group_counts']['centroids']}, "
+                    f"assignments={info['group_counts']['assignments']})"
+                )
+            else:
+                return f"ClusterStorage(path='{self.storage_path}', file_closed=True)"
+        except Exception:
+            # Fallback if any error occurs
+            return f"ClusterStorage(path='{self.storage_path}')"

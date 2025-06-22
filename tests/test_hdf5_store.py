@@ -118,70 +118,84 @@ class TestHDF5Store:
     def test_store_and_retrieve_delta(self, temp_store):
         """Test storing and retrieving delta objects."""
         delta = Delta(
-            reference_hash="ref_hash",
-            delta_data=np.array([0.1, 0.2, 0.3], dtype=np.float32),
             delta_type=DeltaType.FLOAT32_RAW,
-            shape=(3,),
-            original_hash="orig_hash",
+            data=np.array([0.1, 0.2, 0.3], dtype=np.float32),
+            metadata={},
+            original_shape=(3,),
+            original_dtype=np.float32,
+            reference_hash="ref_hash",
+            compression_ratio=0.0
         )
 
-        temp_store.store_delta(delta, "delta_hash")
+        delta_hash = delta.compute_hash()
+        temp_store.store_delta(delta, delta_hash)
 
-        retrieved = temp_store.load_delta("delta_hash")
+        retrieved = temp_store.load_delta(delta_hash)
         assert retrieved is not None
         assert retrieved.reference_hash == delta.reference_hash
         assert retrieved.delta_type == delta.delta_type
-        np.testing.assert_array_equal(retrieved.delta_data, delta.delta_data)
+        np.testing.assert_array_equal(retrieved.data, delta.data)
 
     def test_delta_exists(self, temp_store):
         """Test checking if delta exists."""
         delta = Delta(
-            reference_hash="ref",
-            delta_data=np.array([1.0], dtype=np.float32),
             delta_type=DeltaType.FLOAT32_RAW,
-            shape=(1,),
-            original_hash="orig",
+            data=np.array([1.0], dtype=np.float32),
+            metadata={},
+            original_shape=(1,),
+            original_dtype=np.float32,
+            reference_hash="ref",
+            compression_ratio=0.0
         )
 
-        assert not temp_store.delta_exists("test_delta")
-        temp_store.store_delta(delta, "test_delta")
-        assert temp_store.delta_exists("test_delta")
+        delta_hash = delta.compute_hash()
+        assert not temp_store.delta_exists(delta_hash)
+        temp_store.store_delta(delta, delta_hash)
+        assert temp_store.delta_exists(delta_hash)
 
     def test_delete_delta(self, temp_store):
         """Test deleting delta."""
         delta = Delta(
-            reference_hash="ref",
-            delta_data=np.array([1.0], dtype=np.float32),
             delta_type=DeltaType.FLOAT32_RAW,
-            shape=(1,),
-            original_hash="orig",
+            data=np.array([1.0], dtype=np.float32),
+            metadata={},
+            original_shape=(1,),
+            original_dtype=np.float32,
+            reference_hash="ref",
+            compression_ratio=0.0
         )
 
-        temp_store.store_delta(delta, "delta_to_delete")
-        assert temp_store.delta_exists("delta_to_delete")
+        delta_hash = delta.compute_hash()
+        temp_store.store_delta(delta, delta_hash)
+        assert temp_store.delta_exists(delta_hash)
 
-        assert temp_store.delete_delta("delta_to_delete")
-        assert not temp_store.delta_exists("delta_to_delete")
+        assert temp_store.delete_delta(delta_hash)
+        assert not temp_store.delta_exists(delta_hash)
         assert not temp_store.delete_delta(
-            "delta_to_delete"
+            delta_hash
         )  # Second delete returns False
 
     def test_list_deltas(self, temp_store):
         """Test listing all deltas."""
+        stored_hashes = []
         for i in range(3):
             delta = Delta(
-                reference_hash=f"ref_{i}",
-                delta_data=np.array([float(i)], dtype=np.float32),
                 delta_type=DeltaType.FLOAT32_RAW,
-                shape=(1,),
-                original_hash=f"orig_{i}",
+                data=np.array([float(i)], dtype=np.float32),
+                metadata={},
+                original_shape=(1,),
+                original_dtype=np.float32,
+                reference_hash=f"ref_{i}",
+                compression_ratio=0.0
             )
-            temp_store.store_delta(delta, f"delta_{i}")
+            delta_hash = delta.compute_hash()
+            temp_store.store_delta(delta, delta_hash)
+            stored_hashes.append(delta_hash)
 
         deltas = temp_store.list_deltas()
         assert len(deltas) == 3
-        for i in range(3):
-            assert f"delta_{i}" in deltas
+        for stored_hash in stored_hashes:
+            assert stored_hash in deltas
 
     def test_store_large_weight(self, temp_store):
         """Test storing large weight tensors."""

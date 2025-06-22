@@ -41,7 +41,7 @@ from coral.version_control.repository import Repository
 from coral.storage.hdf5_store import HDF5Store
 from coral.core.deduplicator import Deduplicator
 from coral.delta.delta_encoder import DeltaEncoder, DeltaConfig, DeltaType
-from coral.delta.compression import CompressionType
+from coral.delta.compression import DeltaCompressor
 
 
 class DataIntegrityTestResults:

@@ -11,7 +11,7 @@ import threading
 import time
 from collections import defaultdict, Counter
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Any, Callable, Union
+from typing import Dict, List, Optional, Tuple, Any, Callable, Union, Set
 import warnings
 
 import numpy as np
@@ -32,6 +32,82 @@ from ..core.weight_tensor import WeightTensor
 from ..version_control.repository import Repository
 
 logger = logging.getLogger(__name__)
+
+
+def safe_cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    """
+    Compute cosine similarity with numerical stability safeguards.
+    
+    Args:
+        a: First vector
+        b: Second vector
+        
+    Returns:
+        Cosine similarity in range [-1, 1]
+    """
+    # Check for special values
+    if np.any(np.isnan(a)) or np.any(np.isnan(b)):
+        return 0.0
+    if np.any(np.isinf(a)) or np.any(np.isinf(b)):
+        # For infinite values, check if they're identical
+        if np.array_equal(a, b):
+            return 1.0
+        return 0.0
+    
+    # Check for extreme values
+    max_val = max(np.max(np.abs(a)), np.max(np.abs(b)))
+    if max_val > 1e20:
+        # Use float64 for large values
+        a = a.astype(np.float64)
+        b = b.astype(np.float64)
+    
+    # Compute norms
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    
+    # Handle zero vectors
+    if norm_a == 0 or norm_b == 0:
+        return 1.0 if norm_a == norm_b else 0.0
+    
+    # Add epsilon for numerical stability
+    epsilon = np.finfo(a.dtype).eps * max(1.0, norm_a, norm_b)
+    
+    # Compute dot product and similarity
+    try:
+        dot_product = np.dot(a, b)
+        similarity = dot_product / (norm_a * norm_b + epsilon)
+        # Clip to valid range
+        return np.clip(similarity, -1.0, 1.0)
+    except (RuntimeWarning, FloatingPointError):
+        # Fallback for edge cases
+        return 1.0 if np.allclose(a, b, rtol=0.01, atol=1e-8) else 0.0
+
+
+def safe_normalize(data: np.ndarray, axis: Optional[int] = None) -> np.ndarray:
+    """
+    Safely normalize data with handling for edge cases.
+    
+    Args:
+        data: Data to normalize
+        axis: Axis along which to normalize
+        
+    Returns:
+        Normalized data
+    """
+    # Handle special values
+    if np.any(np.isnan(data)):
+        data = np.nan_to_num(data, nan=0.0)
+    if np.any(np.isinf(data)):
+        data = np.clip(data, -1e20, 1e20)
+    
+    # Compute norm
+    norm = np.linalg.norm(data, axis=axis, keepdims=True)
+    
+    # Add epsilon to prevent division by zero
+    epsilon = np.finfo(data.dtype).eps
+    norm = np.maximum(norm, epsilon)
+    
+    return data / norm
 
 
 @dataclass
@@ -60,6 +136,64 @@ class RepositoryAnalysis:
         if self.total_commits == 0:
             return 0.0
         return self.total_weights / self.total_commits
+
+
+@dataclass
+class AnalysisResult:
+    """
+    Comprehensive results from weight analysis for clustering.
+    
+    Contains all information needed to make clustering decisions including
+    similarity analysis, cluster identification, and strategy recommendations.
+    """
+    
+    weights: List[WeightTensor] = field(default_factory=list)
+    similarity_matrix: Optional[np.ndarray] = None
+    identified_clusters: List[List[int]] = field(default_factory=list)
+    compression_estimate: float = 1.0
+    recommended_strategy: Optional[ClusteringStrategy] = None
+    recommended_params: Dict[str, Any] = field(default_factory=dict)
+    level: ClusterLevel = ClusterLevel.TENSOR
+    execution_time: float = 0.0
+    
+    @property
+    def num_weights(self) -> int:
+        """Get number of weights analyzed."""
+        return len(self.weights)
+    
+    @property
+    def num_clusters(self) -> int:
+        """Get number of identified clusters."""
+        return len(self.identified_clusters)
+    
+    @property
+    def clustering_ratio(self) -> float:
+        """Get ratio of weights that can be clustered."""
+        if not self.weights:
+            return 0.0
+        clustered_count = sum(len(cluster) for cluster in self.identified_clusters)
+        return clustered_count / len(self.weights)
+    
+    def get_cluster_summary(self) -> Dict[str, Any]:
+        """Get summary statistics about identified clusters."""
+        if not self.identified_clusters:
+            return {
+                "num_clusters": 0,
+                "avg_cluster_size": 0,
+                "min_cluster_size": 0,
+                "max_cluster_size": 0,
+                "clustering_ratio": 0.0
+            }
+        
+        cluster_sizes = [len(cluster) for cluster in self.identified_clusters]
+        
+        return {
+            "num_clusters": len(self.identified_clusters),
+            "avg_cluster_size": np.mean(cluster_sizes),
+            "min_cluster_size": min(cluster_sizes),
+            "max_cluster_size": max(cluster_sizes),
+            "clustering_ratio": self.clustering_ratio
+        }
 
 
 @dataclass
@@ -270,7 +404,8 @@ class ClusterAnalyzer:
             
             # Normalize features if configured
             if self.config.normalize_features and self._scaler is not None:
-                features = self._scaler.fit_transform(features)
+                with self._lock:
+                    features = self._scaler.fit_transform(features)
             
             # Cache results
             if cache_key:
@@ -327,14 +462,29 @@ class ClusterAnalyzer:
                         similarity = 1.0
                     else:
                         if metric == "cosine":
-                            similarity = 1.0 - cosine(features[i], features[j])
+                            # Use our safe cosine similarity function
+                            similarity = safe_cosine_similarity(features[i], features[j])
                         elif metric == "euclidean":
-                            # Convert distance to similarity
-                            distance = euclidean(features[i], features[j])
-                            similarity = 1.0 / (1.0 + distance)
+                            # Convert distance to similarity with stability checks
+                            try:
+                                distance = euclidean(features[i], features[j])
+                                # Prevent overflow in similarity calculation
+                                if np.isinf(distance):
+                                    similarity = 0.0
+                                else:
+                                    similarity = 1.0 / (1.0 + distance)
+                            except (RuntimeWarning, FloatingPointError):
+                                similarity = 0.0
                         elif metric == "correlation":
-                            similarity = np.corrcoef(features[i], features[j])[0, 1]
-                            similarity = np.nan_to_num(similarity, nan=0.0)
+                            try:
+                                # Check for constant vectors which cause correlation issues
+                                if np.std(features[i]) == 0 or np.std(features[j]) == 0:
+                                    similarity = 1.0 if np.array_equal(features[i], features[j]) else 0.0
+                                else:
+                                    similarity = np.corrcoef(features[i], features[j])[0, 1]
+                                    similarity = np.nan_to_num(similarity, nan=0.0)
+                            except (RuntimeWarning, FloatingPointError):
+                                similarity = 0.0
                         else:
                             raise ValueError(f"Unknown similarity metric: {metric}")
                     
@@ -834,7 +984,8 @@ class ClusterAnalyzer:
         min_size = min_cluster_size or self.config.min_cluster_size
         
         # Check cluster sizes
-        cluster_sizes = Counter(assignment.cluster_id for assignment in assignments)
+        cluster_sizes = Counter(assignment.cluster_id for assignment in assignments 
+                              if assignment.cluster_id != "noise")
         
         for cluster_id, size in cluster_sizes.items():
             if size < min_size:
@@ -845,6 +996,9 @@ class ClusterAnalyzer:
         for assignment in assignments:
             if not assignment.cluster_id or not isinstance(assignment.cluster_id, str):
                 return False
+            # Skip noise points in validation
+            if assignment.cluster_id == "noise":
+                continue
         
         # Check similarity scores
         for assignment in assignments:
@@ -856,7 +1010,7 @@ class ClusterAnalyzer:
     # Private helper methods
     
     def _extract_raw_features(self, weights: List[WeightTensor]) -> np.ndarray:
-        """Extract raw flattened features."""
+        """Extract raw flattened features with numerical stability."""
         # Group weights by shape to handle different sizes
         shape_groups = defaultdict(list)
         for i, weight in enumerate(weights):
@@ -864,13 +1018,211 @@ class ClusterAnalyzer:
         
         if len(shape_groups) == 1:
             # All weights have same shape - simple flattening
-            features = np.array([w.data.flatten() for w in weights])
+            features_list = []
+            for w in weights:
+                data = w.data.flatten()
+                # Handle special values
+                if np.any(np.isnan(data)):
+                    data = np.nan_to_num(data, nan=0.0)
+                if np.any(np.isinf(data)):
+                    data = np.clip(data, -1e20, 1e20)
+                features_list.append(data)
+            features = np.array(features_list)
         else:
             # Different shapes - fall back to statistical features for consistency
             logger.debug(f"Found {len(shape_groups)} different shapes, using statistical features")
             features = self._extract_statistical_features(weights)
         
         return features.astype(np.float32)
+
+    def group_weights_by_compatibility(
+        self,
+        weights: List[WeightTensor]
+    ) -> Dict[Tuple[Tuple[int, ...], str], List[WeightTensor]]:
+        """
+        Group weights by shape and dtype compatibility for clustering.
+        
+        Args:
+            weights: List of weight tensors to group
+            
+        Returns:
+            Dictionary mapping (shape, dtype) to list of compatible weights
+        """
+        groups = defaultdict(list)
+        
+        for weight in weights:
+            # Create compatibility key from shape and dtype
+            shape_key = tuple(weight.shape)
+            # Use numpy dtype name for cleaner string representation
+            dtype_key = np.dtype(weight.dtype).name
+            compatibility_key = (shape_key, dtype_key)
+            
+            groups[compatibility_key].append(weight)
+        
+        # Log grouping results
+        logger.info(f"Grouped {len(weights)} weights into {len(groups)} compatibility groups:")
+        for (shape, dtype), group_weights in groups.items():
+            logger.info(f"  Shape {shape}, dtype {dtype}: {len(group_weights)} weights")
+        
+        return dict(groups)
+
+    def cluster_weights_by_groups(
+        self,
+        weights: List[WeightTensor],
+        strategy: ClusteringStrategy = ClusteringStrategy.ADAPTIVE,
+        min_group_size: int = 2,
+        progress_callback: Optional[Callable[[float], None]] = None
+    ) -> ClusteringResult:
+        """
+        Cluster weights using shape-aware grouping.
+        
+        Args:
+            weights: List of weight tensors to cluster
+            strategy: Clustering strategy to use
+            min_group_size: Minimum size for a group to be clustered
+            progress_callback: Optional progress callback
+            
+        Returns:
+            Combined clustering results from all groups
+        """
+        if not weights:
+            raise ValueError("Cannot cluster empty weight list")
+        
+        logger.info(f"Starting shape-aware clustering with {strategy.value} strategy")
+        start_time = time.time()
+        
+        # Group weights by compatibility
+        weight_groups = self.group_weights_by_compatibility(weights)
+        
+        # Track overall results
+        all_assignments = []
+        all_centroids = []
+        total_clusters = 0
+        
+        group_count = len(weight_groups)
+        processed_groups = 0
+        
+        for (shape, dtype), group_weights in weight_groups.items():
+            if progress_callback:
+                progress = processed_groups / group_count * 0.8  # Reserve 20% for final processing
+                progress_callback(progress)
+            
+            logger.debug(f"Clustering group with shape {shape}, dtype {dtype}: {len(group_weights)} weights")
+            
+            # Skip small groups that don't benefit from clustering
+            if len(group_weights) < min_group_size:
+                logger.debug(f"Skipping group {shape} - too small ({len(group_weights)} < {min_group_size})")
+                # Create single-weight "clusters" for small groups
+                for i, weight in enumerate(group_weights):
+                    cluster_id = f"single_{shape}_{dtype}_{i}"
+                    
+                    # Create centroid from the single weight
+                    centroid = Centroid(
+                        data=weight.data.copy(),
+                        cluster_id=cluster_id,
+                        shape=weight.shape,
+                        dtype=weight.dtype
+                    )
+                    centroid.compute_hash()
+                    all_centroids.append(centroid)
+                    
+                    # Create assignment
+                    assignment = ClusterAssignment(
+                        weight_name=weight.metadata.name if weight.metadata else f"weight_{i}",
+                        weight_hash=weight.compute_hash(),
+                        cluster_id=cluster_id,
+                        distance_to_centroid=0.0,
+                        similarity_score=1.0,
+                        is_representative=True
+                    )
+                    all_assignments.append(assignment)
+                    total_clusters += 1
+                
+                processed_groups += 1
+                continue
+            
+            # Cluster this group
+            try:
+                if strategy == ClusteringStrategy.KMEANS:
+                    # Use appropriate k for group size
+                    k = max(2, min(len(group_weights) // 2, 10))
+                    group_result = self.cluster_kmeans(group_weights, k)
+                elif strategy == ClusteringStrategy.HIERARCHICAL:
+                    group_result = self.cluster_hierarchical(group_weights)
+                elif strategy == ClusteringStrategy.DBSCAN:
+                    group_result = self.cluster_dbscan(group_weights)
+                else:  # ADAPTIVE
+                    group_result = self.cluster_adaptive(group_weights)
+                
+                if group_result and group_result.is_valid():
+                    # Add group prefix to cluster IDs to ensure uniqueness
+                    group_prefix = f"group_{shape}_{dtype}"
+                    
+                    for centroid in group_result.centroids:
+                        centroid.cluster_id = f"{group_prefix}_{centroid.cluster_id}"
+                        all_centroids.append(centroid)
+                    
+                    for assignment in group_result.assignments:
+                        assignment.cluster_id = f"{group_prefix}_{assignment.cluster_id}"
+                        all_assignments.append(assignment)
+                    
+                    total_clusters += len(group_result.centroids)
+                    logger.debug(f"Group {shape} clustered into {len(group_result.centroids)} clusters")
+                else:
+                    logger.warning(f"Clustering failed for group {shape}")
+                    
+            except Exception as e:
+                logger.warning(f"Error clustering group {shape}: {e}")
+                # Fall back to single-weight clusters for this group
+                for i, weight in enumerate(group_weights):
+                    cluster_id = f"fallback_{shape}_{dtype}_{i}"
+                    
+                    centroid = Centroid(
+                        data=weight.data.copy(),
+                        cluster_id=cluster_id,
+                        shape=weight.shape,
+                        dtype=weight.dtype
+                    )
+                    centroid.compute_hash()
+                    all_centroids.append(centroid)
+                    
+                    assignment = ClusterAssignment(
+                        weight_name=weight.metadata.name if weight.metadata else f"weight_{i}",
+                        weight_hash=weight.compute_hash(),
+                        cluster_id=cluster_id,
+                        distance_to_centroid=0.0,
+                        similarity_score=1.0,
+                        is_representative=True
+                    )
+                    all_assignments.append(assignment)
+                    total_clusters += 1
+            
+            processed_groups += 1
+        
+        # Calculate combined metrics
+        execution_time = time.time() - start_time
+        
+        # Create combined metrics
+        metrics = ClusterMetrics(
+            num_clusters=total_clusters,
+            avg_cluster_size=len(weights) / total_clusters if total_clusters > 0 else 0,
+            compression_ratio=0.0  # Will be calculated later based on actual storage
+        )
+        
+        # Create final result
+        result = ClusteringResult(
+            assignments=all_assignments,
+            centroids=all_centroids,
+            metrics=metrics,
+            strategy=strategy,
+            execution_time=execution_time
+        )
+        
+        if progress_callback:
+            progress_callback(1.0)
+        
+        logger.info(f"Shape-aware clustering completed: {total_clusters} clusters from {group_count} shape groups in {execution_time:.2f}s")
+        return result
 
     def _extract_pca_features(self, weights: List[WeightTensor]) -> np.ndarray:
         """Extract PCA-reduced features."""
@@ -896,14 +1248,48 @@ class ClusterAnalyzer:
         for weight in weights:
             data = weight.data.flatten()
             
-            # Basic statistics
+            # Check for NaN values in the data
+            if np.any(np.isnan(data)):
+                # Replace NaN values with zeros for feature extraction
+                data = np.nan_to_num(data, nan=0.0)
+            
+            # Basic statistics with numerical stability
+            # Use float64 for more precise calculations
+            data_64 = data.astype(np.float64)
+            
+            # Compute mean and std safely
+            mean_val = np.mean(data_64)
+            std_val = np.std(data_64)
+            
+            # Handle constant data case
+            if std_val == 0:
+                # Constant data - skew and kurtosis are undefined
+                skew_val = 0.0
+                kurt_val = 0.0
+            else:
+                try:
+                    # Suppress runtime warnings for nearly identical data
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings('ignore', category=RuntimeWarning)
+                        skew_val = skew(data_64)
+                        kurt_val = kurtosis(data_64)
+                        # Check for NaN values
+                        if np.isnan(skew_val) or np.isinf(skew_val):
+                            skew_val = 0.0
+                        if np.isnan(kurt_val) or np.isinf(kurt_val):
+                            kurt_val = 0.0
+                except (RuntimeWarning, FloatingPointError):
+                    skew_val = 0.0
+                    kurt_val = 0.0
+            
+            # Clip extreme values to prevent numerical issues
             weight_features = [
-                np.mean(data),
-                np.std(data),
-                np.min(data),
-                np.max(data),
-                skew(data),
-                kurtosis(data)
+                np.clip(mean_val, -1e10, 1e10),
+                np.clip(std_val, 0, 1e10),
+                np.clip(np.min(data), -1e10, 1e10),
+                np.clip(np.max(data), -1e10, 1e10),
+                np.clip(skew_val, -100, 100),
+                np.clip(kurt_val, -100, 100)
             ]
             
             features.append(weight_features)
@@ -1179,3 +1565,274 @@ class ClusterAnalyzer:
             return "large"
         else:
             return "huge"
+    
+    def analyze_weights(
+        self, 
+        weights: List[WeightTensor],
+        level: Optional[ClusterLevel] = None
+    ) -> "AnalysisResult":
+        """
+        Analyze a collection of weights for clustering opportunities.
+        
+        This is the main entry point for weight analysis, providing comprehensive
+        insights into clustering potential and recommendations.
+        
+        Args:
+            weights: List of weight tensors to analyze
+            level: Optional clustering level (defaults to config level)
+            
+        Returns:
+            AnalysisResult containing detailed clustering analysis
+        """
+        if not weights:
+            return AnalysisResult()
+        
+        logger.info(f"Analyzing {len(weights)} weights for clustering opportunities")
+        start_time = time.time()
+        
+        level = level or self.config.level
+        
+        try:
+            # Compute similarity matrix
+            similarity_matrix = self.compute_similarity_matrix(weights)
+            
+            # Identify potential clusters
+            clusters = self.identify_clusters(
+                similarity_matrix, 
+                self.config.similarity_threshold
+            )
+            
+            # Estimate compression ratio
+            compression_estimate = self.estimate_compression(clusters, weights)
+            
+            # Recommend optimal strategy
+            strategy, params = self.recommend_strategy(
+                AnalysisResult(
+                    weights=weights,
+                    similarity_matrix=similarity_matrix,
+                    identified_clusters=clusters,
+                    compression_estimate=compression_estimate,
+                    level=level
+                )
+            )
+            
+            # Create comprehensive analysis result
+            result = AnalysisResult(
+                weights=weights,
+                similarity_matrix=similarity_matrix,
+                identified_clusters=clusters,
+                compression_estimate=compression_estimate,
+                recommended_strategy=strategy,
+                recommended_params=params,
+                level=level,
+                execution_time=time.time() - start_time
+            )
+            
+            logger.info(f"Analysis completed in {result.execution_time:.2f}s, "
+                       f"found {len(clusters)} potential clusters, "
+                       f"estimated compression: {compression_estimate:.2f}x")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Weight analysis failed: {e}")
+            raise
+    
+    def identify_clusters(
+        self,
+        similarity_matrix: np.ndarray,
+        threshold: float
+    ) -> List[List[int]]:
+        """
+        Identify potential clusters based on similarity matrix.
+        
+        Uses connectivity-based approach to find groups of similar weights
+        that exceed the given similarity threshold.
+        
+        Args:
+            similarity_matrix: Pairwise similarity matrix
+            threshold: Minimum similarity threshold for clustering
+            
+        Returns:
+            List of clusters, where each cluster is a list of weight indices
+        """
+        if similarity_matrix.shape[0] == 0:
+            return []
+        
+        n_weights = similarity_matrix.shape[0]
+        
+        # Create adjacency matrix from similarity threshold
+        adjacency = similarity_matrix >= threshold
+        
+        # Find connected components
+        visited = set()
+        clusters = []
+        
+        def dfs(node: int, cluster: Set[int]):
+            """Depth-first search to find connected components."""
+            visited.add(node)
+            cluster.add(node)
+            
+            for neighbor in range(n_weights):
+                if neighbor not in visited and adjacency[node, neighbor]:
+                    dfs(neighbor, cluster)
+        
+        # Find all connected components
+        for i in range(n_weights):
+            if i not in visited:
+                cluster = set()
+                dfs(i, cluster)
+                
+                # Only keep clusters that meet minimum size
+                if len(cluster) >= self.config.min_cluster_size:
+                    clusters.append(sorted(list(cluster)))
+        
+        # Sort clusters by size (largest first)
+        clusters.sort(key=len, reverse=True)
+        
+        logger.debug(f"Identified {len(clusters)} clusters with threshold {threshold}")
+        
+        return clusters
+    
+    def estimate_compression(
+        self,
+        clusters: List[List[int]],
+        weights: List[WeightTensor]
+    ) -> float:
+        """
+        Estimate space savings from clustering.
+        
+        Calculates the potential compression ratio by comparing the storage
+        required for all weights versus storing one representative per cluster
+        plus deltas for other members.
+        
+        Args:
+            clusters: List of identified clusters
+            weights: Original weight tensors
+            
+        Returns:
+            Estimated compression ratio (1.0 = no compression, 2.0 = 50% reduction)
+        """
+        if not clusters or not weights:
+            return 1.0
+        
+        # Calculate current total size
+        total_size = sum(w.nbytes for w in weights)
+        
+        # Calculate clustered size estimate
+        clustered_size = 0
+        
+        # Account for unclustered weights
+        clustered_indices = set()
+        for cluster in clusters:
+            clustered_indices.update(cluster)
+        
+        unclustered_size = sum(
+            weights[i].nbytes for i in range(len(weights))
+            if i not in clustered_indices
+        )
+        clustered_size += unclustered_size
+        
+        # Estimate size for each cluster
+        for cluster in clusters:
+            if not cluster:
+                continue
+                
+            # One full weight as centroid/representative
+            centroid_size = weights[cluster[0]].nbytes
+            clustered_size += centroid_size
+            
+            # Delta storage for other members (estimated at 10-20% of original)
+            for idx in cluster[1:]:
+                delta_size = weights[idx].nbytes * 0.15  # 15% average delta size
+                clustered_size += delta_size
+        
+        # Calculate compression ratio
+        compression_ratio = total_size / clustered_size if clustered_size > 0 else 1.0
+        
+        logger.debug(f"Estimated compression ratio: {compression_ratio:.2f}x "
+                    f"({total_size / 1024 / 1024:.2f}MB -> "
+                    f"{clustered_size / 1024 / 1024:.2f}MB)")
+        
+        return compression_ratio
+    
+    def recommend_strategy(
+        self,
+        analysis: "AnalysisResult"
+    ) -> Tuple[ClusteringStrategy, Dict[str, Any]]:
+        """
+        Recommend optimal clustering strategy based on analysis results.
+        
+        Analyzes weight characteristics and clustering patterns to recommend
+        the most appropriate clustering algorithm and parameters.
+        
+        Args:
+            analysis: Weight analysis results
+            
+        Returns:
+            Tuple of (recommended strategy, strategy-specific parameters)
+        """
+        if not analysis.weights:
+            return ClusteringStrategy.ADAPTIVE, {}
+        
+        n_weights = len(analysis.weights)
+        n_clusters = len(analysis.identified_clusters)
+        
+        # Analyze weight characteristics
+        weight_sizes = [w.nbytes for w in analysis.weights]
+        size_variance = np.var(weight_sizes) / np.mean(weight_sizes) ** 2 if weight_sizes else 0
+        
+        # Analyze cluster distribution
+        cluster_sizes = [len(c) for c in analysis.identified_clusters]
+        cluster_balance = 1.0 - (np.std(cluster_sizes) / np.mean(cluster_sizes)) if cluster_sizes else 0
+        
+        # Strategy selection logic
+        if n_weights < 50:
+            # Small dataset: hierarchical clustering works well
+            strategy = ClusteringStrategy.HIERARCHICAL
+            params = {
+                "linkage": "ward",
+                "distance_threshold": 1.0 - self.config.similarity_threshold
+            }
+        elif n_weights < 500 and cluster_balance > 0.7:
+            # Medium dataset with balanced clusters: K-means
+            strategy = ClusteringStrategy.KMEANS
+            params = {
+                "n_clusters": max(2, min(n_clusters, int(np.sqrt(n_weights)))),
+                "n_init": 10,
+                "max_iter": 300
+            }
+        elif size_variance > 0.5 or cluster_balance < 0.3:
+            # High variance or imbalanced clusters: DBSCAN
+            strategy = ClusteringStrategy.DBSCAN
+            
+            # Estimate eps from similarity matrix
+            if hasattr(analysis, 'similarity_matrix') and analysis.similarity_matrix is not None:
+                # Use average distance to k-nearest neighbors
+                k = min(5, n_weights - 1)
+                distances = []
+                for i in range(n_weights):
+                    row_distances = 1.0 - analysis.similarity_matrix[i]
+                    row_distances[i] = np.inf  # Exclude self
+                    k_nearest = np.sort(row_distances)[:k]
+                    distances.append(np.mean(k_nearest))
+                eps = np.percentile(distances, 90)
+            else:
+                eps = 1.0 - self.config.similarity_threshold
+            
+            params = {
+                "eps": eps,
+                "min_samples": max(2, self.config.min_cluster_size)
+            }
+        else:
+            # Default: adaptive strategy
+            strategy = ClusteringStrategy.ADAPTIVE
+            params = {
+                "max_k": min(20, int(np.sqrt(n_weights))),
+                "quality_weight": 0.7,
+                "compression_weight": 0.3
+            }
+        
+        logger.info(f"Recommended strategy: {strategy.value} with params: {params}")
+        
+        return strategy, params

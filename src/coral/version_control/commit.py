@@ -43,12 +43,14 @@ class Commit:
         weight_hashes: Dict[str, str],
         metadata: CommitMetadata,
         delta_weights: Optional[Dict[str, str]] = None,
+        clustered_weights: Optional[Dict[str, str]] = None,
     ):
         self.commit_hash = commit_hash
         self.parent_hashes = parent_hashes
         self.weight_hashes = weight_hashes  # name -> weight hash
         self.metadata = metadata
         self.delta_weights = delta_weights or {}  # name -> delta hash
+        self.clustered_weights = clustered_weights or {}  # name -> cluster_id
 
     @property
     def is_merge_commit(self) -> bool:
@@ -88,6 +90,18 @@ class Commit:
             return set()
 
         return set(parent_commit.weight_hashes.keys()) - set(self.weight_hashes.keys())
+    
+    def get_clustered_weights(self) -> Set[str]:
+        """Get weights that are stored as clustered."""
+        return set(self.clustered_weights.keys())
+    
+    def is_weight_clustered(self, weight_name: str) -> bool:
+        """Check if a specific weight is stored as clustered."""
+        return weight_name in self.clustered_weights
+    
+    def get_cluster_for_weight(self, weight_name: str) -> Optional[str]:
+        """Get the cluster ID for a weight if it's clustered."""
+        return self.clustered_weights.get(weight_name)
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for serialization."""
@@ -97,6 +111,7 @@ class Commit:
             "weight_hashes": self.weight_hashes,
             "metadata": self.metadata.to_dict(),
             "delta_weights": self.delta_weights,
+            "clustered_weights": self.clustered_weights,
         }
 
     @classmethod

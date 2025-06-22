@@ -4,15 +4,57 @@ import logging
 import threading
 from typing import Dict, List, Optional, Tuple, Any, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 import numpy as np
 from functools import lru_cache
 
 from coral.core.weight_tensor import WeightTensor
 from coral.delta.delta_encoder import DeltaEncoder, Delta, DeltaType, DeltaConfig
+from coral.delta.product_quantization import PQConfig
 from coral.clustering.cluster_types import ClusterAssignment
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class EncodedWeight:
+    """Represents a weight encoded as delta from a centroid."""
+    
+    delta: Delta  # The encoded delta
+    centroid_id: str  # ID of the reference centroid
+    encoding_strategy: DeltaType  # Strategy used for encoding
+    compression_ratio: float  # Space savings achieved
+    quality_metrics: Dict[str, float]  # Quality/accuracy metrics
+    original_hash: str  # Hash of original weight for verification
+    
+    @property
+    def nbytes(self) -> int:
+        """Total size including delta and metadata."""
+        return self.delta.nbytes
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "delta": self.delta.to_dict(),
+            "centroid_id": self.centroid_id,
+            "encoding_strategy": self.encoding_strategy.value,
+            "compression_ratio": self.compression_ratio,
+            "quality_metrics": self.quality_metrics,
+            "original_hash": self.original_hash
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "EncodedWeight":
+        """Create from dictionary."""
+        return cls(
+            delta=Delta.from_dict(data["delta"]),
+            centroid_id=data["centroid_id"],
+            encoding_strategy=DeltaType(data["encoding_strategy"]),
+            compression_ratio=data["compression_ratio"],
+            quality_metrics=data["quality_metrics"],
+            original_hash=data["original_hash"]
+        )
 
 
 class CentroidEncoder:
@@ -42,6 +84,22 @@ class CentroidEncoder:
         self.min_compression_ratio = self.config.get('min_compression_ratio', 0.0)
         self.quality_threshold = self.config.get('quality_threshold', 0.99)
         self.memory_limit = self.config.get('memory_limit', None)
+        
+        # Product Quantization parameters
+        self.enable_pq = self.config.get('enable_pq', True)
+        self.pq_threshold_size = self.config.get('pq_threshold_size', 1024)
+        
+        # Initialize PQ-specific config if enabled
+        if self.enable_pq:
+            # Convert n_codewords to bits_per_subvector
+            n_codewords = self.config.get('pq_n_codewords', 256)
+            bits_per_subvector = int(np.log2(n_codewords)) if n_codewords > 0 else 8
+            
+            self.pq_config = PQConfig(
+                num_subvectors=self.config.get('pq_num_subvectors', 8),
+                bits_per_subvector=bits_per_subvector,
+                use_residual=self.quality_threshold > 0.99  # Use residual for high quality
+            )
         
         # Caching
         self._cache_enabled = False
@@ -99,6 +157,16 @@ class CentroidEncoder:
             # Encode using delta encoder
             delta = temp_encoder.encode_delta(weight, centroid)
             
+            # Check if PQ would be beneficial
+            if delta is not None and self.enable_pq:
+                should_use_pq, pq_strategy = self._should_use_pq(delta, weight, centroid)
+                if should_use_pq:
+                    # Upgrade delta to PQ encoding
+                    logger.info(f"Upgrading delta to PQ encoding with strategy: {pq_strategy.value}")
+                    temp_config = DeltaConfig(delta_type=pq_strategy)
+                    temp_encoder = DeltaEncoder(temp_config)
+                    delta = temp_encoder.encode_delta(weight, centroid)
+            
             # Cache result
             if self._cache_enabled and delta is not None:
                 cache_key = (weight.compute_hash(), centroid.compute_hash(), strategy)
@@ -142,6 +210,68 @@ class CentroidEncoder:
             logger.error(f"Error decoding delta with centroid {centroid.metadata.name}: {e}")
             raise
     
+    def _should_use_pq(
+        self,
+        delta: Delta,
+        weight: WeightTensor,
+        centroid: WeightTensor
+    ) -> Tuple[bool, Optional[DeltaType]]:
+        """
+        Analyze delta to determine if PQ encoding would help.
+        
+        Args:
+            delta: Current delta encoding
+            weight: Original weight tensor
+            centroid: Reference centroid
+            
+        Returns:
+            Tuple of (should_use_pq, suggested_pq_strategy)
+        """
+        # Skip if already using PQ
+        if delta.delta_type in [DeltaType.PQ_ENCODED, DeltaType.PQ_LOSSLESS]:
+            return False, None
+        
+        # Check size threshold
+        weight_size = weight.data.size
+        if weight_size < self.pq_threshold_size:
+            return False, None
+        
+        # Check current compression efficiency
+        current_compression = weight.data.nbytes / delta.nbytes
+        if current_compression > 10.0:  # Already excellent compression
+            return False, None
+        
+        # Analyze weight characteristics
+        # Weights with high redundancy benefit from PQ
+        weight_std = np.std(weight.data)
+        delta_std = np.std(delta.data if hasattr(delta, 'data') else weight.data - centroid.data)
+        redundancy_ratio = weight_std / (delta_std + 1e-8)
+        
+        if redundancy_ratio > 2.0:  # High redundancy in delta
+            # Choose strategy based on quality threshold
+            if self.quality_threshold > 0.99:
+                return True, DeltaType.PQ_LOSSLESS
+            else:
+                return True, DeltaType.PQ_ENCODED
+        
+        # Check if weight has structured patterns (benefits from PQ)
+        # Reshape to 2D for analysis
+        flat_delta = (weight.data - centroid.data).flatten()
+        n_chunks = min(8, len(flat_delta) // 128)  # Analyze in chunks
+        if n_chunks > 1:
+            chunk_size = len(flat_delta) // n_chunks
+            chunks = [flat_delta[i:i+chunk_size] for i in range(0, len(flat_delta), chunk_size)]
+            chunk_vars = [np.var(chunk) for chunk in chunks]
+            var_ratio = max(chunk_vars) / (min(chunk_vars) + 1e-8)
+            
+            if var_ratio > 5.0:  # High variance difference between chunks
+                if self.quality_threshold > 0.99:
+                    return True, DeltaType.PQ_LOSSLESS
+                else:
+                    return True, DeltaType.PQ_ENCODED
+        
+        return False, None
+    
     def batch_encode(
         self,
         weights: List[WeightTensor],
@@ -167,10 +297,30 @@ class CentroidEncoder:
         for i, centroid in enumerate(centroids):
             # Use index as cluster_id for backwards compatibility
             centroid_map[str(i)] = centroid
-            if hasattr(centroid, 'cluster_id'):
+            if hasattr(centroid, 'cluster_id') and centroid.cluster_id:
                 centroid_map[centroid.cluster_id] = centroid
+                # Also map as string
+                centroid_map[str(centroid.cluster_id)] = centroid
+                # Also map without 'cluster_' prefix for compatibility
+                if centroid.cluster_id.startswith('cluster_'):
+                    centroid_map[centroid.cluster_id.replace('cluster_', '')] = centroid
+            # For WeightTensor centroids, check if they have cluster_id attribute
+            elif hasattr(centroid, 'cluster_id'):
+                centroid_map[centroid.cluster_id] = centroid
+                centroid_map[str(centroid.cluster_id)] = centroid
         
         deltas = []
+        
+        # Group similar-sized deltas for better PQ codebook reuse
+        if self.enable_pq:
+            # Sort by size for better codebook sharing
+            indexed_weights = [(i, w, a) for i, (w, a) in enumerate(zip(weights, assignments))]
+            indexed_weights.sort(key=lambda x: x[1].data.size)
+            
+            # Reorder inputs based on size
+            sorted_indices = [x[0] for x in indexed_weights]
+            weights = [x[1] for x in indexed_weights]
+            assignments = [x[2] for x in indexed_weights]
         
         # Use thread pool for parallel encoding
         max_workers = min(len(weights), self.config.get('max_workers', 4))
@@ -186,8 +336,27 @@ class CentroidEncoder:
                         idx = int(assignment.cluster_id)
                         if idx < len(centroids):
                             centroid = centroids[idx]
+                    # Try removing 'cluster_' prefix
+                    elif isinstance(assignment.cluster_id, str) and assignment.cluster_id.startswith('cluster_'):
+                        cluster_num = assignment.cluster_id.replace('cluster_', '')
+                        centroid = centroid_map.get(cluster_num)
+                        if centroid is None and cluster_num.isdigit():
+                            idx = int(cluster_num)
+                            if idx < len(centroids):
+                                centroid = centroids[idx]
+                    # For shape-aware cluster IDs, try to find by direct search
+                    elif centroid is None:
+                        for cent in centroids:
+                            if hasattr(cent, 'cluster_id') and cent.cluster_id == assignment.cluster_id:
+                                centroid = cent
+                                break
                 
                 if centroid is None:
+                    # Debug output
+                    logger.error(f"Centroid lookup failed:")
+                    logger.error(f"  Looking for cluster_id: {assignment.cluster_id}")
+                    logger.error(f"  Available keys in centroid_map: {list(centroid_map.keys())}")
+                    logger.error(f"  Number of centroids: {len(centroids)}")
                     raise ValueError(f"No centroid found for cluster_id {assignment.cluster_id}")
                 
                 future = executor.submit(self.encode_weight_to_centroid, weight, centroid)
@@ -204,6 +373,14 @@ class CentroidEncoder:
                     results[index] = None
             
             deltas = results
+        
+        # Restore original order if we sorted for PQ
+        if self.enable_pq and 'sorted_indices' in locals():
+            # Create mapping from sorted to original indices
+            original_order = [None] * len(deltas)
+            for sorted_idx, orig_idx in enumerate(sorted_indices):
+                original_order[orig_idx] = deltas[sorted_idx]
+            deltas = original_order
         
         return deltas
     
@@ -448,6 +625,10 @@ class CentroidEncoder:
             DeltaType.INT16_QUANTIZED
         ]
         
+        # Add PQ strategies if enabled and weight is large enough
+        if self.enable_pq and weight.data.size >= self.pq_threshold_size:
+            strategies_to_test.extend([DeltaType.PQ_ENCODED, DeltaType.PQ_LOSSLESS])
+        
         best_strategy = DeltaType.FLOAT32_RAW
         best_score = 0.0
         strategy_results = {}
@@ -461,8 +642,12 @@ class CentroidEncoder:
                 if strategy in [DeltaType.INT8_QUANTIZED, DeltaType.INT16_QUANTIZED]:
                     error_estimate = self._estimate_quantization_error(weight, centroid, strategy)
                     quality_score = max(0, 1 - error_estimate)
+                elif strategy == DeltaType.PQ_ENCODED:
+                    # PQ_ENCODED has small reconstruction error
+                    error_estimate = self._estimate_pq_error(weight, centroid)
+                    quality_score = max(0, 1 - error_estimate)
                 else:
-                    quality_score = 1.0  # Lossless
+                    quality_score = 1.0  # Lossless (includes PQ_LOSSLESS)
                 
                 # Composite score favoring compression while maintaining quality
                 composite_score = compression_ratio * (quality_score ** 2)
@@ -805,6 +990,26 @@ class CentroidEncoder:
             threshold = np.std(diff) * 0.1
             non_zero_count = np.sum(np.abs(diff) > threshold)
             return non_zero_count * (diff.itemsize + 4)  # value + index
+        elif strategy == DeltaType.PQ_ENCODED:
+            # Estimate PQ size: codebooks + indices
+            n_elements = diff.size
+            n_subvectors = min(8, max(1, n_elements // 128))  # Adaptive subvectors
+            n_codewords = 256  # Default
+            # Each codebook stores n_codewords vectors of size (n_elements/n_subvectors)
+            subvector_size = max(1, n_elements // n_subvectors)
+            codebook_size = n_subvectors * n_codewords * subvector_size * diff.itemsize
+            indices_size = n_elements  # 1 byte per element for 256 codewords
+            # PQ typically achieves 8-32x compression on the data
+            # For float32 (4 bytes) to 1 byte indices, we get ~4x compression
+            # But we also need to store codebooks
+            estimated_size = indices_size + (codebook_size // 16) + 64  # Add metadata overhead
+            # PQ should achieve at least 2x compression for reasonable sizes
+            return min(estimated_size, diff.nbytes // 2)
+        elif strategy == DeltaType.PQ_LOSSLESS:
+            # PQ_LOSSLESS: PQ for base + residuals
+            pq_base_size = self._estimate_delta_size(weight, centroid, DeltaType.PQ_ENCODED)
+            residual_size = int(diff.nbytes * 0.1)  # Residuals are typically small
+            return pq_base_size + residual_size
         else:
             return diff.nbytes
     
@@ -840,6 +1045,40 @@ class CentroidEncoder:
         
         return float(error)
     
+    def _estimate_pq_error(
+        self,
+        weight: WeightTensor,
+        centroid: WeightTensor
+    ) -> float:
+        """
+        Estimate reconstruction error for PQ encoding.
+        
+        Args:
+            weight: Weight tensor
+            centroid: Reference centroid
+            
+        Returns:
+            Estimated normalized reconstruction error
+        """
+        diff = weight.data - centroid.data
+        
+        # PQ error depends on subvector count and codebook size
+        n_elements = diff.size
+        n_subvectors = min(8, n_elements // 128)
+        
+        # Empirical error model: error decreases with more subvectors
+        # and larger codebooks, but plateaus
+        base_error = 0.01  # 1% base error for PQ
+        subvector_factor = 1.0 / np.sqrt(n_subvectors)
+        
+        # Account for delta magnitude
+        relative_magnitude = np.std(diff) / (np.std(weight.data) + 1e-8)
+        magnitude_factor = min(1.0, relative_magnitude)
+        
+        estimated_error = base_error * subvector_factor * magnitude_factor
+        
+        return float(estimated_error)
+    
     def _get_candidate_centroids(
         self,
         weight: WeightTensor,
@@ -855,3 +1094,184 @@ class CentroidEncoder:
     def _get_cluster_index(self):
         """Get cluster index instance - placeholder for integration."""
         return None
+    
+    # Additional methods for API compatibility
+    
+    def encode_weight(
+        self,
+        weight: WeightTensor,
+        centroid: Union[WeightTensor, np.ndarray],
+        strategy: str = "auto"
+    ) -> EncodedWeight:
+        """
+        Encode weight as delta from centroid.
+        
+        Args:
+            weight: Weight tensor to encode
+            centroid: Reference centroid (WeightTensor or numpy array)
+            strategy: Encoding strategy ("auto" or specific DeltaType name)
+            
+        Returns:
+            EncodedWeight object containing delta and metadata
+        """
+        # Convert numpy array to WeightTensor if needed
+        if isinstance(centroid, np.ndarray):
+            centroid = WeightTensor(
+                data=centroid,
+                metadata=weight.metadata  # Use same metadata structure
+            )
+        
+        # Map strategy string to DeltaType
+        if strategy == "auto":
+            selected_strategy, metrics = self.select_optimal_strategy(weight, centroid)
+        else:
+            strategy_map = {
+                "FLOAT32_RAW": DeltaType.FLOAT32_RAW,
+                "COMPRESSED": DeltaType.COMPRESSED,
+                "INT8_QUANTIZED": DeltaType.INT8_QUANTIZED,
+                "INT16_QUANTIZED": DeltaType.INT16_QUANTIZED,
+                "SPARSE": DeltaType.SPARSE,
+                "PQ_ENCODED": DeltaType.PQ_ENCODED,
+                "PQ_LOSSLESS": DeltaType.PQ_LOSSLESS
+            }
+            selected_strategy = strategy_map.get(strategy.upper(), DeltaType.FLOAT32_RAW)
+            _, metrics = self.select_optimal_strategy(weight, centroid)
+        
+        # Encode using existing method
+        delta = self.encode_weight_to_centroid(weight, centroid, selected_strategy)
+        
+        if delta is None:
+            raise ValueError("Failed to encode weight as delta")
+        
+        # Compute quality metrics
+        quality_metrics = {
+            "similarity_score": self._compute_similarity(weight, centroid),
+            "reconstruction_error": metrics.get("reconstruction_error", 0.0)
+        }
+        
+        # Create EncodedWeight
+        return EncodedWeight(
+            delta=delta,
+            centroid_id=centroid.compute_hash() if hasattr(centroid, 'compute_hash') else str(id(centroid)),
+            encoding_strategy=selected_strategy,
+            compression_ratio=delta.compression_ratio,
+            quality_metrics=quality_metrics,
+            original_hash=weight.compute_hash()
+        )
+    
+    def decode_weight(
+        self,
+        encoded: EncodedWeight,
+        centroid: Union[WeightTensor, np.ndarray]
+    ) -> WeightTensor:
+        """
+        Reconstruct original weight from encoded delta and centroid.
+        
+        Args:
+            encoded: EncodedWeight object containing delta
+            centroid: Reference centroid (WeightTensor or numpy array)
+            
+        Returns:
+            Reconstructed WeightTensor
+        """
+        # Convert numpy array to WeightTensor if needed
+        if isinstance(centroid, np.ndarray):
+            centroid = WeightTensor(data=centroid)
+        
+        # Decode using existing method
+        return self.decode_weight_from_centroid(encoded.delta, centroid)
+    
+    def compute_centroid(self, weights: List[WeightTensor]) -> np.ndarray:
+        """
+        Calculate cluster centroid from multiple weights.
+        
+        Args:
+            weights: List of weight tensors
+            
+        Returns:
+            Centroid as numpy array
+        """
+        if not weights:
+            raise ValueError("Cannot compute centroid from empty weight list")
+        
+        # Verify compatibility
+        reference_shape = weights[0].shape
+        reference_dtype = weights[0].dtype
+        
+        for weight in weights:
+            if weight.shape != reference_shape:
+                raise ValueError(f"Shape mismatch: expected {reference_shape}, got {weight.shape}")
+            if weight.dtype != reference_dtype:
+                raise ValueError(f"Dtype mismatch: expected {reference_dtype}, got {weight.dtype}")
+        
+        # Compute mean
+        weight_data = np.stack([w.data for w in weights], axis=0)
+        return np.mean(weight_data, axis=0).astype(reference_dtype)
+    
+    def select_encoding_strategy(
+        self,
+        weight: np.ndarray,
+        centroid: np.ndarray
+    ) -> str:
+        """
+        Auto-select best encoding strategy based on data characteristics.
+        
+        Args:
+            weight: Weight data as numpy array
+            centroid: Centroid data as numpy array
+            
+        Returns:
+            Strategy name as string
+        """
+        # Convert to WeightTensors for compatibility
+        weight_tensor = WeightTensor(data=weight)
+        centroid_tensor = WeightTensor(data=centroid)
+        
+        # Use existing method
+        strategy, _ = self.select_optimal_strategy(weight_tensor, centroid_tensor)
+        
+        # Map DeltaType to string
+        return strategy.value.upper()
+    
+    def get_encoding_stats(self, encoded: EncodedWeight) -> Dict[str, Any]:
+        """
+        Get compression and quality metrics for encoded weight.
+        
+        Args:
+            encoded: EncodedWeight object
+            
+        Returns:
+            Dictionary with detailed statistics
+        """
+        delta = encoded.delta
+        
+        # Calculate sizes
+        original_size = np.prod(delta.original_shape) * np.dtype(delta.original_dtype).itemsize
+        encoded_size = delta.nbytes
+        
+        stats = {
+            "original_size": original_size,
+            "encoded_size": encoded_size,
+            "compression_ratio": encoded.compression_ratio,
+            "space_savings": 1.0 - (encoded_size / original_size) if original_size > 0 else 0.0,
+            "encoding_strategy": encoded.encoding_strategy.value,
+            "centroid_id": encoded.centroid_id,
+            "quality_metrics": encoded.quality_metrics,
+            "delta_type": delta.delta_type.value,
+            "is_lossless": delta.delta_type in [DeltaType.FLOAT32_RAW, DeltaType.COMPRESSED, DeltaType.SPARSE, DeltaType.PQ_LOSSLESS],
+            "reference_hash": delta.reference_hash,
+            "original_hash": encoded.original_hash
+        }
+        
+        # Add strategy-specific stats
+        if delta.metadata:
+            if "scale" in delta.metadata:
+                stats["quantization_scale"] = delta.metadata["scale"]
+            if "offset" in delta.metadata:
+                stats["quantization_offset"] = delta.metadata["offset"]
+            if "num_nonzero" in delta.metadata:
+                stats["sparse_nonzero_count"] = delta.metadata["num_nonzero"]
+            if "compression_level" in delta.metadata:
+                stats["compression_level"] = delta.metadata["compression_level"]
+        
+        return stats

@@ -1,5 +1,6 @@
 """Core data structures and enums for clustering-based deduplication."""
 
+import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
@@ -8,6 +9,8 @@ import numpy as np
 import xxhash
 
 from ..core.weight_tensor import WeightTensor
+
+logger = logging.getLogger(__name__)
 
 
 class ClusteringStrategy(Enum):
@@ -176,21 +179,45 @@ class Centroid:
         reference_shape = weights[0].shape
         reference_dtype = weights[0].dtype
 
-        for weight in weights:
+        for i, weight in enumerate(weights):
             if weight.shape != reference_shape:
+                weight_name = weight.metadata.name if weight.metadata else f"weight_{i}"
                 raise ValueError(
-                    f"All weights must have same shape: "
-                    f"expected {reference_shape}, got {weight.shape}"
+                    f"Shape compatibility error for weight '{weight_name}': "
+                    f"expected {reference_shape}, got {weight.shape}. "
+                    f"All weights in a cluster must have identical shapes."
                 )
             if weight.dtype != reference_dtype:
+                weight_name = weight.metadata.name if weight.metadata else f"weight_{i}"
                 raise ValueError(
-                    f"All weights must have same dtype: "
-                    f"expected {reference_dtype}, got {weight.dtype}"
+                    f"Dtype compatibility error for weight '{weight_name}': "
+                    f"expected {reference_dtype}, got {weight.dtype}. "
+                    f"All weights in a cluster must have identical dtypes."
                 )
 
-        # Compute mean of all weights
-        weight_data = np.stack([w.data for w in weights], axis=0)
-        centroid_data = np.mean(weight_data, axis=0)
+        # Compute mean of all weights with numerical stability
+        try:
+            weight_data = np.stack([w.data for w in weights], axis=0)
+            
+            # Handle special values
+            if np.any(np.isnan(weight_data)):
+                logger.warning(f"NaN values detected in weights for cluster {cluster_id}")
+                weight_data = np.nan_to_num(weight_data, nan=0.0)
+            
+            if np.any(np.isinf(weight_data)):
+                logger.warning(f"Infinite values detected in weights for cluster {cluster_id}")
+                weight_data = np.clip(weight_data, -1e20, 1e20)
+            
+            centroid_data = np.mean(weight_data, axis=0)
+            
+            # Ensure centroid has same dtype as input weights
+            if centroid_data.dtype != reference_dtype:
+                centroid_data = centroid_data.astype(reference_dtype)
+                
+        except Exception as e:
+            logger.error(f"Failed to compute centroid for cluster {cluster_id}: {e}")
+            # Fallback: use first weight as centroid
+            centroid_data = weights[0].data.copy()
 
         return cls(
             data=centroid_data,
@@ -198,6 +225,32 @@ class Centroid:
             shape=reference_shape,
             dtype=reference_dtype,
         )
+    
+    @classmethod
+    def validate_compatibility(cls, weights: List[WeightTensor]) -> bool:
+        """
+        Validate that all weights are compatible for clustering.
+        
+        Args:
+            weights: List of weight tensors to validate
+            
+        Returns:
+            True if all weights are compatible, False otherwise
+        """
+        if not weights:
+            return False
+        
+        if len(weights) == 1:
+            return True
+            
+        reference_shape = weights[0].shape
+        reference_dtype = weights[0].dtype
+        
+        for weight in weights[1:]:
+            if weight.shape != reference_shape or weight.dtype != reference_dtype:
+                return False
+                
+        return True
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -245,6 +298,7 @@ class ClusterAssignment:
     distance_to_centroid: float = 0.0  # Distance from weight to cluster centroid
     similarity_score: float = 0.0  # Similarity to cluster centroid [0, 1]
     is_representative: bool = False  # Whether this weight represents the cluster
+    delta_hash: Optional[str] = None  # Hash of delta encoding for this weight
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -255,6 +309,7 @@ class ClusterAssignment:
             "distance_to_centroid": self.distance_to_centroid,
             "similarity_score": self.similarity_score,
             "is_representative": self.is_representative,
+            "delta_hash": self.delta_hash,
         }
 
     @classmethod
@@ -267,4 +322,5 @@ class ClusterAssignment:
             distance_to_centroid=data.get("distance_to_centroid", 0.0),
             similarity_score=data.get("similarity_score", 0.0),
             is_representative=data.get("is_representative", False),
+            delta_hash=data.get("delta_hash"),
         )

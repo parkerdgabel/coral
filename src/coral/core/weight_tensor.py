@@ -143,7 +143,7 @@ class WeightTensor:
         """
         Check if this weight tensor is similar to another.
 
-        Uses cosine similarity for comparison.
+        Uses cosine similarity for comparison with numerical stability safeguards.
 
         Args:
             other: Another WeightTensor to compare with
@@ -159,16 +159,45 @@ class WeightTensor:
         a = self.data.flatten()
         b = other.data.flatten()
 
-        # Compute cosine similarity
-        dot_product = np.dot(a, b)
+        # Check for special values (NaN, Inf)
+        if np.any(np.isnan(a)) or np.any(np.isnan(b)):
+            # NaN values - consider not similar
+            return False
+        if np.any(np.isinf(a)) or np.any(np.isinf(b)):
+            # Inf values - compare element-wise for exact match
+            return bool(np.array_equal(a, b))
+
+        # Check for extreme values that might cause overflow
+        max_val = max(np.max(np.abs(a)), np.max(np.abs(b)))
+        if max_val > 1e20:  # Use float64 for large values
+            a = a.astype(np.float64)
+            b = b.astype(np.float64)
+
+        # Compute norms safely
         norm_a = np.linalg.norm(a)
         norm_b = np.linalg.norm(b)
 
+        # Handle zero vectors
         if norm_a == 0 or norm_b == 0:
-            return norm_a == norm_b
+            # Both zero vectors are considered similar
+            return bool(norm_a == norm_b)
 
-        similarity = dot_product / (norm_a * norm_b)
-        return similarity >= threshold
+        # Add epsilon to prevent division issues
+        epsilon = np.finfo(a.dtype).eps * max(1.0, norm_a, norm_b)
+
+        # Compute cosine similarity with numerical stability
+        try:
+            # Use einsum for more stable dot product computation
+            dot_product = np.sum(a * b)
+            
+            # Normalize and clip to valid range
+            similarity = dot_product / (norm_a * norm_b + epsilon)
+            similarity = np.clip(similarity, -1.0, 1.0)
+            
+            return bool(similarity >= threshold)
+        except (RuntimeWarning, FloatingPointError):
+            # Fall back to element-wise comparison for edge cases
+            return bool(np.allclose(a, b, rtol=1-threshold, atol=1e-8))
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization"""

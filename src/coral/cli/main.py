@@ -352,6 +352,36 @@ class CoralCLI:
             "--output", help="Output results to file"
         )
 
+        # Cluster migrate command
+        migrate_parser = cluster_subparsers.add_parser(
+            "migrate", help="Migrate existing repository to use clustering"
+        )
+        migrate_parser.add_argument(
+            "--strategy", default="adaptive",
+            choices=["kmeans", "hierarchical", "dbscan", "adaptive"],
+            help="Clustering strategy to use during migration (default: adaptive)"
+        )
+        migrate_parser.add_argument(
+            "--threshold", type=float, default=0.98,
+            help="Similarity threshold for clustering (default: 0.98)"
+        )
+        migrate_parser.add_argument(
+            "--backup", action="store_true",
+            help="Create a backup before migration"
+        )
+        migrate_parser.add_argument(
+            "--dry-run", action="store_true",
+            help="Show what would be done without making changes"
+        )
+        migrate_parser.add_argument(
+            "--batch-size", type=int, default=1000,
+            help="Number of weights to process in each batch (default: 1000)"
+        )
+        migrate_parser.add_argument(
+            "--force", action="store_true",
+            help="Force migration even if clustering is already enabled"
+        )
+
         return parser
 
     def run(self, args=None) -> int:
@@ -959,6 +989,8 @@ class CoralCLI:
             return self._cmd_cluster_validate(args, repo_path)
         elif args.cluster_command == "benchmark":
             return self._cmd_cluster_benchmark(args, repo_path)
+        elif args.cluster_command == "migrate":
+            return self._cmd_cluster_migrate(args, repo_path)
         else:
             print(f"Error: Unknown cluster command '{args.cluster_command}'", file=sys.stderr)
             return 1
@@ -1433,6 +1465,93 @@ class CoralCLI:
                 'results': results
             }, indent=2))
             print(f"\nResults saved to: {output_path}")
+        
+        return 0
+
+    def _cmd_cluster_migrate(self, args, repo_path: Path) -> int:
+        """Migrate existing repository to use clustering."""
+        repo = Repository(repo_path)
+        
+        # Check if clustering is already enabled
+        status = repo.get_clustering_status()
+        if status['enabled'] and not args.force:
+            print("Clustering is already enabled in this repository.")
+            print("Use --force to re-run migration.")
+            return 0
+        
+        # Perform dry run analysis if requested
+        if args.dry_run:
+            print("Analyzing repository for migration (dry run)...")
+            analysis = repo.analyze_clustering(similarity_threshold=args.threshold)
+            
+            print(f"\nMigration Analysis:")
+            print(f"  Total weights:        {analysis['total_weights']:,}")
+            print(f"  Potential clusters:   {analysis['potential_clusters']:,}")
+            print(f"  Estimated reduction:  {analysis['estimated_reduction']:.1%}")
+            print(f"  Strategy:            {args.strategy}")
+            print(f"  Threshold:           {args.threshold}")
+            
+            if args.backup:
+                backup_size = repo.weights_store_path.stat().st_size / (1024*1024)
+                print(f"\nBackup would require {backup_size:.1f} MB")
+            
+            print("\nNo changes made (dry run)")
+            return 0
+        
+        # Create backup if requested
+        if args.backup:
+            print("Creating backup...")
+            backup_path = repo.create_backup()
+            print(f"Backup created at: {backup_path}")
+        
+        # Perform migration
+        print(f"Migrating repository to use clustering...")
+        print(f"Strategy: {args.strategy}")
+        print(f"Threshold: {args.threshold}")
+        print(f"Batch size: {args.batch_size}")
+        
+        try:
+            # Use progress bar for migration
+            with tqdm(desc="Migrating weights", unit="weights") as pbar:
+                def progress_callback(current, total):
+                    pbar.total = total
+                    pbar.update(current - pbar.n)
+                
+                result = repo.migrate_to_clustering(
+                    strategy=args.strategy,
+                    threshold=args.threshold,
+                    batch_size=args.batch_size,
+                    progress_callback=progress_callback
+                )
+            
+            print(f"\nMigration complete:")
+            print(f"  Weights processed:   {result['weights_processed']:,}")
+            print(f"  Clusters created:    {result['clusters_created']:,}")
+            print(f"  Space saved:         {result['space_saved'] / (1024*1024):.1f} MB")
+            print(f"  Reduction:           {result['reduction_percentage']:.1%}")
+            print(f"  Time elapsed:        {result['time_elapsed']:.1f}s")
+            
+            if result.get('warnings'):
+                print("\nWarnings:")
+                for warning in result['warnings']:
+                    print(f"  - {warning}")
+            
+            # Validate migration
+            print("\nValidating migration...")
+            validation = repo.validate_clusters()
+            if validation['valid']:
+                print("✓ Migration validation passed")
+            else:
+                print("✗ Migration validation failed:")
+                for error in validation['errors']:
+                    print(f"  - {error}")
+                return 1
+                
+        except Exception as e:
+            print(f"Error during migration: {e}", file=sys.stderr)
+            if args.backup:
+                print(f"You can restore from backup at: {backup_path}")
+            return 1
         
         return 0
 

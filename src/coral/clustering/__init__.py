@@ -31,11 +31,11 @@ Example Usage:
     )
 """
 
-from .cluster_analyzer import ClusterAnalyzer, RepositoryAnalysis, ClusteringResult
+from .cluster_analyzer import ClusterAnalyzer, RepositoryAnalysis, ClusteringResult, AnalysisResult
 from .cluster_assigner import ClusterAssigner, AssignmentHistory, AssignmentMetrics
 from .cluster_config import ClusteringConfig, HierarchyConfig, OptimizationConfig
 from .cluster_hierarchy import ClusterHierarchy, HierarchyNode, HierarchyMetrics
-from .cluster_index import ClusterIndex, IndexStats
+from .cluster_index import ClusterIndex
 from .cluster_storage import ClusterStorage
 from .cluster_types import (
     Centroid,
@@ -46,6 +46,15 @@ from .cluster_types import (
     ClusteringStrategy,
 )
 from .centroid_encoder import CentroidEncoder
+# Import strategies module
+from .strategies import (
+    KMeansStrategy,
+    HierarchicalStrategy,
+    DBSCANStrategy,
+    AdaptiveStrategy,
+    get_strategy,
+    STRATEGIES,
+)
 
 # Version information
 __version__ = "1.0.0"
@@ -57,6 +66,7 @@ __all__ = [
     "ClusterAnalyzer",
     "RepositoryAnalysis", 
     "ClusteringResult",
+    "AnalysisResult",
     # Assignment management
     "ClusterAssigner",
     "AssignmentHistory",
@@ -67,7 +77,6 @@ __all__ = [
     "HierarchyMetrics",
     # Index management
     "ClusterIndex",
-    "IndexStats",
     # Storage management
     "ClusterStorage",
     # Core types and enums
@@ -83,6 +92,13 @@ __all__ = [
     "OptimizationConfig",
     # Centroid-based encoding
     "CentroidEncoder",
+    # Strategy implementations
+    "KMeansStrategy",
+    "HierarchicalStrategy",
+    "DBSCANStrategy",
+    "AdaptiveStrategy",
+    "get_strategy",
+    "STRATEGIES",
     # Version info
     "__version__",
 ]
