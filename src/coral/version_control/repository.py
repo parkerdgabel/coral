@@ -18,11 +18,17 @@ logger = logging.getLogger(__name__)
 
 
 class MergeStrategy(Enum):
-    """Strategy for resolving merge conflicts."""
+    """Strategy for resolving merge conflicts.
+
+    For neural network weights, AVERAGE and WEIGHTED strategies can be useful
+    for combining changes from different training runs or experiments.
+    """
 
     OURS = "ours"  # Prefer weights from current branch
     THEIRS = "theirs"  # Prefer weights from source branch
     FAIL = "fail"  # Raise MergeConflictError on conflicts
+    AVERAGE = "average"  # Average conflicting weights: (ours + theirs) / 2
+    WEIGHTED = "weighted"  # Weighted average: alpha * ours + (1-alpha) * theirs
 
 
 class MergeConflictError(Exception):
@@ -316,13 +322,21 @@ class Repository:
         source_branch: str,
         message: Optional[str] = None,
         strategy: MergeStrategy = MergeStrategy.OURS,
+        merge_alpha: float = 0.5,
     ) -> Commit:
         """Merge another branch into current branch.
 
         Args:
             source_branch: Branch to merge from
             message: Optional merge commit message
-            strategy: How to resolve conflicts (OURS, THEIRS, or FAIL)
+            strategy: How to resolve conflicts:
+                - OURS: Take weights from current branch
+                - THEIRS: Take weights from source branch
+                - FAIL: Raise MergeConflictError on conflicts
+                - AVERAGE: Average the conflicting weights ((ours + theirs) / 2)
+                - WEIGHTED: Weighted average (merge_alpha * ours + (1-merge_alpha) * theirs)
+            merge_alpha: Weight for current branch when using WEIGHTED strategy (0-1).
+                0.5 = equal weight, 0.7 = prefer current, 0.3 = prefer source
 
         Returns:
             The merge commit
@@ -363,7 +377,7 @@ class Repository:
 
         # Merge weights
         merged_weights = self._merge_weights(
-            current_commit, source_commit, ancestor_commit, strategy
+            current_commit, source_commit, ancestor_commit, strategy, merge_alpha
         )
 
         # Stage merged weights
@@ -598,6 +612,7 @@ class Repository:
         source: Commit,
         ancestor: Optional[Commit],
         strategy: MergeStrategy = MergeStrategy.OURS,
+        merge_alpha: float = 0.5,
     ) -> Dict[str, WeightTensor]:
         """Perform three-way merge of weights.
 
@@ -606,6 +621,7 @@ class Repository:
             source: Source branch commit
             ancestor: Common ancestor commit (if any)
             strategy: How to resolve conflicts
+            merge_alpha: Weight for current branch when using WEIGHTED strategy
 
         Returns:
             Merged weights dictionary
@@ -613,6 +629,10 @@ class Repository:
         Raises:
             MergeConflictError: If strategy is FAIL and conflicts are detected
         """
+        import numpy as np
+
+        from ..core.weight_tensor import WeightMetadata
+
         merged = {}
         conflicts = []
 
@@ -647,18 +667,71 @@ class Repository:
                     if strategy == MergeStrategy.FAIL:
                         # Will raise after collecting all conflicts
                         continue
-                    elif strategy == MergeStrategy.THEIRS:
+
+                    # Load weights for conflict resolution
+                    current_weight = store.load(current_hash) if current_hash else None
+                    source_weight = store.load(source_hash) if source_hash else None
+
+                    if strategy == MergeStrategy.THEIRS:
                         # Prefer source branch
-                        if source_hash:
-                            merged[name] = store.load(source_hash)
-                        elif current_hash:
-                            merged[name] = store.load(current_hash)
+                        merged[name] = source_weight or current_weight
+
+                    elif strategy == MergeStrategy.AVERAGE:
+                        # Average the weights: (ours + theirs) / 2
+                        if current_weight and source_weight:
+                            # Check compatible shapes
+                            if current_weight.shape == source_weight.shape:
+                                avg_data = (current_weight.data + source_weight.data) / 2
+                                merged[name] = WeightTensor(
+                                    data=avg_data.astype(current_weight.dtype),
+                                    metadata=WeightMetadata(
+                                        name=name,
+                                        shape=current_weight.shape,
+                                        dtype=current_weight.dtype,
+                                    ),
+                                )
+                            else:
+                                # Incompatible shapes, fall back to OURS
+                                logger.warning(
+                                    f"Cannot average {name}: shape mismatch "
+                                    f"{current_weight.shape} vs {source_weight.shape}"
+                                )
+                                merged[name] = current_weight
+                        else:
+                            merged[name] = current_weight or source_weight
+
+                    elif strategy == MergeStrategy.WEIGHTED:
+                        # Weighted average: alpha * ours + (1-alpha) * theirs
+                        if current_weight and source_weight:
+                            if current_weight.shape == source_weight.shape:
+                                weighted_data = (
+                                    merge_alpha * current_weight.data
+                                    + (1 - merge_alpha) * source_weight.data
+                                )
+                                merged[name] = WeightTensor(
+                                    data=weighted_data.astype(current_weight.dtype),
+                                    metadata=WeightMetadata(
+                                        name=name,
+                                        shape=current_weight.shape,
+                                        dtype=current_weight.dtype,
+                                    ),
+                                )
+                            else:
+                                logger.warning(
+                                    f"Cannot weighted-merge {name}: shape mismatch "
+                                    f"{current_weight.shape} vs {source_weight.shape}"
+                                )
+                                merged[name] = current_weight
+                        else:
+                            # One is missing, use weighted fallback
+                            if current_weight:
+                                merged[name] = current_weight
+                            else:
+                                merged[name] = source_weight
+
                     else:  # MergeStrategy.OURS (default)
                         # Prefer current branch
-                        if current_hash:
-                            merged[name] = store.load(current_hash)
-                        elif source_hash:
-                            merged[name] = store.load(source_hash)
+                        merged[name] = current_weight or source_weight
 
         # Raise if strategy is FAIL and conflicts were detected
         if strategy == MergeStrategy.FAIL and conflicts:

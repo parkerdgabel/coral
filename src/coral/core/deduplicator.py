@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from coral.core.lsh_index import LSHConfig, MultiDimLSHIndex
 from coral.core.weight_tensor import WeightTensor
 from coral.delta.delta_encoder import Delta, DeltaConfig, DeltaEncoder
 
@@ -76,6 +77,7 @@ class Deduplicator:
     Supports:
     - Exact deduplication through content hashing
     - Similarity-based deduplication with lossless delta encoding
+    - LSH-based O(1) similarity search (optional, for large-scale deployments)
     - Reference counting
     - Deduplication statistics
     """
@@ -85,6 +87,9 @@ class Deduplicator:
         similarity_threshold: float = 0.99,
         delta_config: Optional[DeltaConfig] = None,
         enable_delta_encoding: bool = True,
+        enable_lsh: bool = False,
+        lsh_config: Optional[LSHConfig] = None,
+        magnitude_tolerance: float = 0.1,
     ):
         """
         Initialize the deduplicator.
@@ -93,14 +98,26 @@ class Deduplicator:
             similarity_threshold: Threshold for considering weights similar (0-1)
             delta_config: Configuration for delta encoding
             enable_delta_encoding: Whether to use delta encoding for similar weights
+            enable_lsh: Whether to use LSH for O(1) similarity lookup.
+                Enable for large-scale deployments (>10k weights).
+            lsh_config: Configuration for LSH index
+            magnitude_tolerance: Maximum relative magnitude difference for similarity.
+                E.g., 0.1 means magnitudes must be within 10% of each other.
         """
         self.similarity_threshold = similarity_threshold
+        self.magnitude_tolerance = magnitude_tolerance
         self.enable_delta_encoding = enable_delta_encoding
         self.delta_encoder = (
             DeltaEncoder(delta_config or DeltaConfig())
             if enable_delta_encoding
             else None
         )
+
+        # LSH index for fast similarity search
+        self.enable_lsh = enable_lsh
+        self.lsh_index: Optional[MultiDimLSHIndex] = None
+        if enable_lsh:
+            self.lsh_index = MultiDimLSHIndex(lsh_config or LSHConfig())
 
         self.weight_index: Dict[str, WeightTensor] = {}  # hash -> weight
         self.weight_groups: Dict[str, WeightGroup] = {}  # reference_hash -> group
@@ -211,9 +228,14 @@ class Deduplicator:
         )
 
     def _add_unique_weight(self, weight_hash: str, name: str, weight: WeightTensor):
-        """Add a new unique weight"""
+        """Add a new unique weight."""
         self.weight_index[weight_hash] = weight
         self.name_to_hash[name] = weight_hash
+
+        # Add to LSH index for fast similarity lookup
+        if self.lsh_index is not None:
+            self.lsh_index.insert(weight.data, weight_hash)
+
         self.stats.unique_weights += 1
         logger.debug(f"Added unique weight: {name} ({weight_hash})")
 
@@ -221,21 +243,45 @@ class Deduplicator:
         """
         Find a similar weight in the index.
 
+        Uses LSH for O(1) lookup if enabled, otherwise falls back to O(n) scan.
+
         Returns hash of similar weight or None.
         """
-        # Only check weights with same shape and dtype
-        candidates = [
-            (hash_val, w)
-            for hash_val, w in self.weight_index.items()
-            if w.shape == weight.shape and w.dtype == weight.dtype
-        ]
+        # Import here to avoid circular dependency with utils
+        from coral.utils.similarity import are_similar
+
+        # Get candidates - either from LSH or full scan
+        if self.lsh_index is not None:
+            # O(1) average case: get candidate hashes from LSH
+            candidate_hashes = self.lsh_index.query(weight.data)
+            candidates = [
+                (h, self.weight_index[h])
+                for h in candidate_hashes
+                if h in self.weight_index
+                and self.weight_index[h].shape == weight.shape
+                and self.weight_index[h].dtype == weight.dtype
+            ]
+        else:
+            # O(n) fallback: scan all weights with matching shape/dtype
+            candidates = [
+                (hash_val, w)
+                for hash_val, w in self.weight_index.items()
+                if w.shape == weight.shape and w.dtype == weight.dtype
+            ]
 
         # Find most similar weight above threshold
         best_similarity = self.similarity_threshold
         best_hash = None
 
         for hash_val, candidate in candidates:
-            if weight.is_similar_to(candidate, self.similarity_threshold):
+            # Use improved similarity check with magnitude
+            if are_similar(
+                weight.data,
+                candidate.data,
+                threshold=self.similarity_threshold,
+                check_magnitude=True,
+                magnitude_tolerance=self.magnitude_tolerance,
+            ):
                 similarity = self._compute_similarity(weight, candidate)
                 if similarity > best_similarity:
                     best_similarity = similarity
@@ -246,11 +292,11 @@ class Deduplicator:
     def _compute_similarity(
         self, weight1: WeightTensor, weight2: WeightTensor
     ) -> float:
-        """Compute cosine similarity between two weights."""
+        """Compute similarity between two weights including magnitude check."""
         # Import here to avoid circular dependency with utils
-        from coral.utils.similarity import cosine_similarity
+        from coral.utils.similarity import weight_similarity
 
-        return cosine_similarity(weight1.data, weight2.data)
+        return weight_similarity(weight1.data, weight2.data)
 
     def get_weight_by_name(self, name: str) -> Optional[WeightTensor]:
         """Get weight by name, reconstructing from delta if needed.
@@ -376,6 +422,10 @@ class Deduplicator:
             self.name_to_delta.clear()
             self.delta_index.clear()
             self.stats = DeduplicationStats()
+
+            # Clear LSH index if enabled
+            if self.lsh_index is not None:
+                self.lsh_index.clear()
 
     def _compute_delta_hash(self, delta: Delta) -> str:
         """Compute hash for a delta object."""
