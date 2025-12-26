@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -8,11 +9,28 @@ from ..core.deduplicator import Deduplicator
 from ..core.weight_tensor import WeightTensor
 from ..delta.delta_encoder import DeltaConfig
 from ..storage.hdf5_store import HDF5Store
+from ..utils.json_utils import dump_numpy
 from .branch import BranchManager
 from .commit import Commit, CommitMetadata
 from .version import Version, VersionGraph
 
 logger = logging.getLogger(__name__)
+
+
+class MergeStrategy(Enum):
+    """Strategy for resolving merge conflicts."""
+
+    OURS = "ours"  # Prefer weights from current branch
+    THEIRS = "theirs"  # Prefer weights from source branch
+    FAIL = "fail"  # Raise MergeConflictError on conflicts
+
+
+class MergeConflictError(Exception):
+    """Raised when merge conflicts occur and strategy is FAIL."""
+
+    def __init__(self, conflicts: List[str], message: str = "Merge conflicts detected"):
+        self.conflicts = conflicts
+        super().__init__(f"{message}: {', '.join(conflicts)}")
 
 
 class Repository:
@@ -163,7 +181,7 @@ class Repository:
         }
 
         with open(self.staging_dir / "staged.json", "w") as f:
-            json.dump(staging_info, f, indent=2)
+            dump_numpy(staging_info, f, indent=2)
 
         return staged
 
@@ -223,7 +241,7 @@ class Repository:
             # Use staged deltas from deduplicator for root commits
             delta_weights = staged_deltas
 
-        # Create commit hash
+        # Create commit hash (using 32 hex chars = 128 bits for collision resistance)
         commit_content = {
             "parent_hashes": parent_hashes,
             "weight_hashes": weight_hashes,
@@ -232,7 +250,7 @@ class Repository:
         }
         commit_hash = hashlib.sha256(
             json.dumps(commit_content, sort_keys=True).encode()
-        ).hexdigest()[:16]
+        ).hexdigest()[:32]
 
         # Create and save commit
         commit = Commit(
@@ -293,8 +311,26 @@ class Repository:
 
         self.branch_manager.create_branch(name, commit_hash)
 
-    def merge(self, source_branch: str, message: Optional[str] = None) -> Commit:
-        """Merge another branch into current branch."""
+    def merge(
+        self,
+        source_branch: str,
+        message: Optional[str] = None,
+        strategy: MergeStrategy = MergeStrategy.OURS,
+    ) -> Commit:
+        """Merge another branch into current branch.
+
+        Args:
+            source_branch: Branch to merge from
+            message: Optional merge commit message
+            strategy: How to resolve conflicts (OURS, THEIRS, or FAIL)
+
+        Returns:
+            The merge commit
+
+        Raises:
+            MergeConflictError: If strategy is FAIL and conflicts are detected
+            ValueError: If branches are in invalid state
+        """
         current_branch = self.branch_manager.get_current_branch()
 
         # Get branch commits
@@ -327,7 +363,7 @@ class Repository:
 
         # Merge weights
         merged_weights = self._merge_weights(
-            current_commit, source_commit, ancestor_commit
+            current_commit, source_commit, ancestor_commit, strategy
         )
 
         # Stage merged weights
@@ -474,7 +510,7 @@ class Repository:
         if not self.version_graph.get_commit(commit_ref):
             raise ValueError(f"Invalid commit: {commit_ref}")
 
-        version_id = hashlib.sha256(f"{name}:{commit_ref}".encode()).hexdigest()[:8]
+        version_id = hashlib.sha256(f"{name}:{commit_ref}".encode()).hexdigest()[:16]
 
         version = Version(
             version_id=version_id,
@@ -557,10 +593,28 @@ class Repository:
         return deltas
 
     def _merge_weights(
-        self, current: Commit, source: Commit, ancestor: Optional[Commit]
+        self,
+        current: Commit,
+        source: Commit,
+        ancestor: Optional[Commit],
+        strategy: MergeStrategy = MergeStrategy.OURS,
     ) -> Dict[str, WeightTensor]:
-        """Perform three-way merge of weights."""
+        """Perform three-way merge of weights.
+
+        Args:
+            current: Current branch commit
+            source: Source branch commit
+            ancestor: Common ancestor commit (if any)
+            strategy: How to resolve conflicts
+
+        Returns:
+            Merged weights dictionary
+
+        Raises:
+            MergeConflictError: If strategy is FAIL and conflicts are detected
+        """
         merged = {}
+        conflicts = []
 
         all_names = set(current.weight_hashes.keys()) | set(source.weight_hashes.keys())
         if ancestor:
@@ -573,29 +627,48 @@ class Repository:
                 source_hash = source.weight_hashes.get(name)
                 ancestor_hash = ancestor.weight_hashes.get(name) if ancestor else None
 
-                # Simple merge strategy
+                # Determine merge outcome
                 if current_hash == source_hash:
-                    # No conflict
-                    if current_hash:
-                        merged[name] = store.load(current_hash)
-                elif ancestor_hash is None:
-                    # Both added the weight - conflict
-                    # For now, prefer current
+                    # No conflict - both have same version
                     if current_hash:
                         merged[name] = store.load(current_hash)
                 elif current_hash == ancestor_hash:
-                    # Only source changed
+                    # Only source changed - take source
                     if source_hash:
                         merged[name] = store.load(source_hash)
                 elif source_hash == ancestor_hash:
-                    # Only current changed
+                    # Only current changed - take current
                     if current_hash:
                         merged[name] = store.load(current_hash)
                 else:
-                    # Both changed - conflict
-                    # For now, prefer current
-                    if current_hash:
-                        merged[name] = store.load(current_hash)
+                    # Conflict: both changed differently, or both added new weight
+                    conflicts.append(name)
+
+                    if strategy == MergeStrategy.FAIL:
+                        # Will raise after collecting all conflicts
+                        continue
+                    elif strategy == MergeStrategy.THEIRS:
+                        # Prefer source branch
+                        if source_hash:
+                            merged[name] = store.load(source_hash)
+                        elif current_hash:
+                            merged[name] = store.load(current_hash)
+                    else:  # MergeStrategy.OURS (default)
+                        # Prefer current branch
+                        if current_hash:
+                            merged[name] = store.load(current_hash)
+                        elif source_hash:
+                            merged[name] = store.load(source_hash)
+
+        # Raise if strategy is FAIL and conflicts were detected
+        if strategy == MergeStrategy.FAIL and conflicts:
+            raise MergeConflictError(conflicts)
+
+        if conflicts:
+            logger.warning(
+                f"Resolved {len(conflicts)} merge conflict(s) using strategy "
+                f"'{strategy.value}': {', '.join(conflicts)}"
+            )
 
         return merged
 

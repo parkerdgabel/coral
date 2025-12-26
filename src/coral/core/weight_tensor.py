@@ -1,10 +1,13 @@
 """Base class for representing neural network weights"""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 import numpy as np
 import xxhash
+
+if TYPE_CHECKING:
+    pass  # For type hints that would cause circular imports
 
 
 @dataclass
@@ -155,19 +158,10 @@ class WeightTensor:
         if self.shape != other.shape or self.dtype != other.dtype:
             return False
 
-        # Flatten arrays for comparison
-        a = self.data.flatten()
-        b = other.data.flatten()
+        # Import here to avoid circular dependency with utils
+        from coral.utils.similarity import cosine_similarity
 
-        # Compute cosine similarity
-        dot_product = np.dot(a, b)
-        norm_a = np.linalg.norm(a)
-        norm_b = np.linalg.norm(b)
-
-        if norm_a == 0 or norm_b == 0:
-            return norm_a == norm_b
-
-        similarity = dot_product / (norm_a * norm_b)
+        similarity = cosine_similarity(self.data, other.data)
         return similarity >= threshold
 
     def to_dict(self) -> Dict[str, Any]:

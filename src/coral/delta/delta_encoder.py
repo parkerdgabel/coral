@@ -12,6 +12,31 @@ from ..core.weight_tensor import WeightTensor
 
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# Constants for delta encoding
+# ============================================================================
+
+# Approximate overhead in bytes for delta object metadata (delta type, shape,
+# dtype, reference hash, etc.)
+DELTA_OBJECT_OVERHEAD_BYTES = 200
+
+# Approximate overhead in bytes for serialized metadata (JSON encoding overhead)
+DELTA_METADATA_OVERHEAD_BYTES = 200
+
+# Default sparse encoding threshold - values with absolute difference below
+# this are considered zero
+DEFAULT_SPARSE_THRESHOLD = 1e-6
+
+# Default compression level for zlib (1-9, higher = better compression but slower)
+DEFAULT_COMPRESSION_LEVEL = 6
+
+# Default minimum weight size in bytes to consider delta encoding
+# (smaller weights have too much overhead from metadata)
+DEFAULT_MIN_WEIGHT_SIZE_BYTES = 512
+
+# Default similarity threshold for deduplication
+DEFAULT_SIMILARITY_THRESHOLD = 0.98
+
 
 class DeltaType(Enum):
     """Types of delta encoding strategies."""
@@ -23,25 +48,24 @@ class DeltaType(Enum):
     COMPRESSED = "compressed"  # Compressed raw differences
 
 
+class DeltaReconstructionError(Exception):
+    """Raised when delta reconstruction fails due to hash mismatch in strict mode."""
+
+    pass
+
+
 @dataclass
 class DeltaConfig:
     """Configuration for delta encoding."""
 
     delta_type: DeltaType = DeltaType.FLOAT32_RAW
-    sparse_threshold: float = (
-        1e-6  # Values below this are considered zero for sparse encoding
-    )
+    sparse_threshold: float = DEFAULT_SPARSE_THRESHOLD
     quantization_bits: int = 8  # Bits for quantized encoding (8 or 16)
-    compression_level: int = 6  # Compression level for compressed deltas
-    max_delta_ratio: float = (
-        1.0  # Allow delta up to 100% of original size (for raw encoding)
-    )
-    min_compression_ratio: float = (
-        0.0  # Minimum compression ratio to store delta (0% = always store if efficient)
-    )
-    min_weight_size: int = (
-        512  # Minimum weight size in bytes to consider delta encoding
-    )
+    compression_level: int = DEFAULT_COMPRESSION_LEVEL
+    max_delta_ratio: float = 1.0  # Allow delta up to 100% of original size
+    min_compression_ratio: float = 0.0  # Minimum compression ratio (0% = always store)
+    min_weight_size: int = DEFAULT_MIN_WEIGHT_SIZE_BYTES
+    strict_reconstruction: bool = False  # If True, raise error on hash mismatch
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -53,6 +77,7 @@ class DeltaConfig:
             "max_delta_ratio": self.max_delta_ratio,
             "min_compression_ratio": self.min_compression_ratio,
             "min_weight_size": self.min_weight_size,
+            "strict_reconstruction": self.strict_reconstruction,
         }
 
     @classmethod
@@ -132,11 +157,7 @@ class Delta:
                 )
 
             # Add constant overhead for delta object fields
-            object_overhead = (
-                200  # Approximate overhead for delta type, shape, dtype, etc.
-            )
-
-            return data_nbytes + metadata_size + object_overhead
+            return data_nbytes + metadata_size + DELTA_OBJECT_OVERHEAD_BYTES
         except Exception as e:
             logger.error(f"Error calculating Delta.nbytes: {e}")
             logger.error(f"  self.data: {self.data} (type: {type(self.data)})")
@@ -191,9 +212,8 @@ class DeltaEncoder:
             estimated_data_size = weight.nbytes
 
         # Add metadata and object overhead
-        metadata_overhead = 200  # Approximate metadata size
-        object_overhead = 200  # Approximate object overhead
-        estimated_total_size = estimated_data_size + metadata_overhead + object_overhead
+        total_overhead = DELTA_METADATA_OVERHEAD_BYTES + DELTA_OBJECT_OVERHEAD_BYTES
+        estimated_total_size = estimated_data_size + total_overhead
 
         # Check if delta encoding is worthwhile
         # For FLOAT32_RAW and COMPRESSED, we always allow encoding as they enable
@@ -274,8 +294,7 @@ class DeltaEncoder:
                     f"{encoded_nbytes}"
                 )
 
-            object_overhead = 200  # Approximate overhead for delta object fields
-            delta_size = encoded_nbytes + metadata_size + object_overhead
+            delta_size = encoded_nbytes + metadata_size + DELTA_OBJECT_OVERHEAD_BYTES
 
         except Exception as e:
             logger.error(f"Error calculating delta size in encode_delta: {e}")
@@ -302,16 +321,30 @@ class DeltaEncoder:
         )
 
     def decode_delta(self, delta: Delta, reference: WeightTensor) -> WeightTensor:
-        """Decode delta and reconstruct original weight."""
+        """Decode delta and reconstruct original weight.
+
+        Args:
+            delta: The delta encoding to apply
+            reference: The reference weight to apply delta to
+
+        Returns:
+            Reconstructed weight tensor
+
+        Raises:
+            DeltaReconstructionError: If strict_reconstruction is enabled and
+                reference hash doesn't match the expected hash in delta
+        """
         # Ensure reference hash is computed and validate against delta
         reference_hash = reference.compute_hash()
         if reference_hash != delta.reference_hash:
-            logger.warning(
+            message = (
                 f"Reference hash mismatch during delta decoding: "
                 f"expected {delta.reference_hash}, got {reference_hash}. "
-                f"This may indicate storage serialization issues but decoding "
-                f"will continue."
+                f"This may indicate data corruption or storage serialization issues."
             )
+            if self.config.strict_reconstruction:
+                raise DeltaReconstructionError(message)
+            logger.warning(f"{message} Decoding will continue (strict mode disabled).")
 
         # Decode delta data based on type
         # Handle both string and enum types for backwards compatibility

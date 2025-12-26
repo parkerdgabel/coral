@@ -218,6 +218,15 @@ class HDF5Store(WeightStore):
         if hasattr(self, "file") and self.file:
             self.file.close()
 
+    def __enter__(self) -> "HDF5Store":
+        """Enter context manager."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Exit context manager and close file."""
+        self.close()
+        return False
+
     def store_delta(self, delta: Delta, delta_hash: str) -> str:
         """Store a delta object."""
         if self.delta_exists(delta_hash):

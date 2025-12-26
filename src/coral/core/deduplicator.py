@@ -1,6 +1,7 @@
 """Core deduplication engine for weight tensors"""
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -110,9 +111,14 @@ class Deduplicator:
         self.delta_index: Dict[str, Delta] = {}  # delta hash -> delta object
         self.stats = DeduplicationStats()
 
+        # Thread safety lock for concurrent access
+        self._lock = threading.RLock()
+
     def add_weight(self, weight: WeightTensor, name: Optional[str] = None) -> str:
         """
         Add a weight to the deduplicator and check for duplicates.
+
+        This method is thread-safe.
 
         Args:
             weight: WeightTensor to add
@@ -124,25 +130,26 @@ class Deduplicator:
         if name is None:
             name = weight.metadata.name
 
-        # Compute hash
+        # Compute hash outside the lock (CPU-intensive, doesn't need synchronization)
         weight_hash = weight.compute_hash()
 
-        # Check for exact duplicate
-        if weight_hash in self.weight_index:
-            # Exact duplicate found
-            self._add_duplicate(weight_hash, name, weight)
+        with self._lock:
+            # Check for exact duplicate
+            if weight_hash in self.weight_index:
+                # Exact duplicate found
+                self._add_duplicate(weight_hash, name, weight)
+                return weight_hash
+
+            # Check for similar weights
+            similar_ref = self._find_similar_weight(weight)
+            if similar_ref:
+                # Similar weight found
+                self._add_similar(similar_ref, name, weight)
+                return similar_ref
+
+            # New unique weight
+            self._add_unique_weight(weight_hash, name, weight)
             return weight_hash
-
-        # Check for similar weights
-        similar_ref = self._find_similar_weight(weight)
-        if similar_ref:
-            # Similar weight found
-            self._add_similar(similar_ref, name, weight)
-            return similar_ref
-
-        # New unique weight
-        self._add_unique_weight(weight_hash, name, weight)
-        return weight_hash
 
     def _add_duplicate(self, ref_hash: str, name: str, weight: WeightTensor):
         """Add an exact duplicate to existing group"""
@@ -190,7 +197,11 @@ class Deduplicator:
                     logger.debug(
                         f"Delta encoding not efficient for {name}, storing reference"
                     )
-            except Exception as e:
+            except (ValueError, TypeError, np.linalg.LinAlgError) as e:
+                # Catch specific expected errors during delta encoding:
+                # - ValueError: shape/dtype mismatch, invalid delta parameters
+                # - TypeError: incompatible data types
+                # - LinAlgError: numerical computation errors
                 logger.warning(f"Failed to create delta for {name}: {e}")
 
         self.name_to_hash[name] = ref_hash
@@ -235,31 +246,28 @@ class Deduplicator:
     def _compute_similarity(
         self, weight1: WeightTensor, weight2: WeightTensor
     ) -> float:
-        """Compute cosine similarity between two weights"""
-        a = weight1.data.flatten()
-        b = weight2.data.flatten()
+        """Compute cosine similarity between two weights."""
+        # Import here to avoid circular dependency with utils
+        from coral.utils.similarity import cosine_similarity
 
-        dot_product = np.dot(a, b)
-        norm_a = np.linalg.norm(a)
-        norm_b = np.linalg.norm(b)
-
-        if norm_a == 0 or norm_b == 0:
-            return 1.0 if norm_a == norm_b else 0.0
-
-        return dot_product / (norm_a * norm_b)
+        return cosine_similarity(weight1.data, weight2.data)
 
     def get_weight_by_name(self, name: str) -> Optional[WeightTensor]:
-        """Get weight by name, reconstructing from delta if needed"""
-        if name not in self.name_to_hash:
-            return None
+        """Get weight by name, reconstructing from delta if needed.
 
-        # Check if this is a delta-encoded similar weight
-        if name in self.name_to_delta and self.enable_delta_encoding:
-            return self._reconstruct_from_delta(name)
+        This method is thread-safe.
+        """
+        with self._lock:
+            if name not in self.name_to_hash:
+                return None
 
-        # Otherwise get the reference weight directly
-        hash_val = self.name_to_hash[name]
-        return self.weight_index.get(hash_val)
+            # Check if this is a delta-encoded similar weight
+            if name in self.name_to_delta and self.enable_delta_encoding:
+                return self._reconstruct_from_delta(name)
+
+            # Otherwise get the reference weight directly
+            hash_val = self.name_to_hash[name]
+            return self.weight_index.get(hash_val)
 
     def get_weight_group(self, name: str) -> Optional[WeightGroup]:
         """Get the weight group containing a named weight"""
@@ -284,30 +292,47 @@ class Deduplicator:
         return None
 
     def compute_stats(self) -> DeduplicationStats:
-        """Compute and return deduplication statistics"""
-        self.stats.total_weights = len(self.name_to_hash)
+        """Compute and return deduplication statistics.
 
-        # Calculate bytes
-        original_bytes = 0
-        deduplicated_bytes = 0
+        This method is thread-safe.
+        """
+        with self._lock:
+            self.stats.total_weights = len(self.name_to_hash)
 
-        for name in self.name_to_hash:
-            weight = self.get_weight_by_name(name)
-            if weight:
-                original_bytes += weight.nbytes
+            # Calculate bytes
+            original_bytes = 0
+            deduplicated_bytes = 0
 
-        # Count unique weights and their bytes
-        for weight in self.weight_index.values():
-            deduplicated_bytes += weight.nbytes
+            for name in self.name_to_hash:
+                weight = self._get_weight_by_name_unlocked(name)
+                if weight:
+                    original_bytes += weight.nbytes
 
-        # Add estimated delta encoding for similar weights
-        for group in self.weight_groups.values():
-            # Estimate 50% size for delta-encoded similar weights
-            for _, weight, _ in group.similar:
-                deduplicated_bytes += weight.nbytes // 2
+            # Count unique weights and their bytes
+            for weight in self.weight_index.values():
+                deduplicated_bytes += weight.nbytes
 
-        self.stats.update(original_bytes, deduplicated_bytes)
-        return self.stats
+            # Add estimated delta encoding for similar weights
+            for group in self.weight_groups.values():
+                # Estimate 50% size for delta-encoded similar weights
+                for _, weight, _ in group.similar:
+                    deduplicated_bytes += weight.nbytes // 2
+
+            self.stats.update(original_bytes, deduplicated_bytes)
+            return self.stats
+
+    def _get_weight_by_name_unlocked(self, name: str) -> Optional[WeightTensor]:
+        """Get weight by name without locking (for internal use when lock is held)."""
+        if name not in self.name_to_hash:
+            return None
+
+        # Check if this is a delta-encoded similar weight
+        if name in self.name_to_delta and self.enable_delta_encoding:
+            return self._reconstruct_from_delta(name)
+
+        # Otherwise get the reference weight directly
+        hash_val = self.name_to_hash[name]
+        return self.weight_index.get(hash_val)
 
     def get_deduplication_report(self) -> Dict[str, Any]:
         """Get detailed deduplication report"""
@@ -340,13 +365,17 @@ class Deduplicator:
         }
 
     def clear(self):
-        """Clear all stored weights and statistics"""
-        self.weight_index.clear()
-        self.weight_groups.clear()
-        self.name_to_hash.clear()
-        self.name_to_delta.clear()
-        self.delta_index.clear()
-        self.stats = DeduplicationStats()
+        """Clear all stored weights and statistics.
+
+        This method is thread-safe.
+        """
+        with self._lock:
+            self.weight_index.clear()
+            self.weight_groups.clear()
+            self.name_to_hash.clear()
+            self.name_to_delta.clear()
+            self.delta_index.clear()
+            self.stats = DeduplicationStats()
 
     def _compute_delta_hash(self, delta: Delta) -> str:
         """Compute hash for a delta object."""
