@@ -1,5 +1,15 @@
 """Utility functions for coral"""
 
+from coral.utils.json_utils import NumpyJSONEncoder, dump_numpy, dumps_numpy
+from coral.utils.similarity import are_similar, cosine_similarity
 from coral.utils.visualization import plot_deduplication_stats, plot_weight_distribution
 
-__all__ = ["plot_weight_distribution", "plot_deduplication_stats"]
+__all__ = [
+    "plot_weight_distribution",
+    "plot_deduplication_stats",
+    "NumpyJSONEncoder",
+    "dumps_numpy",
+    "dump_numpy",
+    "cosine_similarity",
+    "are_similar",
+]
