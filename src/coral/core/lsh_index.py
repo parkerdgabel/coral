@@ -19,7 +19,7 @@ Trade-offs:
 
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set
 
 import numpy as np
 
@@ -326,7 +326,6 @@ class MultiDimLSHIndex:
             "num_dimensions": len(self.indices),
             "total_vectors": len(self.key_to_dim),
             "per_dimension": {
-                dim: index.get_stats()
-                for dim, index in self.indices.items()
+                dim: index.get_stats() for dim, index in self.indices.items()
             },
         }

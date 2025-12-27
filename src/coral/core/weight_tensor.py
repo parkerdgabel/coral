@@ -1,13 +1,17 @@
-"""Base class for representing neural network weights"""
+"""Base class for representing neural network weights with large model scaling."""
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 
 import numpy as np
 import xxhash
 
 if TYPE_CHECKING:
     pass  # For type hints that would cause circular imports
+
+
+# Type alias for lazy loader functions
+LazyLoader = Callable[[str], Optional[np.ndarray]]
 
 
 @dataclass
@@ -30,7 +34,8 @@ class WeightTensor:
     This class provides a unified interface for weight tensors with support for:
     - Content-based hashing for deduplication
     - Metadata tracking
-    - Lazy loading from storage
+    - **Lazy loading from storage (large model scaling)**
+    - **Memory-mapped data access for huge weights**
     - Compression support
     """
 
@@ -39,6 +44,7 @@ class WeightTensor:
         data: Optional[np.ndarray] = None,
         metadata: Optional[WeightMetadata] = None,
         store_ref: Optional[str] = None,
+        lazy_loader: Optional[LazyLoader] = None,
     ):
         """
         Initialize a WeightTensor.
@@ -47,11 +53,15 @@ class WeightTensor:
             data: The actual weight data as numpy array
             metadata: Metadata about the weight tensor
             store_ref: Reference to data in storage (for lazy loading)
+            lazy_loader: Optional function to load data on-demand from store_ref.
+                        Signature: (store_ref: str) -> np.ndarray
         """
         self._data = data
         self._metadata = metadata
         self._store_ref = store_ref
+        self._lazy_loader = lazy_loader
         self._hash: Optional[str] = None
+        self._is_loaded = data is not None
 
         if data is not None and metadata is None:
             # Auto-create metadata from data
@@ -61,9 +71,22 @@ class WeightTensor:
 
     @property
     def data(self) -> np.ndarray:
-        """Get the weight data, loading from storage if necessary"""
+        """Get the weight data, loading from storage if necessary (lazy loading)"""
         if self._data is None:
-            raise ValueError("Weight data not loaded and no store reference available")
+            if self._lazy_loader is not None and self._store_ref is not None:
+                # Lazy load from storage
+                loaded_data = self._lazy_loader(self._store_ref)
+                if loaded_data is not None:
+                    self._data = loaded_data
+                    self._is_loaded = True
+                else:
+                    raise ValueError(
+                        f"Failed to load weight from store ref: {self._store_ref}"
+                    )
+            else:
+                raise ValueError(
+                    "Weight data not loaded and no store reference available"
+                )
         return self._data
 
     @data.setter
@@ -199,9 +222,90 @@ class WeightTensor:
 
         return cls(data=weight_data, metadata=metadata, store_ref=data.get("store_ref"))
 
+    # =========================================================================
+    # Large Model Scaling Methods
+    # =========================================================================
+
+    @property
+    def is_loaded(self) -> bool:
+        """Check if weight data is currently loaded in memory"""
+        return self._is_loaded and self._data is not None
+
+    @property
+    def store_ref(self) -> Optional[str]:
+        """Get the storage reference for this weight"""
+        return self._store_ref
+
+    @property
+    def can_lazy_load(self) -> bool:
+        """Check if this weight supports lazy loading"""
+        return self._lazy_loader is not None and self._store_ref is not None
+
+    def unload(self) -> bool:
+        """
+        Unload weight data from memory to free RAM.
+
+        Only works if the weight can be lazy-loaded again later.
+        Useful for managing memory with very large model collections.
+
+        Returns:
+            True if data was unloaded, False if unloading is not safe
+        """
+        if not self.can_lazy_load:
+            return False
+
+        self._data = None
+        self._is_loaded = False
+        return True
+
+    def set_lazy_loader(self, loader: LazyLoader) -> None:
+        """
+        Set the lazy loader function for on-demand data loading.
+
+        Args:
+            loader: Function that takes a store_ref and returns numpy array
+        """
+        self._lazy_loader = loader
+
+    def ensure_loaded(self) -> None:
+        """
+        Ensure weight data is loaded into memory.
+
+        Raises:
+            ValueError: If data cannot be loaded
+        """
+        # Accessing .data triggers lazy loading
+        _ = self.data
+
+    @classmethod
+    def create_lazy(
+        cls,
+        metadata: WeightMetadata,
+        store_ref: str,
+        lazy_loader: LazyLoader,
+    ) -> "WeightTensor":
+        """
+        Create a lazy-loading WeightTensor without loading data.
+
+        This is useful for creating weight references that don't consume
+        memory until the data is actually accessed.
+
+        Args:
+            metadata: Weight metadata (shape, dtype, name, etc.)
+            store_ref: Storage reference for lazy loading
+            lazy_loader: Function to load data on demand
+
+        Returns:
+            WeightTensor that will load data on first access
+        """
+        tensor = cls(data=None, metadata=metadata, store_ref=store_ref)
+        tensor._lazy_loader = lazy_loader
+        return tensor
+
     def __repr__(self) -> str:
+        loaded_str = "loaded" if self.is_loaded else "not loaded"
         return (
             f"WeightTensor(name='{self.metadata.name}', "
             f"shape={self.shape}, dtype={self.dtype}, "
-            f"size={self.size}, nbytes={self.nbytes})"
+            f"size={self.size}, nbytes={self.nbytes}, {loaded_str})"
         )

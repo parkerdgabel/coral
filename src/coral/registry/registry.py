@@ -122,9 +122,7 @@ class ModelPublisher:
         self._history.append(result)
         self._save_history()
 
-    def _get_weights_for_commit(
-        self, commit_ref: str | None = None
-    ) -> dict[str, Any]:
+    def _get_weights_for_commit(self, commit_ref: str | None = None) -> dict[str, Any]:
         """Get weights from a commit as numpy arrays."""
         weights = self.repo.get_all_weights(commit_ref)
         return {name: w.data for name, w in weights.items()}
