@@ -1,0 +1,99 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+---
+
+<DocsLayout title="Version Control">
+  <h1>Version Control</h1>
+
+  <p>
+    Coral provides a complete git-like version control system for neural network weights,
+    including branching, committing, merging, and tagging.
+  </p>
+
+  <h2>Commits</h2>
+
+  <p>Commits are immutable snapshots of your model weights with metadata:</p>
+
+  <pre><code>from coral import Repository
+
+repo = Repository("./my-model")
+
+# Stage weights
+repo.stage_weights({"{"}
+    "model.weight": weight_tensor
+{"}"})
+
+# Commit with message and metadata
+commit = repo.commit(
+    message="Improve encoder performance",
+    author="Your Name",
+    email="you@example.com"
+)</code></pre>
+
+  <h2>Branching</h2>
+
+  <p>Create branches for experiments without duplicating storage:</p>
+
+  <pre><code># Create and checkout a new branch
+repo.create_branch("experiment-lr-0.001")
+repo.checkout("experiment-lr-0.001")
+
+# Make changes...
+repo.stage_weights(new_weights)
+repo.commit("Test lower learning rate")
+
+# Switch back to main
+repo.checkout("main")</code></pre>
+
+  <h2>Merging</h2>
+
+  <p>Coral supports multiple merge strategies:</p>
+
+  <pre><code>from coral.version_control.repository import MergeStrategy
+
+# Merge experiment branch into main
+repo.checkout("main")
+commit = repo.merge(
+    "experiment-lr-0.001",
+    strategy=MergeStrategy.THEIRS  # Use experiment weights
+)</code></pre>
+
+  <h3>Merge Strategies</h3>
+
+  <ul>
+    <li><strong>OURS:</strong> Prefer weights from current branch</li>
+    <li><strong>THEIRS:</strong> Prefer weights from source branch</li>
+    <li><strong>FAIL:</strong> Raise error on conflicts</li>
+    <li><strong>AVERAGE:</strong> Average conflicting weights</li>
+    <li><strong>WEIGHTED:</strong> Weighted average with configurable alpha</li>
+  </ul>
+
+  <h2>Tagging</h2>
+
+  <p>Tag specific versions for release or reference:</p>
+
+  <pre><code># Tag current HEAD
+repo.tag_version("v1.0.0", "Production release")
+
+# Tag with metrics
+repo.tag_version(
+    "v1.1.0",
+    "Improved accuracy",
+    metrics={"{"}
+        "accuracy": 0.95,
+        "loss": 0.05
+    {"}"}
+)</code></pre>
+
+  <h2>History</h2>
+
+  <pre><code># Get commit history
+history = repo.get_history()
+
+for commit in history:
+    print(f"{"{"}commit.hash[:8]{"}"} - {"{"}commit.message{"}"}")
+
+# Compare commits
+diff = repo.diff("HEAD~1", "HEAD")
+print(f"Changed weights: {"{"}diff.changed{"}"}")</code></pre>
+</DocsLayout>

@@ -1,0 +1,76 @@
+---
+const stats = [
+  { value: '47.6%', label: 'Storage Savings', description: 'vs naive PyTorch storage' },
+  { value: '1.91x', label: 'Compression Ratio', description: 'with lossless reconstruction' },
+  { value: '84%', label: 'Test Coverage', description: 'comprehensive test suite' },
+  { value: 'O(1)', label: 'Similarity Lookup', description: 'via SimHash & LSH index' },
+];
+---
+
+<section class="stats">
+  <div class="container">
+    <div class="stats-grid">
+      {stats.map((stat) => (
+        <div class="stat-card">
+          <div class="stat-value text-gradient">{stat.value}</div>
+          <div class="stat-label">{stat.label}</div>
+          <div class="stat-description">{stat.description}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .stats {
+    padding: var(--space-3xl) 0;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-xl);
+  }
+
+  .stat-card {
+    text-align: center;
+    padding: var(--space-lg);
+  }
+
+  .stat-value {
+    font-size: 3rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: var(--space-sm);
+  }
+
+  .stat-label {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--space-xs);
+  }
+
+  .stat-description {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+  }
+
+  @media (max-width: 1024px) {
+    .stats-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (max-width: 640px) {
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+    .stat-value {
+      font-size: 2.5rem;
+    }
+  }
+</style>

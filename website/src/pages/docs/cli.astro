@@ -1,0 +1,109 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+---
+
+<DocsLayout title="CLI Reference">
+  <h1>CLI Reference</h1>
+
+  <p>
+    The Coral CLI provides a git-like interface for managing neural network weights.
+    All commands are accessible via <code>coral-ml</code>.
+  </p>
+
+  <h2>Repository Commands</h2>
+
+  <h3>init</h3>
+  <p>Initialize a new Coral repository.</p>
+  <pre><code>coral-ml init [path]</code></pre>
+
+  <h3>status</h3>
+  <p>Show repository status including staged weights and current branch.</p>
+  <pre><code>coral-ml status</code></pre>
+
+  <h3>stats</h3>
+  <p>Show repository statistics and storage savings.</p>
+  <pre><code>coral-ml stats [--json]</code></pre>
+
+  <h2>Weight Management</h2>
+
+  <h3>add</h3>
+  <p>Stage weights for commit.</p>
+  <pre><code>coral-ml add &lt;weights...&gt;</code></pre>
+
+  <h3>commit</h3>
+  <p>Commit staged weights with a message.</p>
+  <pre><code>coral-ml commit -m "message" [--author NAME] [--email EMAIL]</code></pre>
+
+  <h3>show</h3>
+  <p>Show information about a specific weight.</p>
+  <pre><code>coral-ml show &lt;weight&gt; [-c commit]</code></pre>
+
+  <h2>History & Comparison</h2>
+
+  <h3>log</h3>
+  <p>Show commit history.</p>
+  <pre><code>coral-ml log [-n NUMBER] [--oneline]</code></pre>
+
+  <h3>diff</h3>
+  <p>Show differences between commits.</p>
+  <pre><code>coral-ml diff &lt;from&gt; [to]</code></pre>
+
+  <h3>compare</h3>
+  <p>Compare weights between commits or branches.</p>
+  <pre><code>coral-ml compare &lt;ref1&gt; [ref2] [-v]</code></pre>
+
+  <h2>Branching</h2>
+
+  <h3>branch</h3>
+  <p>Create, list, or delete branches.</p>
+  <pre><code># List branches
+coral-ml branch
+
+# Create branch
+coral-ml branch &lt;name&gt;
+
+# Delete branch
+coral-ml branch -d &lt;name&gt;</code></pre>
+
+  <h3>checkout</h3>
+  <p>Checkout a branch or commit.</p>
+  <pre><code>coral-ml checkout &lt;target&gt;</code></pre>
+
+  <h3>merge</h3>
+  <p>Merge a branch into the current branch.</p>
+  <pre><code>coral-ml merge &lt;branch&gt; [-m message]</code></pre>
+
+  <h2>Tagging</h2>
+
+  <h3>tag</h3>
+  <p>Create a version tag.</p>
+  <pre><code>coral-ml tag &lt;name&gt; [-d description] [-c commit] [--metric key=value]</code></pre>
+
+  <h2>Remote Operations</h2>
+
+  <h3>remote</h3>
+  <p>Manage remote repositories.</p>
+  <pre><code>coral-ml remote add &lt;name&gt; &lt;url&gt;
+coral-ml remote remove &lt;name&gt;
+coral-ml remote list</code></pre>
+
+  <h3>push / pull</h3>
+  <p>Sync with remote storage.</p>
+  <pre><code>coral-ml push [remote] [--all]
+coral-ml pull [remote] [--all]</code></pre>
+
+  <h3>clone</h3>
+  <p>Clone a remote repository.</p>
+  <pre><code>coral-ml clone &lt;url&gt; [path]</code></pre>
+
+  <h3>sync</h3>
+  <p>Bidirectional sync with remote.</p>
+  <pre><code>coral-ml sync [remote]
+coral-ml sync-status [remote]</code></pre>
+
+  <h2>Maintenance</h2>
+
+  <h3>gc</h3>
+  <p>Garbage collect unreferenced weights.</p>
+  <pre><code>coral-ml gc</code></pre>
+</DocsLayout>

@@ -1,0 +1,81 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+---
+
+<DocsLayout title="Installation">
+  <h1>Installation</h1>
+
+  <p>
+    Coral supports Python 3.8+ and can be installed via pip or from source.
+  </p>
+
+  <h2>From PyPI (Recommended)</h2>
+
+  <pre><code># Basic installation
+pip install coral-ml</code></pre>
+
+  <h2>Optional Dependencies</h2>
+
+  <p>Coral has several optional dependency groups for different use cases:</p>
+
+  <pre><code># PyTorch integration
+pip install coral-ml[torch]
+
+# S3/MinIO storage backend
+pip install coral-ml[s3]
+
+# Hugging Face Hub integration
+pip install coral-ml[huggingface]
+
+# Development tools
+pip install coral-ml[dev]
+
+# Everything
+pip install coral-ml[all]</code></pre>
+
+  <h2>From Source</h2>
+
+  <pre><code>git clone https://github.com/parkerdgabel/coral.git
+cd coral
+pip install -e ".[dev,torch]"</code></pre>
+
+  <h2>Using uv (Recommended for Development)</h2>
+
+  <pre><code># Install uv if you haven't
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone and setup
+git clone https://github.com/parkerdgabel/coral.git
+cd coral
+
+# Install with all dev dependencies
+uv sync --extra dev --extra torch</code></pre>
+
+  <h2>Verify Installation</h2>
+
+  <pre><code># Check CLI is available
+coral-ml --help
+
+# Or in Python
+import coral
+print(coral.__version__)</code></pre>
+
+  <h2>Dependencies</h2>
+
+  <h3>Core (Required)</h3>
+  <ul>
+    <li><code>numpy>=1.21.0</code> - Array operations</li>
+    <li><code>h5py>=3.0.0</code> - HDF5 storage</li>
+    <li><code>xxhash>=3.0.0</code> - Fast content hashing</li>
+    <li><code>tqdm>=4.60.0</code> - Progress bars</li>
+    <li><code>networkx>=3.1</code> - Version graph management</li>
+  </ul>
+
+  <h3>Optional</h3>
+  <ul>
+    <li><code>torch>=1.10.0</code> - PyTorch integration</li>
+    <li><code>boto3>=1.26.0</code> - S3 storage backend</li>
+    <li><code>huggingface-hub>=0.19.0</code> - HF Hub integration</li>
+    <li><code>safetensors>=0.4.0</code> - Efficient weight loading</li>
+  </ul>
+</DocsLayout>

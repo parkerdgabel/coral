@@ -1,0 +1,121 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+---
+
+<DocsLayout title="Quick Start">
+  <h1>Quick Start Guide</h1>
+
+  <p>
+    Get started with Coral in just a few minutes. This guide will walk you through
+    installation, basic setup, and your first weight versioning workflow.
+  </p>
+
+  <h2>Installation</h2>
+
+  <pre><code># Basic installation
+pip install coral-ml
+
+# With PyTorch integration
+pip install coral-ml[torch]
+
+# For development
+pip install coral-ml[dev]</code></pre>
+
+  <h2>Initialize a Repository</h2>
+
+  <p>Create a new Coral repository to start versioning your model weights:</p>
+
+  <pre><code># Using the CLI
+coral-ml init ./my-model
+
+# Or in Python
+from coral import Repository
+repo = Repository("./my-model", init=True)</code></pre>
+
+  <h2>Stage and Commit Weights</h2>
+
+  <pre><code>from coral import Repository, WeightTensor
+from coral.core.weight_tensor import WeightMetadata
+import numpy as np
+
+repo = Repository("./my-model")
+
+# Create weight tensors
+weights = {"{"}
+    "encoder.weight": WeightTensor(
+        data=np.random.randn(512, 256).astype(np.float32),
+        metadata=WeightMetadata(
+            name="encoder.weight",
+            shape=(512, 256),
+            dtype=np.float32
+        )
+    ),
+    "decoder.weight": WeightTensor(
+        data=np.random.randn(256, 512).astype(np.float32),
+        metadata=WeightMetadata(
+            name="decoder.weight",
+            shape=(256, 512),
+            dtype=np.float32
+        )
+    )
+{"}"}
+
+# Stage and commit
+repo.stage_weights(weights)
+commit = repo.commit("Add encoder and decoder weights")</code></pre>
+
+  <h2>Branching Workflow</h2>
+
+  <pre><code># Create a new branch for experiments
+repo.create_branch("experiment-v2")
+repo.checkout("experiment-v2")
+
+# Make changes to weights...
+modified_weights = {"{"}"encoder.weight": new_encoder_weight{"}"}
+repo.stage_weights(modified_weights)
+repo.commit("Improve encoder architecture")
+
+# Merge back to main
+repo.checkout("main")
+repo.merge("experiment-v2")</code></pre>
+
+  <h2>CLI Commands</h2>
+
+  <pre><code># Check repository status
+coral-ml status
+
+# View commit history
+coral-ml log
+
+# Compare commits
+coral-ml diff HEAD~1 HEAD
+
+# Tag a version
+coral-ml tag v1.0.0 -d "Production release"</code></pre>
+
+  <h2>PyTorch Integration</h2>
+
+  <pre><code>from coral.integrations.pytorch import CoralTrainer
+from coral.training import CheckpointConfig
+
+config = CheckpointConfig(
+    save_every_n_epochs=1,
+    save_on_best_metric="val_loss",
+    keep_best_n_checkpoints=3,
+)
+
+trainer = CoralTrainer(
+    model,
+    repo_path="./checkpoints",
+    config=config
+)
+trainer.fit(train_loader, val_loader, epochs=10)</code></pre>
+
+  <h2>Next Steps</h2>
+
+  <ul>
+    <li><a href="/docs/delta-encoding">Delta Encoding</a> - Learn about lossless compression</li>
+    <li><a href="/docs/pytorch">PyTorch Integration</a> - Deep dive into training callbacks</li>
+    <li><a href="/docs/storage">Storage Backends</a> - Configure S3 and cloud storage</li>
+  </ul>
+</DocsLayout>

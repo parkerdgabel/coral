@@ -1,0 +1,319 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Layout title="Features">
+  <Header />
+  <main class="features-page">
+    <div class="container">
+      <section class="page-header">
+        <h1>Powerful Features for <span class="text-gradient">ML Teams</span></h1>
+        <p>Everything you need to version, share, and manage neural network weights at scale.</p>
+      </section>
+
+      <section class="feature-section">
+        <div class="feature-content">
+          <span class="feature-badge">Core Feature</span>
+          <h2>Lossless Delta Encoding</h2>
+          <p>
+            Store similar weights as deltas with <strong>perfect reconstruction</strong>.
+            When you commit weights that are similar to existing weights, Coral automatically
+            computes and stores only the differences.
+          </p>
+          <ul>
+            <li>Multiple strategies: XOR, exponent-mantissa, compressed</li>
+            <li>47.6% average storage savings</li>
+            <li>Zero information loss with lossless strategies</li>
+            <li>Optional lossy modes for maximum compression</li>
+          </ul>
+        </div>
+        <div class="feature-visual">
+          <div class="code-block">
+            <pre><code><span class="dim"># Similar weights = small delta</span>
+original: [1.0, 2.0, 3.0, 4.0]
+modified: [1.01, 2.0, 3.02, 4.0]
+
+<span class="dim"># Coral stores just the delta</span>
+delta: [0.01, 0, 0.02, 0]  <span class="accent">← 90% smaller</span>
+
+<span class="dim"># Perfect reconstruction</span>
+reconstructed == modified  <span class="success">✓</span></code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature-section reverse">
+        <div class="feature-content">
+          <span class="feature-badge">Version Control</span>
+          <h2>Git-like Workflow</h2>
+          <p>
+            Familiar commands and concepts from git, adapted for neural network weights.
+            Branch, commit, merge, and tag your models with confidence.
+          </p>
+          <ul>
+            <li>Branching for experiments</li>
+            <li>Merge strategies: ours, theirs, average, weighted</li>
+            <li>Tags for releases and milestones</li>
+            <li>Full commit history with diffs</li>
+          </ul>
+        </div>
+        <div class="feature-visual">
+          <div class="code-block">
+            <pre><code><span class="prompt">$</span> coral-ml branch experiment
+<span class="prompt">$</span> coral-ml checkout experiment
+
+<span class="dim"># Make changes and commit</span>
+<span class="prompt">$</span> coral-ml commit -m <span class="string">"New architecture"</span>
+
+<span class="dim"># Merge back to main</span>
+<span class="prompt">$</span> coral-ml checkout main
+<span class="prompt">$</span> coral-ml merge experiment</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature-section">
+        <div class="feature-content">
+          <span class="feature-badge">Performance</span>
+          <h2>O(1) Similarity Detection</h2>
+          <p>
+            SimHash fingerprinting and LSH indexing enable constant-time similarity
+            lookup, even with millions of weights.
+          </p>
+          <ul>
+            <li>SimHash: 64-bit fingerprints via Hamming distance</li>
+            <li>LSH Index: Multi-table locality-sensitive hashing</li>
+            <li>O(1) average lookup vs O(n) linear scan</li>
+            <li>Scales to production workloads</li>
+          </ul>
+        </div>
+        <div class="feature-visual">
+          <div class="stats-visual">
+            <div class="stat-item">
+              <span class="stat-number">O(1)</span>
+              <span class="stat-label">Lookup Time</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-number">64-bit</span>
+              <span class="stat-label">Fingerprint</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-number">0.98</span>
+              <span class="stat-label">Default Threshold</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature-section reverse">
+        <div class="feature-content">
+          <span class="feature-badge">Integration</span>
+          <h2>Training Callbacks</h2>
+          <p>
+            Seamless integration with PyTorch, Lightning, and Hugging Face.
+            Automatic checkpointing with configurable policies.
+          </p>
+          <ul>
+            <li>CoralTrainer for PyTorch</li>
+            <li>CoralCallback for Lightning</li>
+            <li>HFTrainerCallback for Transformers</li>
+            <li>Configurable checkpoint policies</li>
+          </ul>
+        </div>
+        <div class="feature-visual">
+          <div class="code-block">
+            <pre><code><span class="keyword">from</span> coral.integrations.pytorch <span class="keyword">import</span> CoralTrainer
+
+trainer = CoralTrainer(
+    model,
+    repo_path=<span class="string">"./checkpoints"</span>,
+    config=CheckpointConfig(
+        save_every_n_epochs=1,
+        save_on_best_metric=<span class="string">"val_loss"</span>,
+    )
+)
+
+trainer.fit(train_loader, epochs=10)</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature-section">
+        <div class="feature-content">
+          <span class="feature-badge">Cloud</span>
+          <h2>Remote Storage</h2>
+          <p>
+            Push and pull weights to S3-compatible storage. Share models
+            across teams with delta-efficient transfers.
+          </p>
+          <ul>
+            <li>AWS S3, MinIO, DigitalOcean Spaces</li>
+            <li>Push/pull/sync commands</li>
+            <li>Delta-efficient transfers</li>
+            <li>Clone remote repositories</li>
+          </ul>
+        </div>
+        <div class="feature-visual">
+          <div class="code-block">
+            <pre><code><span class="prompt">$</span> coral-ml remote add origin \
+    s3://my-bucket/models
+
+<span class="prompt">$</span> coral-ml push origin
+Pushing 3 weights...
+<span class="success">✓</span> Uploaded (delta: 2.1 MB saved)
+
+<span class="prompt">$</span> coral-ml clone s3://bucket/model ./local</code></pre>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+  <Footer />
+</Layout>
+
+<style>
+  .features-page {
+    padding-top: calc(80px + var(--space-2xl));
+  }
+
+  .page-header {
+    text-align: center;
+    padding: var(--space-3xl) 0;
+    max-width: 700px;
+    margin: 0 auto;
+  }
+
+  .page-header h1 {
+    margin-bottom: var(--space-md);
+  }
+
+  .page-header p {
+    font-size: 1.2rem;
+    color: var(--text-secondary);
+  }
+
+  .feature-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-3xl);
+    padding: var(--space-3xl) 0;
+    align-items: center;
+  }
+
+  .feature-section.reverse {
+    direction: rtl;
+  }
+
+  .feature-section.reverse > * {
+    direction: ltr;
+  }
+
+  .feature-badge {
+    display: inline-block;
+    padding: var(--space-xs) var(--space-md);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-full);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent-primary);
+    margin-bottom: var(--space-md);
+  }
+
+  .feature-content h2 {
+    margin-bottom: var(--space-md);
+  }
+
+  .feature-content p {
+    color: var(--text-secondary);
+    margin-bottom: var(--space-lg);
+    line-height: 1.7;
+  }
+
+  .feature-content ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .feature-content li {
+    position: relative;
+    padding-left: var(--space-lg);
+    margin-bottom: var(--space-sm);
+    color: var(--text-secondary);
+  }
+
+  .feature-content li::before {
+    content: "→";
+    position: absolute;
+    left: 0;
+    color: var(--accent-primary);
+  }
+
+  .feature-visual {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+  }
+
+  .code-block {
+    padding: var(--space-lg);
+  }
+
+  .code-block pre {
+    margin: 0;
+    background: transparent !important;
+    border: none;
+    padding: 0;
+  }
+
+  .code-block code {
+    font-size: 0.9rem;
+    line-height: 1.7;
+  }
+
+  .code-block .dim { color: var(--gray-500); }
+  .code-block .prompt { color: var(--coral-400); }
+  .code-block .string { color: var(--ocean-400); }
+  .code-block .keyword { color: var(--coral-400); }
+  .code-block .accent { color: var(--coral-400); font-weight: 600; }
+  .code-block .success { color: #22c55e; }
+
+  .stats-visual {
+    display: flex;
+    justify-content: space-around;
+    padding: var(--space-2xl);
+  }
+
+  .stat-item {
+    text-align: center;
+  }
+
+  .stat-number {
+    display: block;
+    font-size: 2rem;
+    font-weight: 800;
+    background: var(--accent-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .stat-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+  }
+
+  @media (max-width: 1024px) {
+    .feature-section {
+      grid-template-columns: 1fr;
+      gap: var(--space-xl);
+    }
+
+    .feature-section.reverse {
+      direction: ltr;
+    }
+  }
+</style>

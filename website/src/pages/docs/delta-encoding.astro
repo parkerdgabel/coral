@@ -1,0 +1,123 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+---
+
+<DocsLayout title="Delta Encoding">
+  <h1>Delta Encoding</h1>
+
+  <p>
+    Coral's delta encoding system enables efficient storage of similar weights
+    by storing only the differences between them. This is particularly useful
+    for training checkpoints and model variations.
+  </p>
+
+  <h2>How It Works</h2>
+
+  <p>
+    When you commit weights that are similar to existing weights (above the
+    similarity threshold), Coral stores them as deltas:
+  </p>
+
+  <ol>
+    <li>Compute similarity using SimHash fingerprinting</li>
+    <li>If similarity exceeds threshold (default 0.98), encode as delta</li>
+    <li>Store the delta with reference to the base weight</li>
+    <li>On load, reconstruct by applying delta to base weight</li>
+  </ol>
+
+  <h2>Encoding Strategies</h2>
+
+  <h3>Lossless (Perfect Reconstruction)</h3>
+
+  <ul>
+    <li><strong>FLOAT32_RAW:</strong> Raw float32 differences, no compression</li>
+    <li><strong>COMPRESSED:</strong> zlib-compressed float32 differences</li>
+    <li><strong>XOR_FLOAT32:</strong> Bitwise XOR with exponent/mantissa separation (15-25% better)</li>
+    <li><strong>XOR_BFLOAT16:</strong> XOR optimized for BFloat16 weights</li>
+    <li><strong>EXPONENT_MANTISSA:</strong> Separate encoding of float components (10-20% better)</li>
+  </ul>
+
+  <h3>Lossy (Approximate Reconstruction)</h3>
+
+  <ul>
+    <li><strong>INT8_QUANTIZED:</strong> 8-bit quantization (~75% compression)</li>
+    <li><strong>INT16_QUANTIZED:</strong> 16-bit quantization (~50% compression)</li>
+    <li><strong>SPARSE:</strong> Only stores non-zero differences</li>
+    <li><strong>PER_AXIS_SCALED:</strong> 1-bit signs + per-axis FP16 scales</li>
+  </ul>
+
+  <h2>Usage</h2>
+
+  <pre><code>from coral import DeltaEncoder, DeltaConfig, DeltaType
+
+# Configure lossless encoding
+config = DeltaConfig(delta_type=DeltaType.COMPRESSED)
+encoder = DeltaEncoder(config)
+
+# Encode delta between similar weights
+delta = encoder.encode(original_weight, similar_weight)
+
+# Reconstruct exactly
+reconstructed = encoder.decode(delta, original_weight)
+assert np.array_equal(reconstructed.data, similar_weight.data)</code></pre>
+
+  <h2>Repository Configuration</h2>
+
+  <p>Configure delta encoding at the repository level:</p>
+
+  <pre><code>from coral import Repository
+
+repo = Repository("./my-model", init=True)
+
+# Configure in .coral/config.json
+{"{"}
+    "core": {"{"}
+        "similarity_threshold": 0.98,
+        "delta_encoding": true,
+        "delta_type": "compressed"
+    {"}"}
+{"}"}</code></pre>
+
+  <h2>Performance</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Strategy</th>
+        <th>Compression</th>
+        <th>Reconstruction</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>FLOAT32_RAW</td><td>~50%</td><td>Perfect</td></tr>
+      <tr><td>COMPRESSED</td><td>~70%</td><td>Perfect</td></tr>
+      <tr><td>XOR_FLOAT32</td><td>~75-85%</td><td>Perfect</td></tr>
+      <tr><td>INT8_QUANTIZED</td><td>~90%</td><td>Approximate</td></tr>
+      <tr><td>SPARSE</td><td>>95%</td><td>Near-perfect</td></tr>
+    </tbody>
+  </table>
+</DocsLayout>
+
+<style>
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: var(--space-lg) 0;
+  }
+
+  th, td {
+    padding: var(--space-sm) var(--space-md);
+    text-align: left;
+    border: 1px solid var(--border-color);
+  }
+
+  th {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  td {
+    color: var(--text-secondary);
+  }
+</style>
