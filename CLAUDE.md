@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Coral is a comprehensive neural network weight versioning system that provides git-like version control for ML model weights. It features **lossless delta encoding** for similar weights, automatic deduplication, and comprehensive training integration. Think "git for neural networks" with perfect fidelity and maximum storage efficiency.
+Coral is a production-ready neural network weight versioning system that provides git-like version control for ML model weights. It features **lossless delta encoding** for similar weights, automatic deduplication, content-addressable storage, and seamless training integration. Think "git for neural networks" with perfect fidelity and maximum storage efficiency.
+
+**Version**: 1.0.0
+**Package Name**: `coral-ml`
+**Python Support**: 3.8+
 
 ## Development Workflow
 
@@ -78,34 +82,187 @@ uv run python examples/pytorch_training_example.py
 uv run python examples/delta_encoding_demo.py
 
 # Run benchmarks to measure space savings
-uv run benchmark.py
+uv run python benchmark.py
+uv run python benchmark_delta_strategies.py
 ```
 
 ## Architecture
 
+### Directory Structure
+
+```
+src/coral/
+├── __init__.py              # Package exports
+├── cli/                     # Command-line interface
+│   ├── __init__.py
+│   └── main.py              # CLI entry point and commands
+├── core/                    # Core data structures and algorithms
+│   ├── __init__.py
+│   ├── weight_tensor.py     # WeightTensor class
+│   ├── deduplicator.py      # Deduplication engine
+│   ├── simhash.py           # SimHash fingerprinting for O(1) similarity
+│   └── lsh_index.py         # LSH index for efficient similarity search
+├── delta/                   # Delta encoding system
+│   ├── __init__.py
+│   ├── delta_encoder.py     # Main encoder with multiple strategies
+│   └── compression.py       # Compression utilities
+├── storage/                 # Storage backends
+│   ├── __init__.py
+│   ├── weight_store.py      # Abstract storage interface
+│   ├── hdf5_store.py        # HDF5 local storage backend
+│   └── s3_store.py          # S3-compatible cloud storage
+├── version_control/         # Git-like versioning
+│   ├── __init__.py
+│   ├── repository.py        # Main Repository class
+│   ├── branch.py            # Branch management
+│   ├── commit.py            # Commit objects
+│   └── version.py           # Version graph
+├── integrations/            # Framework integrations
+│   ├── __init__.py
+│   ├── pytorch.py           # PyTorch integration (CoralTrainer)
+│   ├── lightning.py         # PyTorch Lightning callback
+│   ├── huggingface.py       # HF Hub delta-efficient downloads
+│   └── hf_trainer.py        # HF Trainer callback
+├── training/                # Training management
+│   ├── __init__.py
+│   ├── checkpoint_manager.py # Checkpoint policies
+│   └── training_state.py    # Training state tracking
+├── compression/             # Weight compression
+│   ├── __init__.py
+│   ├── quantization.py      # Quantization techniques
+│   └── pruning.py           # Weight pruning
+├── remotes/                 # Remote repository management
+│   ├── __init__.py
+│   ├── remote.py            # Remote configuration
+│   └── sync.py              # Sync operations
+├── registry/                # Model publishing
+│   ├── __init__.py
+│   └── registry.py          # HF Hub, MLflow publishing
+├── experiments/             # Experiment tracking
+│   ├── __init__.py
+│   └── experiment.py        # Experiment/run tracking
+└── utils/                   # Utilities
+    ├── __init__.py
+    ├── visualization.py     # Visualization utilities
+    ├── json_utils.py        # JSON serialization
+    └── similarity.py        # Similarity calculations
+```
+
 ### Core Components
 
-- **WeightTensor** (`core/weight_tensor.py`): Fundamental data structure representing neural network weights with metadata
+- **WeightTensor** (`core/weight_tensor.py`): Fundamental data structure representing neural network weights with metadata (shape, dtype, name, hash)
 - **Deduplicator** (`core/deduplicator.py`): Advanced engine for identifying and eliminating duplicate/similar weights with **lossless delta encoding**
-- **Delta Encoding** (`delta/`): **NEW** Lossless reconstruction system for similar weights with multiple compression strategies
-- **Storage System** (`storage/`): HDF5-based content-addressable storage with compression and delta support
-- **Version Control** (`version_control/`): Complete git-like system with branching, committing, merging, and conflict resolution
-- **CLI** (`cli/`): Full-featured command-line interface with git-like commands for weight management
+- **SimHash** (`core/simhash.py`): Locality-sensitive hashing for O(1) similarity detection using Hamming distance
+- **LSH Index** (`core/lsh_index.py`): Locality-Sensitive Hashing index for O(1) average-time similarity search
 
-### Integration Points
+### Delta Encoding System
 
-- **PyTorch Integration** (`integrations/pytorch.py`): Seamless model training integration with automatic checkpointing
-- **Training Management** (`training/`): Comprehensive checkpoint management with configurable policies
-- **Compression** (`compression/`): Quantization and pruning techniques for space optimization
+- **DeltaEncoder** (`delta/delta_encoder.py`): Multiple encoding strategies for storing weight differences
+
+**Lossless strategies** (perfect reconstruction):
+- `FLOAT32_RAW`: Raw float32 differences, no compression
+- `COMPRESSED`: zlib-compressed float32 differences
+- `XOR_FLOAT32`: Bitwise XOR with exponent/mantissa separation (15-25% better)
+- `XOR_BFLOAT16`: XOR optimized for BFloat16 weights
+- `EXPONENT_MANTISSA`: Separate encoding of float components (10-20% better)
+
+**Lossy strategies** (approximate reconstruction):
+- `INT8_QUANTIZED`: 8-bit quantization (~75% compression)
+- `INT16_QUANTIZED`: 16-bit quantization (~50% compression)
+- `SPARSE`: Only stores non-zero differences (discards values < threshold)
+- `PER_AXIS_SCALED`: 1-bit signs + per-axis FP16 scales
+
+### Storage Backends
+
+- **HDF5Store** (`storage/hdf5_store.py`): Local content-addressable storage with compression
+- **S3Store** (`storage/s3_store.py`): S3-compatible cloud storage (AWS S3, MinIO, DigitalOcean Spaces)
+- **WeightStore** (`storage/weight_store.py`): Abstract interface for storage backends
+
+### Version Control
+
+- **Repository** (`version_control/repository.py`): Main class for all version control operations
+- **BranchManager** (`version_control/branch.py`): Branch creation, checkout, deletion
+- **Commit** (`version_control/commit.py`): Immutable commit objects with metadata
+- **VersionGraph** (`version_control/version.py`): DAG for version history
+
+**Merge Strategies**:
+- `OURS`: Prefer current branch weights
+- `THEIRS`: Prefer source branch weights
+- `FAIL`: Raise error on conflicts
+- `AVERAGE`: Average conflicting weights
+- `WEIGHTED`: Weighted average with configurable alpha
+
+### Framework Integrations
+
+- **CoralTrainer** (`integrations/pytorch.py`): PyTorch training with automatic checkpointing
+- **CoralCallback** (`integrations/lightning.py`): PyTorch Lightning callback
+- **CoralHubClient** (`integrations/huggingface.py`): Delta-efficient HF Hub downloads
+- **HFTrainerCallback** (`integrations/hf_trainer.py`): Hugging Face Trainer integration
+
+### Training & Experiments
+
+- **CheckpointManager** (`training/checkpoint_manager.py`): Configurable checkpoint policies
+- **TrainingState** (`training/training_state.py`): Training state tracking
+- **ExperimentTracker** (`experiments/experiment.py`): Experiment tracking with metrics
+
+### Model Publishing
+
+- **ModelPublisher** (`registry/registry.py`): Publish to HuggingFace Hub, MLflow, or local registries
 
 ### Key Design Patterns
 
-1. **Content-Addressable Storage**: Weights are identified by content hash (xxHash)
-2. **Lossless Delta Encoding**: Similar weights stored as deltas from reference for perfect reconstruction
-3. **Metadata Separation**: Weight data and metadata are handled separately for efficiency
-4. **Pluggable Backends**: Storage backends implement the `WeightStore` interface
-5. **Git-like Versioning**: Complete branch/commit/merge workflow for model development
-6. **Similarity-Based Deduplication**: Uses configurable similarity thresholds with lossless reconstruction
+1. **Content-Addressable Storage**: Weights identified by xxHash content hash
+2. **Lossless Delta Encoding**: Similar weights stored as deltas for perfect reconstruction
+3. **Metadata Separation**: Weight data and metadata handled separately
+4. **Pluggable Backends**: Storage backends implement `WeightStore` interface
+5. **Git-like Versioning**: Complete branch/commit/merge workflow
+6. **Similarity-Based Deduplication**: Configurable thresholds with LSH acceleration
+
+## CLI Commands
+
+The CLI is accessible via `coral-ml` (defined in pyproject.toml):
+
+```bash
+# Repository initialization
+coral-ml init [path]
+
+# Weight management
+coral-ml add <weights...>          # Stage weights
+coral-ml commit -m "message"       # Commit staged weights
+coral-ml status                    # Show repository status
+coral-ml show <weight> [-c commit] # Show weight info
+
+# History and comparison
+coral-ml log [-n N] [--oneline]    # Show commit history
+coral-ml diff <from> [to]          # Show differences
+coral-ml compare <ref1> [ref2]     # Compare commits/branches
+
+# Branching
+coral-ml branch [name]             # Create or list branches
+coral-ml branch -d <name>          # Delete branch
+coral-ml checkout <target>         # Checkout branch or commit
+coral-ml merge <branch> [-m msg]   # Merge branch
+
+# Tagging
+coral-ml tag <name> [-d desc]      # Create version tag
+
+# Remote operations
+coral-ml remote add <name> <url>   # Add remote
+coral-ml remote remove <name>      # Remove remote
+coral-ml remote list               # List remotes
+coral-ml push [remote] [--all]     # Push to remote
+coral-ml pull [remote] [--all]     # Pull from remote
+coral-ml clone <url> [path]        # Clone remote repository
+coral-ml sync [remote]             # Bidirectional sync
+coral-ml sync-status [remote]      # Show sync status
+
+# Maintenance
+coral-ml gc                        # Garbage collect unreferenced weights
+coral-ml stats [--json]            # Show repository statistics
+
+# Experiments
+coral-ml experiment                # Manage experiments
+```
 
 ## Test-Driven Development
 
@@ -121,10 +278,9 @@ Follow TDD practices:
 
 - **Minimum Coverage**: 80% for all new code
 - **Target Coverage**: 90%+ for core modules
-- **Coverage Reports**: Generate HTML reports with `uv run pytest --cov=coral --cov-report=html`
-- **CI/CD Integration**: Coverage checks must pass before merging
+- **Current Coverage**: 84%
 
-### Running Coverage
+### Running Tests and Coverage
 
 ```bash
 # Run tests with coverage report
@@ -141,133 +297,183 @@ uv run pytest --cov=coral.core --cov=coral.delta tests/
 uv run pytest --cov=coral --cov-fail-under=80
 ```
 
-Test structure:
+### Test Structure
+
 - `test_weight_tensor.py`: Core WeightTensor functionality
 - `test_deduplicator.py`: Deduplication logic and similarity detection
-- `test_delta_encoding.py`: **NEW** Delta encoding and lossless reconstruction
+- `test_delta_encoding.py`: Delta encoding and lossless reconstruction
+- `test_advanced_delta_encoding.py`: Advanced delta strategies (XOR, exponent-mantissa)
+- `test_simhash.py`: SimHash fingerprinting
 - `test_version_control.py`: Git-like version control features
 - `test_training.py`: Training integration and checkpoint management
+- `test_pytorch_integration.py`: PyTorch-specific integration tests
+- `test_hdf5_store.py`: HDF5 storage backend
+- `test_cli.py`: CLI command tests
+- `test_experiments.py`: Experiment tracking
+- `test_registry.py`: Model publishing
 
 ## Key Implementation Details
 
 ### Weight Hashing
 - Uses xxHash for fast content hashing
-- Hashes are computed on normalized weight data
-- Content-addressable storage uses these hashes as keys
-
-### Delta Encoding System ⭐ NEW FEATURE
-- **Lossless Reconstruction**: Perfect reconstruction of similar weights
-- **Multiple Strategies**: Float32 raw, quantized (8/16-bit), sparse, compressed
-- **Automatic Selection**: Chooses optimal encoding based on data characteristics
-- **Space Efficient**: 90-98% compression for similar weights
-- **Configurable**: Choose quality vs compression trade-offs per repository
+- Hashes computed on normalized weight data
+- Content-addressable storage uses hashes as keys
 
 ### Similarity Detection
+- **SimHash**: O(1) fingerprint-based similarity via Hamming distance
+- **LSH Index**: Multi-table locality-sensitive hashing for candidate retrieval
 - Configurable similarity threshold (default 0.98)
 - Optimized for weights with same shape/dtype
 - Uses cosine similarity to detect near-duplicates
-- **NO INFORMATION LOSS**: Similar weights reconstructed perfectly via delta encoding
 
 ### Version Control Model
 - Branches store references to weight collections
 - Commits are immutable snapshots with metadata
 - Merging uses content-based conflict resolution
+- Repository stored in `.coral/` directory
 
 ### Storage Optimization
 - HDF5 backend with configurable compression (gzip, lzf, szip)
-- **Delta Storage**: Separate HDF5 group for delta objects with metadata
+- Delta storage in separate HDF5 group with metadata
 - Batch operations for better performance
 - Lazy loading of weight data and delta reconstruction
-- **Automatic Cleanup**: Garbage collection of unreferenced weights and deltas
+- Automatic garbage collection of unreferenced weights
 
 ## Entry Points
 
-- CLI: `coral` command (defined in setup.py console_scripts)
-- Python API: Import from `coral` package
-- Main classes: `WeightTensor`, `Deduplicator`, `HDF5Store`, `Repository`, `DeltaEncoder`
-- Training: `CoralTrainer`, `CheckpointManager` for seamless training integration
+- **CLI**: `coral-ml` command (defined in pyproject.toml `[project.scripts]`)
+- **Python API**: Import from `coral` package
+- **Main classes**: `WeightTensor`, `Deduplicator`, `HDF5Store`, `Repository`, `DeltaEncoder`
+- **Training**: `CoralTrainer`, `CheckpointManager` for seamless training integration
 
 ## Dependencies
 
-Core dependencies:
-- numpy (array operations)
-- h5py (HDF5 storage with delta support)
-- xxhash (fast hashing)
-- protobuf (serialization)
-- tqdm (progress bars)
-- networkx (version graph management)
+### Core (required)
+- `numpy>=1.21.0` - Array operations
+- `h5py>=3.0.0` - HDF5 storage
+- `xxhash>=3.0.0` - Fast content hashing
+- `tqdm>=4.60.0` - Progress bars
+- `networkx>=3.1` - Version graph management
 
-Optional:
-- torch (PyTorch integration)
-- tensorflow (TensorFlow integration)
+### Optional Dependencies
 
-## 🎯 Key Innovations
+Install with `pip install coral-ml[extra]` or `uv sync --extra <extra>`:
 
-### Lossless Delta Encoding
-**Problem Solved**: Previous versions lost information when deduplicating similar weights.
-**Solution**: Delta encoding system that stores differences from reference weights, enabling perfect reconstruction.
+- **dev**: pytest, pytest-cov, ruff, mypy
+- **torch**: PyTorch integration
+- **tensorflow**: TensorFlow integration (future)
+- **s3**: boto3 for S3/MinIO storage
+- **huggingface**: huggingface-hub, safetensors for HF Hub integration
+- **all**: All optional dependencies
 
-### Usage Example
+## Usage Examples
+
+### Basic Python API
+
 ```python
-# Before: Information loss
-weight_a = [1.0, 2.0, 3.0]
-weight_b = [1.01, 2.01, 3.01]  # 99% similar
-# After deduplication: both became [1.0, 2.0, 3.0] ❌
+from coral import Repository, WeightTensor
+from coral.core.weight_tensor import WeightMetadata
+import numpy as np
 
-# After: Perfect reconstruction  
-loaded_a = repo.get_weight("weight_a")  # [1.0, 2.0, 3.0] ✓
-loaded_b = repo.get_weight("weight_b")  # [1.01, 2.01, 3.01] ✓ Exact!
+# Initialize repository
+repo = Repository("./my_model", init=True)
+
+# Create weights
+weight = WeightTensor(
+    data=np.random.randn(256, 128).astype(np.float32),
+    metadata=WeightMetadata(name="layer1.weight", shape=(256, 128), dtype=np.float32)
+)
+
+# Stage and commit
+repo.stage_weights({"layer1.weight": weight})
+commit = repo.commit("Initial weights")
+
+# Branch workflow
+repo.create_branch("experiment")
+repo.checkout("experiment")
+# ... modify weights ...
+repo.checkout("main")
+repo.merge("experiment")
 ```
 
-### Delta Encoding Strategies
-- `FLOAT32_RAW`: Perfect reconstruction, ~50% compression
-- `COMPRESSED`: Perfect reconstruction, ~70% compression  
-- `INT8_QUANTIZED`: Minor accuracy loss, ~90% compression
-- `SPARSE`: Perfect for few changes, >95% compression
+### Delta Encoding for Similar Weights
 
-## 🚀 Production Features
+```python
+from coral import DeltaEncoder, DeltaConfig, DeltaType
 
-- **Automatic Checkpointing**: CoralTrainer handles training checkpoints transparently
-- **Git-like CLI**: Full command suite (init, add, commit, branch, merge, tag, diff, log)
-- **Training Integration**: Configurable checkpoint policies with metric-based saving
-- **Scalable Storage**: Content-addressable with garbage collection
-- **Framework Agnostic**: Clean abstractions work with any ML framework
+# Configure lossless encoding
+config = DeltaConfig(delta_type=DeltaType.COMPRESSED)
+encoder = DeltaEncoder(config)
 
-## 📊 Benchmarking & Performance
+# Encode delta between similar weights
+delta = encoder.encode(original_weight, similar_weight)
+
+# Reconstruct exactly
+reconstructed = encoder.decode(delta, original_weight)
+assert np.array_equal(reconstructed.data, similar_weight.data)  # Perfect!
+```
+
+### PyTorch Training Integration
+
+```python
+from coral.integrations.pytorch import CoralTrainer
+from coral.training import CheckpointConfig
+
+config = CheckpointConfig(
+    save_every_n_epochs=1,
+    save_on_best_metric="val_loss",
+    keep_best_n_checkpoints=3,
+)
+
+trainer = CoralTrainer(model, repo_path="./checkpoints", config=config)
+trainer.fit(train_loader, val_loader, epochs=10)
+```
+
+## Benchmarking & Performance
 
 ### Running Benchmarks
 
-The `benchmark.py` script measures actual space savings achieved through Coral's deduplication and delta encoding:
-
 ```bash
-uv run benchmark.py
+uv run python benchmark.py
+uv run python benchmark_delta_strategies.py
 ```
 
-### Benchmark Targets
+### Current Performance (v1.0)
 
-**Current Performance (v1.0):**
 - **Space Savings**: 47.6% reduction vs naive PyTorch storage
 - **Compression Ratio**: 1.91x
 - **Test Scale**: 18 models, 5.3M parameters, 126 weight tensors
+- **Test Coverage**: 84%
 
-**Development Goals:**
-- Always aim to improve these metrics with each release
+### Performance Goals
+
 - Target >50% space savings for typical ML workflows
 - Maintain <1 second overhead for small models (<100M params)
+- SimHash lookup: O(1) average time
+- LSH candidate retrieval: O(1) average vs O(n) linear scan
 
-### Benchmark Methodology
+### Optimization Tips
 
-The benchmark creates realistic ML scenarios:
-1. **Base Models**: CNN and MLP architectures
-2. **Variations**: 99.9% similar (fine-tuning), 99% similar (continued training), 95% similar (transfer learning)
-3. **Checkpoints**: Exact duplicates (training snapshots)
-
-This simulates real ML workflows where models evolve incrementally, creating many similar weight sets that benefit from deduplication.
-
-### Performance Tips
-
-To maximize space savings:
 - Use higher similarity thresholds (0.98+) for training checkpoints
-- Enable delta encoding for model variations
+- Enable lossless delta encoding for model variations
+- Use `XOR_FLOAT32` or `EXPONENT_MANTISSA` for best lossless compression
 - Batch commits when storing multiple related models
 - Run `repo.gc()` periodically to clean unreferenced weights
+
+## Documentation
+
+Comprehensive documentation is available in `docs/`:
+
+- `docs/book/` - Complete system book with chapters on:
+  - Introduction and getting started
+  - Core architecture
+  - Delta encoding deep-dive
+  - Storage system
+  - Version control
+  - Training integration
+  - CLI interface
+  - Advanced features
+  - Performance benchmarks
+  - API reference
+
+- `docs/research/` - Research notes on weight deduplication methods
