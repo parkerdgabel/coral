@@ -1,4 +1,9 @@
-"""Weight pruning for sparsity-based compression"""
+"""Weight pruning for sparsity-based compression.
+
+.. warning::
+    EXPERIMENTAL: This module is experimental and not yet integrated into the
+    core Coral workflow. The API may change in future versions.
+"""
 
 import logging
 from typing import Any, Optional

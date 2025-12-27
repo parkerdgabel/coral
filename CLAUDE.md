@@ -127,7 +127,7 @@ src/coral/
 │   ├── __init__.py
 │   ├── checkpoint_manager.py # Checkpoint policies
 │   └── training_state.py    # Training state tracking
-├── compression/             # Weight compression
+├── compression/             # Weight compression (EXPERIMENTAL)
 │   ├── __init__.py
 │   ├── quantization.py      # Quantization techniques
 │   └── pruning.py           # Weight pruning
