@@ -43,7 +43,7 @@ class TestCoverageFinal80Percent:
                 # Update args with the real file path
                 args = argparse.Namespace(weights=[tmp_path])
 
-                with patch("builtins.print") as mock_print:
+                with patch("builtins.print"):
                     # Should return error for unsupported format
                     result = cli._cmd_add(args, repo_path)
                     assert result == 1  # Error code for unsupported format

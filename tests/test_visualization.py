@@ -1,7 +1,7 @@
 import numpy as np
 
 from coral.core.deduplicator import DeduplicationStats
-from coral.core.weight_tensor import WeightTensor, WeightMetadata
+from coral.core.weight_tensor import WeightMetadata, WeightTensor
 from coral.utils.visualization import plot_deduplication_stats, plot_weight_distribution
 
 

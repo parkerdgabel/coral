@@ -53,8 +53,9 @@ class TestCLICoverage:
         """Test CLI add command handling."""
         cli = CoralCLI()
 
-        import numpy as np
         from pathlib import Path
+
+        import numpy as np
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
             mock_repo = Mock()
@@ -224,8 +225,6 @@ class TestCLICoverage:
     def test_cli_error_handling(self):
         """Test CLI error handling."""
         cli = CoralCLI()
-
-        from pathlib import Path
 
         # Test repository not found error
         with patch("coral.cli.main.Repository") as mock_repo_class:

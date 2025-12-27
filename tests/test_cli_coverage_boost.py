@@ -1,6 +1,6 @@
 """CLI coverage boost to reach 80%."""
 
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 from coral.cli.main import CoralCLI
 

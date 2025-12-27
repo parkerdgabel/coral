@@ -60,7 +60,7 @@ class TestCLIComprehensive:
             ("gc", ["gc"], cli._cmd_gc, True),
         ]
 
-        for cmd_name, cmd_args, mock_method, needs_repo in test_cases:
+        for _cmd_name, cmd_args, mock_method, needs_repo in test_cases:
             # Reset mocks
             cli._cmd_init.reset_mock()
             cli._cmd_add.reset_mock()
