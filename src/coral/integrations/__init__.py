@@ -1,7 +1,29 @@
 try:
-    from .pytorch import CoralTrainer, PyTorchIntegration
+    from .pytorch import (
+        CoralTrainer,
+        PyTorchIntegration,
+        compare_model_weights,
+        create_model_from_weights,
+        load_from_remote,
+        load_from_repo,
+        load_into_model,
+        load_model_from_coral,
+        save_model,
+        save_model_to_coral,
+    )
 
-    __all__ = ["PyTorchIntegration", "CoralTrainer"]
+    __all__ = [
+        "PyTorchIntegration",
+        "CoralTrainer",
+        "load_into_model",
+        "load_from_repo",
+        "load_from_remote",
+        "save_model",
+        "compare_model_weights",
+        "create_model_from_weights",
+        "save_model_to_coral",
+        "load_model_from_coral",
+    ]
 except ImportError:
     # PyTorch not installed
     __all__ = []
@@ -15,7 +37,7 @@ if importlib.util.find_spec("tensorflow") is not None:
 
 # Hugging Face integration (requires huggingface-hub and safetensors)
 try:
-    from .huggingface import (
+    from .huggingface import (  # noqa: F401
         CoralHubClient,
         DownloadStats,
         ModelInfo,
