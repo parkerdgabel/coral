@@ -3,7 +3,7 @@ import json
 import logging
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from ..core.deduplicator import Deduplicator
 from ..core.weight_tensor import WeightTensor
@@ -18,11 +18,17 @@ logger = logging.getLogger(__name__)
 
 
 class MergeStrategy(Enum):
-    """Strategy for resolving merge conflicts."""
+    """Strategy for resolving merge conflicts.
+
+    For neural network weights, AVERAGE and WEIGHTED strategies can be useful
+    for combining changes from different training runs or experiments.
+    """
 
     OURS = "ours"  # Prefer weights from current branch
     THEIRS = "theirs"  # Prefer weights from source branch
     FAIL = "fail"  # Raise MergeConflictError on conflicts
+    AVERAGE = "average"  # Average conflicting weights: (ours + theirs) / 2
+    WEIGHTED = "weighted"  # Weighted average: alpha * ours + (1-alpha) * theirs
 
 
 class MergeConflictError(Exception):
@@ -233,7 +239,7 @@ class Repository:
             if parent_commit:
                 # Calculate deltas between current weights and parent
                 commit_deltas = self._calculate_deltas(weight_hashes, parent_commit)
-                # Merge with staged deltas (staged deltas from deduplication have priority)
+                # Merge with staged deltas (staged has priority)
                 delta_weights = {**commit_deltas, **staged_deltas}
             else:
                 delta_weights = staged_deltas
@@ -316,13 +322,21 @@ class Repository:
         source_branch: str,
         message: Optional[str] = None,
         strategy: MergeStrategy = MergeStrategy.OURS,
+        merge_alpha: float = 0.5,
     ) -> Commit:
         """Merge another branch into current branch.
 
         Args:
             source_branch: Branch to merge from
             message: Optional merge commit message
-            strategy: How to resolve conflicts (OURS, THEIRS, or FAIL)
+            strategy: How to resolve conflicts:
+                - OURS: Take weights from current branch
+                - THEIRS: Take weights from source branch
+                - FAIL: Raise MergeConflictError on conflicts
+                - AVERAGE: Average conflicting weights: (ours + theirs) / 2
+                - WEIGHTED: Weighted avg: alpha * ours + (1-alpha) * theirs
+            merge_alpha: Weight for current branch when using WEIGHTED strategy (0-1).
+                0.5 = equal weight, 0.7 = prefer current, 0.3 = prefer source
 
         Returns:
             The merge commit
@@ -363,7 +377,7 @@ class Repository:
 
         # Merge weights
         merged_weights = self._merge_weights(
-            current_commit, source_commit, ancestor_commit, strategy
+            current_commit, source_commit, ancestor_commit, strategy, merge_alpha
         )
 
         # Stage merged weights
@@ -537,7 +551,10 @@ class Repository:
         """Calculate delta encodings for changed weights."""
         deltas = {}
 
-        if not self.deduplicator.enable_delta_encoding or not self.deduplicator.delta_encoder:
+        if (
+            not self.deduplicator.enable_delta_encoding
+            or not self.deduplicator.delta_encoder
+        ):
             logger.debug("Delta encoding disabled, skipping delta calculation")
             return deltas
 
@@ -549,16 +566,18 @@ class Repository:
                     and parent_commit.weight_hashes[name] != current_hash
                 ):
                     parent_hash = parent_commit.weight_hashes[name]
-                    
+
                     try:
                         # Load current and parent weights
                         current_weight = store.load(current_hash)
                         parent_weight = store.load(parent_hash)
-                        
+
                         if current_weight is None or parent_weight is None:
-                            logger.warning(f"Could not load weights for delta calculation: {name}")
+                            logger.warning(
+                                f"Could not load weights for delta calculation: {name}"
+                            )
                             continue
-                        
+
                         # Check if delta encoding is beneficial
                         if self.deduplicator.delta_encoder.can_encode_as_delta(
                             current_weight, parent_weight
@@ -567,25 +586,27 @@ class Repository:
                             delta = self.deduplicator.delta_encoder.encode_delta(
                                 current_weight, parent_weight
                             )
-                            
+
                             # Generate delta hash
                             delta_hash = self.deduplicator._compute_delta_hash(delta)
-                            
+
                             # Store delta in the storage backend
                             store.store_delta(delta, delta_hash)
-                            
+
                             # Track delta for this weight
                             deltas[name] = delta_hash
-                            
+
+                            ratio = delta.compression_ratio
                             logger.debug(
-                                f"Created delta for {name}: {delta.compression_ratio:.2%} compression, "
-                                f"hash {delta_hash}"
+                                f"Created delta for {name}: {ratio:.2%} "
+                                f"compression, hash {delta_hash}"
                             )
                         else:
                             logger.debug(
-                                f"Delta encoding not beneficial for {name}, storing full weight"
+                                f"Delta not beneficial for {name}, "
+                                "storing full weight"
                             )
-                    
+
                     except Exception as e:
                         logger.error(f"Failed to create delta for {name}: {e}")
                         # Continue without delta encoding for this weight
@@ -598,6 +619,7 @@ class Repository:
         source: Commit,
         ancestor: Optional[Commit],
         strategy: MergeStrategy = MergeStrategy.OURS,
+        merge_alpha: float = 0.5,
     ) -> Dict[str, WeightTensor]:
         """Perform three-way merge of weights.
 
@@ -606,6 +628,7 @@ class Repository:
             source: Source branch commit
             ancestor: Common ancestor commit (if any)
             strategy: How to resolve conflicts
+            merge_alpha: Weight for current branch when using WEIGHTED strategy
 
         Returns:
             Merged weights dictionary
@@ -613,6 +636,9 @@ class Repository:
         Raises:
             MergeConflictError: If strategy is FAIL and conflicts are detected
         """
+
+        from ..core.weight_tensor import WeightMetadata
+
         merged = {}
         conflicts = []
 
@@ -647,18 +673,73 @@ class Repository:
                     if strategy == MergeStrategy.FAIL:
                         # Will raise after collecting all conflicts
                         continue
-                    elif strategy == MergeStrategy.THEIRS:
+
+                    # Load weights for conflict resolution
+                    current_weight = store.load(current_hash) if current_hash else None
+                    source_weight = store.load(source_hash) if source_hash else None
+
+                    if strategy == MergeStrategy.THEIRS:
                         # Prefer source branch
-                        if source_hash:
-                            merged[name] = store.load(source_hash)
-                        elif current_hash:
-                            merged[name] = store.load(current_hash)
+                        merged[name] = source_weight or current_weight
+
+                    elif strategy == MergeStrategy.AVERAGE:
+                        # Average the weights: (ours + theirs) / 2
+                        if current_weight and source_weight:
+                            # Check compatible shapes
+                            if current_weight.shape == source_weight.shape:
+                                avg_data = (
+                                    current_weight.data + source_weight.data
+                                ) / 2
+                                merged[name] = WeightTensor(
+                                    data=avg_data.astype(current_weight.dtype),
+                                    metadata=WeightMetadata(
+                                        name=name,
+                                        shape=current_weight.shape,
+                                        dtype=current_weight.dtype,
+                                    ),
+                                )
+                            else:
+                                # Incompatible shapes, fall back to OURS
+                                logger.warning(
+                                    f"Cannot average {name}: shape mismatch "
+                                    f"{current_weight.shape} vs {source_weight.shape}"
+                                )
+                                merged[name] = current_weight
+                        else:
+                            merged[name] = current_weight or source_weight
+
+                    elif strategy == MergeStrategy.WEIGHTED:
+                        # Weighted average: alpha * ours + (1-alpha) * theirs
+                        if current_weight and source_weight:
+                            if current_weight.shape == source_weight.shape:
+                                weighted_data = (
+                                    merge_alpha * current_weight.data
+                                    + (1 - merge_alpha) * source_weight.data
+                                )
+                                merged[name] = WeightTensor(
+                                    data=weighted_data.astype(current_weight.dtype),
+                                    metadata=WeightMetadata(
+                                        name=name,
+                                        shape=current_weight.shape,
+                                        dtype=current_weight.dtype,
+                                    ),
+                                )
+                            else:
+                                logger.warning(
+                                    f"Cannot weighted-merge {name}: shape mismatch "
+                                    f"{current_weight.shape} vs {source_weight.shape}"
+                                )
+                                merged[name] = current_weight
+                        else:
+                            # One is missing, use weighted fallback
+                            if current_weight:
+                                merged[name] = current_weight
+                            else:
+                                merged[name] = source_weight
+
                     else:  # MergeStrategy.OURS (default)
                         # Prefer current branch
-                        if current_hash:
-                            merged[name] = store.load(current_hash)
-                        elif source_hash:
-                            merged[name] = store.load(source_hash)
+                        merged[name] = current_weight or source_weight
 
         # Raise if strategy is FAIL and conflicts were detected
         if strategy == MergeStrategy.FAIL and conflicts:
@@ -691,3 +772,438 @@ class Repository:
                 cleaned += 1
 
         return {"cleaned_weights": cleaned, "remaining_weights": len(referenced_hashes)}
+
+    # ==================== Remote Management ====================
+
+    def _get_remotes_file(self) -> Path:
+        """Get path to remotes configuration file."""
+        return self.coral_dir / "remotes.json"
+
+    def list_remotes(self) -> Dict[str, Dict]:
+        """List all configured remotes."""
+        remotes_file = self._get_remotes_file()
+        if remotes_file.exists():
+            with open(remotes_file) as f:
+                return json.load(f)
+        return {}
+
+    def get_remote(self, name: str) -> Optional[Dict]:
+        """Get a specific remote configuration."""
+        remotes = self.list_remotes()
+        return remotes.get(name)
+
+    def add_remote(self, name: str, url: str) -> None:
+        """Add a new remote.
+
+        Args:
+            name: Remote name (e.g., 'origin')
+            url: Remote URL (s3://bucket/path, minio://host/bucket, file:///path)
+        """
+        from ..remotes.remote import RemoteConfig
+
+        # Parse URL to determine backend
+        config = RemoteConfig.from_url(name, url)
+
+        remotes = self.list_remotes()
+        if name in remotes:
+            raise ValueError(f"Remote '{name}' already exists")
+
+        remotes[name] = {
+            "url": config.url,
+            "backend": config.backend,
+            "endpoint_url": config.endpoint_url,
+        }
+
+        with open(self._get_remotes_file(), "w") as f:
+            json.dump(remotes, f, indent=2)
+
+    def remove_remote(self, name: str) -> None:
+        """Remove a remote."""
+        remotes = self.list_remotes()
+        if name not in remotes:
+            raise ValueError(f"Remote '{name}' not found")
+
+        del remotes[name]
+
+        with open(self._get_remotes_file(), "w") as f:
+            json.dump(remotes, f, indent=2)
+
+    def _get_remote_store(self, remote_name: str):
+        """Get a storage backend for a remote."""
+        remote = self.get_remote(remote_name)
+        if not remote:
+            raise ValueError(f"Remote '{remote_name}' not found")
+
+        backend = remote.get("backend", "file")
+        url = remote["url"]
+
+        if backend == "s3":
+            from ..storage.s3_store import S3Config, S3Store
+
+            # Parse S3 URL: s3://bucket/prefix
+            path = url[5:]  # Remove "s3://"
+            parts = path.split("/", 1)
+            bucket = parts[0]
+            prefix = parts[1] if len(parts) > 1 else "coral/"
+
+            config = S3Config(
+                bucket=bucket,
+                prefix=prefix,
+                endpoint_url=remote.get("endpoint_url"),
+            )
+            return S3Store(config)
+
+        elif backend == "file":
+            # Local file backend (for testing or local backups)
+            from ..storage.hdf5_store import HDF5Store
+
+            path = url[7:]  # Remove "file://"
+            store_path = Path(path) / "weights.h5"
+            store_path.parent.mkdir(parents=True, exist_ok=True)
+            return HDF5Store(store_path)
+
+        else:
+            raise ValueError(f"Unsupported backend: {backend}")
+
+    def push(
+        self,
+        remote_name: str,
+        force: bool = False,
+        progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
+    ) -> Dict[str, int]:
+        """Push weights to a remote.
+
+        Args:
+            remote_name: Name of the remote to push to
+            force: If True, overwrite existing weights on remote
+            progress_callback: Optional progress callback
+
+        Returns:
+            Dictionary with push statistics
+        """
+        remote_store = self._get_remote_store(remote_name)
+
+        # Get all referenced weight hashes
+        weight_hashes = set()
+        for commit in self.version_graph.commits.values():
+            weight_hashes.update(commit.weight_hashes.values())
+
+        weight_list = list(weight_hashes)
+        total = len(weight_list)
+        weights_pushed = 0
+        bytes_transferred = 0
+        skipped = 0
+
+        with HDF5Store(self.weights_store_path) as local_store:
+            for i, hash_key in enumerate(weight_list):
+                # Check if weight exists on remote
+                if not force and remote_store.exists(hash_key):
+                    skipped += 1
+                    if progress_callback:
+                        progress_callback(i + 1, total, 0, hash_key)
+                    continue
+
+                # Load and push weight
+                weight = local_store.load(hash_key)
+                if weight:
+                    remote_store.store(weight, hash_key)
+                    weights_pushed += 1
+                    bytes_transferred += weight.nbytes
+                    if progress_callback:
+                        progress_callback(i + 1, total, weight.nbytes, hash_key)
+                elif progress_callback:
+                    progress_callback(i + 1, total, 0, hash_key)
+
+        # Close remote store if it has a close method
+        if hasattr(remote_store, "close"):
+            remote_store.close()
+
+        return {
+            "weights_pushed": weights_pushed,
+            "bytes_transferred": bytes_transferred,
+            "skipped": skipped,
+        }
+
+    def pull(
+        self,
+        remote_name: str,
+        force: bool = False,
+        progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
+    ) -> Dict[str, int]:
+        """Pull weights from a remote.
+
+        Args:
+            remote_name: Name of the remote to pull from
+            force: If True, overwrite existing local weights
+            progress_callback: Optional progress callback
+
+        Returns:
+            Dictionary with pull statistics
+        """
+        remote_store = self._get_remote_store(remote_name)
+
+        # List weights on remote
+        remote_hashes = list(remote_store.list_weights())
+        total = len(remote_hashes)
+
+        weights_pulled = 0
+        bytes_transferred = 0
+        skipped = 0
+
+        with HDF5Store(self.weights_store_path) as local_store:
+            local_hashes = set(local_store.list_weights())
+
+            for i, hash_key in enumerate(remote_hashes):
+                # Check if weight exists locally
+                if not force and hash_key in local_hashes:
+                    skipped += 1
+                    if progress_callback:
+                        progress_callback(i + 1, total, 0, hash_key)
+                    continue
+
+                # Load from remote and store locally
+                weight = remote_store.load(hash_key)
+                if weight:
+                    local_store.store(weight, hash_key)
+                    weights_pulled += 1
+                    bytes_transferred += weight.nbytes
+                    if progress_callback:
+                        progress_callback(i + 1, total, weight.nbytes, hash_key)
+                elif progress_callback:
+                    progress_callback(i + 1, total, 0, hash_key)
+
+        # Close remote store if it has a close method
+        if hasattr(remote_store, "close"):
+            remote_store.close()
+
+        return {
+            "weights_pulled": weights_pulled,
+            "bytes_transferred": bytes_transferred,
+            "skipped": skipped,
+        }
+
+    # ==================== Incremental Sync ====================
+
+    def _get_sync_state_file(self, remote_name: str) -> Path:
+        """Get path to sync state file for a remote."""
+        sync_dir = self.coral_dir / "sync"
+        sync_dir.mkdir(exist_ok=True)
+        return sync_dir / f"{remote_name}.json"
+
+    def _load_sync_state(self, remote_name: str) -> Dict[str, Any]:
+        """Load sync state for a remote."""
+        state_file = self._get_sync_state_file(remote_name)
+        if state_file.exists():
+            with open(state_file) as f:
+                return json.load(f)
+        return {"last_push": {}, "last_pull": {}, "remote_hashes": set()}
+
+    def _save_sync_state(self, remote_name: str, state: Dict[str, Any]) -> None:
+        """Save sync state for a remote."""
+        state_file = self._get_sync_state_file(remote_name)
+        # Convert sets to lists for JSON serialization
+        serializable = {
+            "last_push": state.get("last_push", {}),
+            "last_pull": state.get("last_pull", {}),
+            "remote_hashes": list(state.get("remote_hashes", set())),
+        }
+        with open(state_file, "w") as f:
+            json.dump(serializable, f, indent=2)
+
+    def get_sync_status(self, remote_name: str) -> Dict[str, Any]:
+        """
+        Get synchronization status with a remote.
+
+        Returns information about what would be pushed/pulled.
+
+        Args:
+            remote_name: Name of the remote
+
+        Returns:
+            Dictionary with sync status:
+            - ahead: Weights only in local
+            - behind: Weights only in remote
+            - synced: Weights in both
+            - needs_push: Number of weights to push
+            - needs_pull: Number of weights to pull
+        """
+        remote_store = self._get_remote_store(remote_name)
+
+        # Get local weight hashes
+        local_hashes = set()
+        for commit in self.version_graph.commits.values():
+            local_hashes.update(commit.weight_hashes.values())
+
+        # Get remote weight hashes
+        remote_hashes = set(remote_store.list_weights())
+
+        # Close remote store
+        if hasattr(remote_store, "close"):
+            remote_store.close()
+
+        ahead = local_hashes - remote_hashes
+        behind = remote_hashes - local_hashes
+        synced = local_hashes & remote_hashes
+
+        return {
+            "ahead": list(ahead),
+            "behind": list(behind),
+            "synced": list(synced),
+            "needs_push": len(ahead),
+            "needs_pull": len(behind),
+            "total_local": len(local_hashes),
+            "total_remote": len(remote_hashes),
+            "is_synced": len(ahead) == 0 and len(behind) == 0,
+        }
+
+    def incremental_push(
+        self,
+        remote_name: str,
+        progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
+    ) -> Dict[str, int]:
+        """
+        Push only new/changed weights to remote (incremental sync).
+
+        This is more efficient than a full push as it only transfers
+        weights that don't exist on the remote.
+
+        Args:
+            remote_name: Name of the remote
+            progress_callback: Optional progress callback
+
+        Returns:
+            Dictionary with push statistics
+        """
+        sync_status = self.get_sync_status(remote_name)
+
+        if sync_status["needs_push"] == 0:
+            return {
+                "weights_pushed": 0,
+                "bytes_transferred": 0,
+                "skipped": sync_status["total_local"],
+                "incremental": True,
+            }
+
+        remote_store = self._get_remote_store(remote_name)
+
+        weights_to_push = sync_status["ahead"]
+        total = len(weights_to_push)
+        weights_pushed = 0
+        bytes_transferred = 0
+
+        with HDF5Store(self.weights_store_path) as local_store:
+            for i, hash_key in enumerate(weights_to_push):
+                weight = local_store.load(hash_key)
+                if weight:
+                    remote_store.store(weight, hash_key)
+                    weights_pushed += 1
+                    bytes_transferred += weight.nbytes
+                    if progress_callback:
+                        progress_callback(i + 1, total, weight.nbytes, hash_key)
+                elif progress_callback:
+                    progress_callback(i + 1, total, 0, hash_key)
+
+        # Update sync state
+        sync_state = self._load_sync_state(remote_name)
+        sync_state["remote_hashes"] = set(sync_state.get("remote_hashes", []))
+        sync_state["remote_hashes"].update(weights_to_push)
+        self._save_sync_state(remote_name, sync_state)
+
+        if hasattr(remote_store, "close"):
+            remote_store.close()
+
+        return {
+            "weights_pushed": weights_pushed,
+            "bytes_transferred": bytes_transferred,
+            "skipped": sync_status["total_local"] - weights_pushed,
+            "incremental": True,
+        }
+
+    def incremental_pull(
+        self,
+        remote_name: str,
+        progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
+    ) -> Dict[str, int]:
+        """
+        Pull only new/changed weights from remote (incremental sync).
+
+        This is more efficient than a full pull as it only transfers
+        weights that don't exist locally.
+
+        Args:
+            remote_name: Name of the remote
+            progress_callback: Optional progress callback
+
+        Returns:
+            Dictionary with pull statistics
+        """
+        sync_status = self.get_sync_status(remote_name)
+
+        if sync_status["needs_pull"] == 0:
+            return {
+                "weights_pulled": 0,
+                "bytes_transferred": 0,
+                "skipped": sync_status["total_remote"],
+                "incremental": True,
+            }
+
+        remote_store = self._get_remote_store(remote_name)
+
+        weights_to_pull = sync_status["behind"]
+        total = len(weights_to_pull)
+        weights_pulled = 0
+        bytes_transferred = 0
+
+        with HDF5Store(self.weights_store_path) as local_store:
+            for i, hash_key in enumerate(weights_to_pull):
+                weight = remote_store.load(hash_key)
+                if weight:
+                    local_store.store(weight, hash_key)
+                    weights_pulled += 1
+                    bytes_transferred += weight.nbytes
+                    if progress_callback:
+                        progress_callback(i + 1, total, weight.nbytes, hash_key)
+                elif progress_callback:
+                    progress_callback(i + 1, total, 0, hash_key)
+
+        if hasattr(remote_store, "close"):
+            remote_store.close()
+
+        return {
+            "weights_pulled": weights_pulled,
+            "bytes_transferred": bytes_transferred,
+            "skipped": sync_status["total_remote"] - weights_pulled,
+            "incremental": True,
+        }
+
+    def sync(
+        self,
+        remote_name: str,
+        progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Bidirectional sync with a remote.
+
+        This pushes local-only weights and pulls remote-only weights
+        in a single operation.
+
+        Args:
+            remote_name: Name of the remote
+            progress_callback: Optional progress callback
+
+        Returns:
+            Dictionary with sync statistics
+        """
+        push_result = self.incremental_push(remote_name, progress_callback)
+        pull_result = self.incremental_pull(remote_name, progress_callback)
+
+        return {
+            "push": push_result,
+            "pull": pull_result,
+            "total_pushed": push_result["weights_pushed"],
+            "total_pulled": pull_result["weights_pulled"],
+            "bytes_transferred": (
+                push_result["bytes_transferred"] + pull_result["bytes_transferred"]
+            ),
+            "is_synced": True,
+        }

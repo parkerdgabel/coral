@@ -1,4 +1,22 @@
-"""Delta encoding for similar weights to enable lossless deduplication."""
+"""Delta encoding for similar weights to enable efficient deduplication.
+
+This module provides multiple delta encoding strategies for storing differences
+between similar neural network weights. Strategies vary in compression ratio
+and reconstruction fidelity:
+
+LOSSLESS strategies (perfect reconstruction):
+- FLOAT32_RAW: No compression, stores raw float32 differences
+- COMPRESSED: zlib compression of float32 differences
+
+LOSSY strategies (approximate reconstruction):
+- INT8_QUANTIZED: ~75% compression, introduces quantization error
+- INT16_QUANTIZED: ~50% compression, smaller quantization error
+- SPARSE: Discards differences below threshold (default 1e-6)
+
+For archival or when exact reconstruction is required, use FLOAT32_RAW or
+COMPRESSED. For training checkpoints where small errors are acceptable,
+quantized strategies provide better compression.
+"""
 
 import json
 import logging
@@ -24,7 +42,7 @@ DELTA_OBJECT_OVERHEAD_BYTES = 200
 DELTA_METADATA_OVERHEAD_BYTES = 200
 
 # Default sparse encoding threshold - values with absolute difference below
-# this are considered zero
+# this are considered zero. NOTE: This makes SPARSE encoding technically lossy.
 DEFAULT_SPARSE_THRESHOLD = 1e-6
 
 # Default compression level for zlib (1-9, higher = better compression but slower)
@@ -37,15 +55,36 @@ DEFAULT_MIN_WEIGHT_SIZE_BYTES = 512
 # Default similarity threshold for deduplication
 DEFAULT_SIMILARITY_THRESHOLD = 0.98
 
+# Set of lossless delta types for easy checking
+LOSSLESS_DELTA_TYPES = frozenset(["float32_raw", "compressed"])
+
 
 class DeltaType(Enum):
-    """Types of delta encoding strategies."""
+    """Types of delta encoding strategies.
 
-    FLOAT32_RAW = "float32_raw"  # Raw float32 differences
-    INT8_QUANTIZED = "int8_quantized"  # Quantized to int8 with scale/offset
-    INT16_QUANTIZED = "int16_quantized"  # Quantized to int16 with scale/offset
-    SPARSE = "sparse"  # Store only non-zero differences
-    COMPRESSED = "compressed"  # Compressed raw differences
+    Lossless (perfect reconstruction):
+        FLOAT32_RAW: Raw float32 differences, no compression
+        COMPRESSED: zlib-compressed float32 differences
+
+    Lossy (approximate reconstruction):
+        INT8_QUANTIZED: 8-bit quantization with scale/offset (~75% smaller)
+        INT16_QUANTIZED: 16-bit quantization with scale/offset (~50% smaller)
+        SPARSE: Only stores non-zero differences (discards values < threshold)
+    """
+
+    # Lossless strategies
+    FLOAT32_RAW = "float32_raw"
+    COMPRESSED = "compressed"
+
+    # Lossy strategies (clearly marked)
+    INT8_QUANTIZED = "int8_quantized"  # LOSSY: quantization error
+    INT16_QUANTIZED = "int16_quantized"  # LOSSY: quantization error
+    SPARSE = "sparse"  # LOSSY: discards small differences
+
+    @property
+    def is_lossless(self) -> bool:
+        """Return True if this encoding strategy is lossless."""
+        return self.value in LOSSLESS_DELTA_TYPES
 
 
 class DeltaReconstructionError(Exception):

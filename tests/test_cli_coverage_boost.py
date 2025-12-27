@@ -8,12 +8,12 @@ from coral.cli.main import CoralCLI
 class TestCLICoverageBoost:
     """Boost CLI coverage to reach 80% total."""
 
-    def test_cli_all_run_methods(self):
-        """Test all CLI _run_* methods exist and can be called."""
+    def test_cli_all_cmd_methods(self):
+        """Test all CLI _cmd_* methods exist and can be called."""
         cli = CoralCLI()
 
-        # Get all _run_* methods
-        run_methods = [attr for attr in dir(cli) if attr.startswith("_run_")]
+        # Get all _cmd_* methods
+        run_methods = [attr for attr in dir(cli) if attr.startswith("_cmd_")]
         assert len(run_methods) >= 12  # Should have at least 12 command handlers
 
         # Test each method can be instantiated
@@ -21,20 +21,20 @@ class TestCLICoverageBoost:
             method = getattr(cli, method_name)
             assert callable(method)
 
-    def test_cli_init_run_method(self):
-        """Test _run_init method."""
+    def test_cli_init_cmd_method(self):
+        """Test _cmd_init method."""
         cli = CoralCLI()
 
         with patch("coral.cli.main.Repository") as mock_repo:
             with patch("builtins.print") as mock_print:
                 args = Mock(path=".")
-                cli._run_init(args)
+                cli._cmd_init(args)
 
                 mock_repo.assert_called_once_with(".", init=True)
                 mock_print.assert_called()
 
-    def test_cli_add_run_method(self):
-        """Test _run_add method."""
+    def test_cli_add_cmd_method(self):
+        """Test _cmd_add method."""
         cli = CoralCLI()
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
@@ -55,12 +55,12 @@ class TestCLICoverageBoost:
 
                     with patch.dict("sys.modules", {"torch": mock_torch}):
                         args = Mock(path="model.pth")
-                        cli._run_add(args)
+                        cli._cmd_add(args)
 
                         mock_print.assert_called()
 
-    def test_cli_commit_run_method(self):
-        """Test _run_commit method."""
+    def test_cli_commit_cmd_method(self):
+        """Test _cmd_commit method."""
         cli = CoralCLI()
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
@@ -73,15 +73,15 @@ class TestCLICoverageBoost:
                 mock_repo.commit.return_value = mock_commit
 
                 args = Mock(message="Test commit", author=None, email=None)
-                cli._run_commit(args)
+                cli._cmd_commit(args)
 
                 mock_repo.commit.assert_called_once_with(
                     "Test commit", author=None, email=None
                 )
                 mock_print.assert_called()
 
-    def test_cli_status_run_method(self):
-        """Test _run_status method."""
+    def test_cli_status_cmd_method(self):
+        """Test _cmd_status method."""
         cli = CoralCLI()
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
@@ -95,14 +95,14 @@ class TestCLICoverageBoost:
                 }
 
                 args = Mock()
-                cli._run_status(args)
+                cli._cmd_status(args)
 
                 mock_repo.status.assert_called_once()
                 # Should print status
                 assert mock_print.call_count >= 3
 
-    def test_cli_log_run_method(self):
-        """Test _run_log method."""
+    def test_cli_log_cmd_method(self):
+        """Test _cmd_log method."""
         cli = CoralCLI()
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
@@ -120,13 +120,13 @@ class TestCLICoverageBoost:
                 mock_repo.log.return_value = [mock_commit]
 
                 args = Mock(number=10, branch=None)
-                cli._run_log(args)
+                cli._cmd_log(args)
 
                 mock_repo.log.assert_called_once_with(max_commits=10)
                 mock_print.assert_called()
 
-    def test_cli_checkout_run_method(self):
-        """Test _run_checkout method."""
+    def test_cli_checkout_cmd_method(self):
+        """Test _cmd_checkout method."""
         cli = CoralCLI()
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
@@ -135,13 +135,13 @@ class TestCLICoverageBoost:
                 mock_repo_class.return_value = mock_repo
 
                 args = Mock(target="feature-branch")
-                cli._run_checkout(args)
+                cli._cmd_checkout(args)
 
                 mock_repo.checkout.assert_called_once_with("feature-branch")
                 mock_print.assert_called()
 
-    def test_cli_branch_run_method_all_modes(self):
-        """Test _run_branch method in all modes."""
+    def test_cli_branch_cmd_method_all_modes(self):
+        """Test _cmd_branch method in all modes."""
         cli = CoralCLI()
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
@@ -156,21 +156,21 @@ class TestCLICoverageBoost:
                 mock_repo.list_branches.return_value = [mock_branch]
 
                 args = Mock(name=None, delete=None, list=True)
-                cli._run_branch(args)
+                cli._cmd_branch(args)
                 mock_repo.list_branches.assert_called_once()
 
                 # Test create mode
                 args = Mock(name="new-feature", delete=None, list=False)
-                cli._run_branch(args)
+                cli._cmd_branch(args)
                 mock_repo.create_branch.assert_called_once_with("new-feature")
 
                 # Test delete mode
                 args = Mock(name=None, delete="old-feature", list=False)
-                cli._run_branch(args)
+                cli._cmd_branch(args)
                 mock_repo.delete_branch.assert_called_once_with("old-feature")
 
-    def test_cli_merge_run_method(self):
-        """Test _run_merge method."""
+    def test_cli_merge_cmd_method(self):
+        """Test _cmd_merge method."""
         cli = CoralCLI()
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
@@ -183,13 +183,13 @@ class TestCLICoverageBoost:
                 mock_repo.merge.return_value = mock_commit
 
                 args = Mock(branch="feature")
-                cli._run_merge(args)
+                cli._cmd_merge(args)
 
                 mock_repo.merge.assert_called_once_with("feature")
                 mock_print.assert_called()
 
-    def test_cli_diff_run_method(self):
-        """Test _run_diff method."""
+    def test_cli_diff_cmd_method(self):
+        """Test _cmd_diff method."""
         cli = CoralCLI()
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
@@ -203,14 +203,14 @@ class TestCLICoverageBoost:
                 }
 
                 args = Mock(from_ref="main", to_ref="feature")
-                cli._run_diff(args)
+                cli._cmd_diff(args)
 
                 mock_repo.diff.assert_called_once_with("main", "feature")
                 # Should print diff details
                 assert mock_print.call_count >= 4
 
-    def test_cli_tag_run_method(self):
-        """Test _run_tag method."""
+    def test_cli_tag_cmd_method(self):
+        """Test _cmd_tag method."""
         cli = CoralCLI()
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
@@ -223,13 +223,13 @@ class TestCLICoverageBoost:
                 mock_repo.tag_version.return_value = mock_version
 
                 args = Mock(name="v1.0.0", description="First release")
-                cli._run_tag(args)
+                cli._cmd_tag(args)
 
                 mock_repo.tag_version.assert_called_once_with("v1.0.0", "First release")
                 mock_print.assert_called()
 
-    def test_cli_show_run_method(self):
-        """Test _run_show method."""
+    def test_cli_show_cmd_method(self):
+        """Test _cmd_show method."""
         cli = CoralCLI()
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
@@ -253,14 +253,14 @@ class TestCLICoverageBoost:
                 mock_repo.get_weight.return_value = mock_weight
 
                 args = Mock(weight_name="test_weight")
-                cli._run_show(args)
+                cli._cmd_show(args)
 
                 mock_repo.get_weight.assert_called_once_with("test_weight")
                 # Should print weight details
                 assert mock_print.call_count >= 5
 
-    def test_cli_gc_run_method(self):
-        """Test _run_gc method."""
+    def test_cli_gc_cmd_method(self):
+        """Test _cmd_gc method."""
         cli = CoralCLI()
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
@@ -274,12 +274,12 @@ class TestCLICoverageBoost:
                 }
 
                 args = Mock(dry_run=False)
-                cli._run_gc(args)
+                cli._cmd_gc(args)
 
                 mock_repo.gc.assert_called_once_with(dry_run=False)
                 mock_print.assert_called()
 
-    def test_cli_run_method_dispatch(self):
+    def test_cli_cmd_method_dispatch(self):
         """Test CLI run method dispatches to correct handler."""
         cli = CoralCLI()
 
@@ -298,7 +298,7 @@ class TestCLICoverageBoost:
             "show",
             "gc",
         ]:
-            setattr(cli, f"_run_{cmd}", Mock())
+            setattr(cli, f"_cmd_{cmd}", Mock())
 
         # Test each command
         for cmd in [
@@ -330,7 +330,7 @@ class TestCLICoverageBoost:
                 "show",
                 "gc",
             ]:
-                getattr(cli, f"_run_{cmd2}").reset_mock()
+                getattr(cli, f"_cmd_{cmd2}").reset_mock()
 
             # Create args for command
             args = Mock()
@@ -371,4 +371,4 @@ class TestCLICoverageBoost:
                 cli.run()
 
             # Verify correct method was called
-            getattr(cli, f"_run_{cmd}").assert_called_once()
+            getattr(cli, f"_cmd_{cmd}").assert_called_once()

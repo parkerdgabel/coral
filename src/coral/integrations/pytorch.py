@@ -437,3 +437,657 @@ def load_model_from_coral(
     PyTorchIntegration.weights_to_model(weights, model)
 
     return True
+
+
+# ==================== Direct Model Loading API ====================
+
+
+def load_into_model(
+    model: nn.Module,
+    weights: Dict[str, WeightTensor],
+    strict: bool = True,
+    key_map: Optional[Dict[str, str]] = None,
+    prefix: str = "",
+    device: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Load Coral weights directly into a PyTorch model.
+
+    This is the main entry point for loading weights into models. It provides
+    flexible options for handling weight name mismatches and device placement.
+
+    Args:
+        model: PyTorch model to load weights into
+        weights: Dictionary of Coral WeightTensor objects
+        strict: If True, raise error for missing/unexpected keys
+        key_map: Optional mapping from weight names to model parameter names
+        prefix: Prefix to add to weight names when matching model keys
+        device: Device to place weights on ('cpu', 'cuda', 'cuda:0', etc.)
+
+    Returns:
+        Dictionary with load statistics:
+        - loaded: List of loaded weight names
+        - missing: List of missing model parameters
+        - unexpected: List of weights not in model
+        - matched: Number of successfully matched weights
+
+    Raises:
+        RuntimeError: If strict=True and there are missing/unexpected keys
+
+    Example:
+        >>> from coral.integrations.pytorch import load_into_model
+        >>> weights = repo.get_all_weights()
+        >>> stats = load_into_model(model, weights, device='cuda')
+        >>> print(f"Loaded {stats['matched']} weights")
+    """
+    if not TORCH_AVAILABLE:
+        raise ImportError("PyTorch is not installed")
+
+    # Get model's expected keys
+    model_keys = set(model.state_dict().keys())
+
+    # Build state dict from weights
+    state_dict = {}
+    loaded = []
+    unexpected = []
+
+    for name, weight in weights.items():
+        # Apply key mapping if provided
+        if key_map and name in key_map:
+            target_key = key_map[name]
+        else:
+            target_key = prefix + name if prefix else name
+
+        # Convert to tensor
+        tensor = torch.from_numpy(weight.data.copy())
+
+        # Move to device if specified
+        if device:
+            tensor = tensor.to(device)
+
+        if target_key in model_keys:
+            state_dict[target_key] = tensor
+            loaded.append(name)
+        else:
+            unexpected.append(name)
+
+    # Find missing keys
+    missing = list(model_keys - set(state_dict.keys()))
+
+    # Check strict mode
+    if strict and (missing or unexpected):
+        error_msg = []
+        if missing:
+            error_msg.append(f"Missing keys: {missing[:5]}...")
+        if unexpected:
+            error_msg.append(f"Unexpected keys: {unexpected[:5]}...")
+        raise RuntimeError(
+            f"Weight loading failed in strict mode. {' '.join(error_msg)}"
+        )
+
+    # Load into model
+    model.load_state_dict(state_dict, strict=False)
+
+    return {
+        "loaded": loaded,
+        "missing": missing,
+        "unexpected": unexpected,
+        "matched": len(loaded),
+    }
+
+
+def load_from_repo(
+    model: nn.Module,
+    repo_path: str,
+    commit_ref: Optional[str] = None,
+    branch: Optional[str] = None,
+    tag: Optional[str] = None,
+    strict: bool = True,
+    device: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Load weights from a Coral repository into a PyTorch model.
+
+    Args:
+        model: PyTorch model to load weights into
+        repo_path: Path to Coral repository
+        commit_ref: Specific commit hash to load from
+        branch: Branch name to load from (alternative to commit_ref)
+        tag: Tag/version name to load from (alternative to commit_ref)
+        strict: If True, raise error for missing/unexpected keys
+        device: Device to place weights on
+
+    Returns:
+        Dictionary with load statistics
+
+    Example:
+        >>> from coral.integrations.pytorch import load_from_repo
+        >>> stats = load_from_repo(model, "./my-model", branch="main")
+    """
+    from pathlib import Path
+
+    if not TORCH_AVAILABLE:
+        raise ImportError("PyTorch is not installed")
+
+    repo = Repository(Path(repo_path))
+
+    # Determine commit reference
+    if commit_ref is None:
+        if branch:
+            commit_ref = repo.branch_manager.get_branch_commit(branch)
+        elif tag:
+            # Find version by name
+            for v in repo.version_graph.versions.values():
+                if v.name == tag:
+                    commit_ref = v.commit_hash
+                    break
+            if commit_ref is None:
+                raise ValueError(f"Tag '{tag}' not found")
+
+    # Load weights
+    weights = repo.get_all_weights(commit_ref)
+
+    if not weights:
+        raise ValueError("No weights found in repository")
+
+    return load_into_model(model, weights, strict=strict, device=device)
+
+
+def load_from_remote(
+    model: nn.Module,
+    repo_path: str,
+    remote_name: str = "origin",
+    commit_ref: Optional[str] = None,
+    strict: bool = True,
+    device: Optional[str] = None,
+    pull_first: bool = True,
+) -> Dict[str, Any]:
+    """
+    Load weights from a remote Coral repository into a PyTorch model.
+
+    This function first pulls weights from the remote, then loads them
+    into the model.
+
+    Args:
+        model: PyTorch model to load weights into
+        repo_path: Path to local Coral repository
+        remote_name: Name of remote to pull from
+        commit_ref: Specific commit hash to load from
+        strict: If True, raise error for missing/unexpected keys
+        device: Device to place weights on
+        pull_first: If True, pull from remote before loading
+
+    Returns:
+        Dictionary with load statistics and pull info
+
+    Example:
+        >>> stats = load_from_remote(model, "./my-model", remote_name="origin")
+    """
+    from pathlib import Path
+
+    if not TORCH_AVAILABLE:
+        raise ImportError("PyTorch is not installed")
+
+    repo = Repository(Path(repo_path))
+
+    # Pull from remote if requested
+    pull_stats = None
+    if pull_first:
+        pull_stats = repo.pull(remote_name)
+        logger.info(
+            f"Pulled {pull_stats.get('weights_pulled', 0)} weights from {remote_name}"
+        )
+
+    # Load weights
+    weights = repo.get_all_weights(commit_ref)
+
+    if not weights:
+        raise ValueError("No weights found after pulling from remote")
+
+    load_stats = load_into_model(model, weights, strict=strict, device=device)
+
+    if pull_stats:
+        load_stats["pull_stats"] = pull_stats
+
+    return load_stats
+
+
+def save_model(
+    model: nn.Module,
+    repo_path: str,
+    message: str,
+    branch: Optional[str] = None,
+    create_branch: bool = False,
+    push_to: Optional[str] = None,
+    **metadata,
+) -> Dict[str, Any]:
+    """
+    Save a PyTorch model to a Coral repository.
+
+    This is a convenience function for saving models with optional
+    branching and remote push.
+
+    Args:
+        model: PyTorch model to save
+        repo_path: Path to Coral repository
+        message: Commit message
+        branch: Branch to save to (creates if doesn't exist and create_branch=True)
+        create_branch: If True, create branch if it doesn't exist
+        push_to: Remote name to push to after commit
+        **metadata: Additional metadata to attach to weights
+
+    Returns:
+        Dictionary with save info:
+        - commit_hash: Hash of the commit
+        - weights_saved: Number of weights saved
+        - push_stats: Push statistics (if push_to was specified)
+
+    Example:
+        >>> save_model(model, "./my-model", "Add fine-tuned weights",
+        ...            branch="experiment-1", push_to="origin")
+    """
+    from pathlib import Path
+
+    if not TORCH_AVAILABLE:
+        raise ImportError("PyTorch is not installed")
+
+    repo = Repository(Path(repo_path))
+
+    # Handle branching
+    if branch:
+        current_branch = repo.branch_manager.get_current_branch()
+        if branch != current_branch:
+            branches = [b.name for b in repo.branch_manager.list_branches()]
+            if branch not in branches:
+                if create_branch:
+                    repo.create_branch(branch)
+                else:
+                    raise ValueError(
+                        f"Branch '{branch}' doesn't exist. "
+                        "Set create_branch=True to create it."
+                    )
+            repo.checkout(branch)
+
+    # Convert model to weights
+    weights = PyTorchIntegration.model_to_weights(model)
+
+    # Add metadata
+    model_name = metadata.pop("model_name", model.__class__.__name__)
+    for weight in weights.values():
+        weight.metadata.model_name = model_name
+        for key, value in metadata.items():
+            if hasattr(weight.metadata, key):
+                setattr(weight.metadata, key, value)
+
+    # Stage and commit
+    repo.stage_weights(weights)
+    commit = repo.commit(message=message)
+
+    result = {
+        "commit_hash": commit.commit_hash,
+        "weights_saved": len(weights),
+        "branch": repo.branch_manager.get_current_branch(),
+    }
+
+    # Push if requested
+    if push_to:
+        push_stats = repo.push(push_to)
+        result["push_stats"] = push_stats
+        logger.info(f"Pushed to {push_to}")
+
+    return result
+
+
+def compare_model_weights(
+    model: nn.Module,
+    weights: Dict[str, WeightTensor],
+) -> Dict[str, Any]:
+    """
+    Compare a PyTorch model's current weights with Coral weights.
+
+    Useful for checking if a model has been modified since loading.
+
+    Args:
+        model: PyTorch model to compare
+        weights: Coral weights to compare against
+
+    Returns:
+        Dictionary with comparison results:
+        - identical: List of identical weight names
+        - modified: List of modified weight names
+        - model_only: List of weights only in model
+        - coral_only: List of weights only in Coral
+        - similarity: Dict of weight name -> similarity score
+    """
+    if not TORCH_AVAILABLE:
+        raise ImportError("PyTorch is not installed")
+
+    import numpy as np
+
+    from coral.utils.similarity import cosine_similarity
+
+    model_weights = PyTorchIntegration.model_to_weights(model)
+
+    identical = []
+    modified = []
+    model_only = []
+    coral_only = []
+    similarity = {}
+
+    # Check all model weights
+    for name, model_weight in model_weights.items():
+        if name in weights:
+            coral_weight = weights[name]
+            if model_weight.shape == coral_weight.shape:
+                # Compare values
+                if np.allclose(model_weight.data, coral_weight.data, atol=1e-6):
+                    identical.append(name)
+                else:
+                    modified.append(name)
+                    sim = cosine_similarity(model_weight.data, coral_weight.data)
+                    similarity[name] = float(sim)
+            else:
+                modified.append(name)
+                similarity[name] = 0.0
+        else:
+            model_only.append(name)
+
+    # Check for weights only in Coral
+    for name in weights:
+        if name not in model_weights:
+            coral_only.append(name)
+
+    return {
+        "identical": identical,
+        "modified": modified,
+        "model_only": model_only,
+        "coral_only": coral_only,
+        "similarity": similarity,
+        "is_identical": len(modified) == 0 and len(model_only) == 0,
+    }
+
+
+def create_model_from_weights(
+    model_class: type,
+    weights: Dict[str, WeightTensor],
+    device: Optional[str] = None,
+    **model_kwargs,
+) -> nn.Module:
+    """
+    Create a new model instance and load weights into it.
+
+    Args:
+        model_class: PyTorch model class to instantiate
+        weights: Coral weights to load
+        device: Device to place model on
+        **model_kwargs: Arguments to pass to model constructor
+
+    Returns:
+        Model instance with loaded weights
+
+    Example:
+        >>> from my_models import MyModel
+        >>> weights = repo.get_all_weights()
+        >>> model = create_model_from_weights(MyModel, weights, device='cuda')
+    """
+    if not TORCH_AVAILABLE:
+        raise ImportError("PyTorch is not installed")
+
+    # Create model instance
+    model = model_class(**model_kwargs)
+
+    # Move to device first if specified
+    if device:
+        model = model.to(device)
+
+    # Load weights
+    load_into_model(model, weights, strict=False, device=device)
+
+    return model
+
+
+# ==================== Streaming Support for Large Models ====================
+
+
+class StreamingWeightLoader:
+    """
+    Memory-efficient streaming loader for large models.
+
+    Instead of loading all weights into memory at once, this loader
+    provides an iterator that loads weights one at a time, reducing
+    peak memory usage significantly.
+
+    Example:
+        >>> loader = StreamingWeightLoader("./large-model-repo")
+        >>> for name, tensor in loader.stream_weights(device='cuda'):
+        ...     # Process weight one at a time
+        ...     model.load_single_weight(name, tensor)
+    """
+
+    def __init__(
+        self,
+        repo_path: str,
+        commit_ref: Optional[str] = None,
+    ):
+        """
+        Initialize streaming weight loader.
+
+        Args:
+            repo_path: Path to Coral repository
+            commit_ref: Specific commit to load from (None for HEAD)
+        """
+        from pathlib import Path
+
+        self.repo = Repository(Path(repo_path))
+        self.commit_ref = commit_ref
+
+        # Resolve commit reference
+        if commit_ref is None:
+            current_branch = self.repo.branch_manager.get_current_branch()
+            self.commit_ref = self.repo.branch_manager.get_branch_commit(current_branch)
+
+        self._commit = self.repo.version_graph.get_commit(self.commit_ref)
+        if not self._commit:
+            raise ValueError(f"Commit {self.commit_ref} not found")
+
+    @property
+    def weight_names(self) -> List[str]:
+        """Get list of weight names in the commit."""
+        return list(self._commit.weight_hashes.keys())
+
+    @property
+    def num_weights(self) -> int:
+        """Get number of weights in the commit."""
+        return len(self._commit.weight_hashes)
+
+    def stream_weights(
+        self,
+        device: Optional[str] = None,
+        filter_fn: Optional[Callable[[str], bool]] = None,
+        progress: bool = False,
+    ):
+        """
+        Stream weights one at a time.
+
+        This is a generator that yields weights one at a time,
+        minimizing memory usage for large models.
+
+        Args:
+            device: Device to place tensors on
+            filter_fn: Optional function to filter which weights to load
+            progress: Show progress bar
+
+        Yields:
+            Tuple of (weight_name, torch.Tensor)
+        """
+        if not TORCH_AVAILABLE:
+            raise ImportError("PyTorch is not installed")
+
+        from coral.storage.hdf5_store import HDF5Store
+
+        weight_names = self.weight_names
+        if filter_fn:
+            weight_names = [n for n in weight_names if filter_fn(n)]
+
+        if progress:
+            from tqdm import tqdm
+
+            weight_names = tqdm(weight_names, desc="Loading weights", unit="weight")
+
+        with HDF5Store(self.repo.weights_store_path) as store:
+            for name in weight_names:
+                weight_hash = self._commit.weight_hashes[name]
+
+                # Reconstruct weight (handles delta encoding)
+                weight = self.repo._reconstruct_weight_from_storage(
+                    name, weight_hash, self._commit, store
+                )
+
+                if weight is not None:
+                    tensor = torch.from_numpy(weight.data.copy())
+                    if device:
+                        tensor = tensor.to(device)
+                    yield name, tensor
+
+    def stream_into_model(
+        self,
+        model: nn.Module,
+        device: Optional[str] = None,
+        strict: bool = False,
+        progress: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Stream weights directly into a model one at a time.
+
+        This is the most memory-efficient way to load large models,
+        as it never holds all weights in memory simultaneously.
+
+        Args:
+            model: PyTorch model to load weights into
+            device: Device to place weights on
+            strict: If True, raise error for missing/unexpected weights
+            progress: Show progress bar
+
+        Returns:
+            Dictionary with load statistics
+        """
+        if not TORCH_AVAILABLE:
+            raise ImportError("PyTorch is not installed")
+
+        model_state = model.state_dict()
+        model_keys = set(model_state.keys())
+
+        loaded = []
+        missing = list(model_keys)
+        unexpected = []
+
+        for name, tensor in self.stream_weights(device=device, progress=progress):
+            if name in model_keys:
+                # Load directly into model parameter
+                param = dict(model.named_parameters()).get(name)
+                if param is not None:
+                    with torch.no_grad():
+                        param.copy_(tensor)
+                    loaded.append(name)
+                    if name in missing:
+                        missing.remove(name)
+                else:
+                    # It might be a buffer, not a parameter
+                    buffer = dict(model.named_buffers()).get(name)
+                    if buffer is not None:
+                        with torch.no_grad():
+                            buffer.copy_(tensor)
+                        loaded.append(name)
+                        if name in missing:
+                            missing.remove(name)
+                    else:
+                        unexpected.append(name)
+            else:
+                unexpected.append(name)
+
+        if strict and (missing or unexpected):
+            raise RuntimeError(
+                f"Streaming load failed in strict mode. "
+                f"Missing: {missing[:5]}..., Unexpected: {unexpected[:5]}..."
+            )
+
+        return {
+            "loaded": loaded,
+            "missing": missing,
+            "unexpected": unexpected,
+            "matched": len(loaded),
+        }
+
+    def get_weight_info(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get information about weights without loading them.
+
+        Returns:
+            Dictionary mapping weight names to their metadata
+        """
+        info = {}
+        for name, weight_hash in self._commit.weight_hashes.items():
+            info[name] = {
+                "hash": weight_hash,
+                "name": name,
+            }
+        return info
+
+    def estimate_memory(self, dtype_bytes: int = 4) -> int:
+        """
+        Estimate total memory required for all weights.
+
+        This is useful for checking if a model will fit in memory
+        before attempting to load it.
+
+        Args:
+            dtype_bytes: Bytes per element (4 for float32, 2 for float16)
+
+        Returns:
+            Estimated total memory in bytes
+        """
+        from coral.storage.hdf5_store import HDF5Store
+
+        total_bytes = 0
+        with HDF5Store(self.repo.weights_store_path) as store:
+            for _name, weight_hash in self._commit.weight_hashes.items():
+                weight = store.load(weight_hash)
+                if weight:
+                    total_bytes += weight.data.size * dtype_bytes
+        return total_bytes
+
+
+def stream_load_model(
+    model: nn.Module,
+    repo_path: str,
+    commit_ref: Optional[str] = None,
+    device: Optional[str] = None,
+    strict: bool = False,
+    progress: bool = True,
+) -> Dict[str, Any]:
+    """
+    Stream weights from a Coral repository into a model.
+
+    This is a convenience function for streaming large models.
+    It's more memory-efficient than load_from_repo for very large models.
+
+    Args:
+        model: PyTorch model to load weights into
+        repo_path: Path to Coral repository
+        commit_ref: Specific commit to load from
+        device: Device to place weights on
+        strict: If True, raise error for missing/unexpected keys
+        progress: Show progress bar
+
+    Returns:
+        Dictionary with load statistics
+
+    Example:
+        >>> from coral.integrations.pytorch import stream_load_model
+        >>> stats = stream_load_model(large_model, "./llm-weights", device='cuda')
+        >>> print(f"Loaded {stats['matched']} weights")
+    """
+    loader = StreamingWeightLoader(repo_path, commit_ref)
+    return loader.stream_into_model(
+        model, device=device, strict=strict, progress=progress
+    )
