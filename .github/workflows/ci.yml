@@ -126,9 +126,11 @@ jobs:
 
       - name: Check package
         run: |
-          # Verify the wheel can be inspected (basic sanity check)
-          uv pip install pkginfo --system
-          python -c "from pkginfo import Wheel; w = Wheel('dist/coral_ml-1.0.0-py3-none-any.whl'); print(f'Package: {w.name} v{w.version}')"
+          # Verify the wheel was built and can be inspected
+          pip install pkginfo
+          WHEEL_FILE=$(ls dist/*.whl | head -1)
+          echo "Checking wheel: $WHEEL_FILE"
+          python -c "import sys; from pkginfo import Wheel; w = Wheel(sys.argv[1]); print(f'Package: {w.name} v{w.version}')" "$WHEEL_FILE"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
