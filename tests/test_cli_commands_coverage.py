@@ -366,6 +366,14 @@ class TestCLICommandsCoverage:
             "tag",
             "show",
             "gc",
+            "remote",
+            "push",
+            "pull",
+            "clone",
+            "stats",
+            "compare",
+            "sync",
+            "sync-status",
         }
         assert set(subparsers.keys()) == expected_commands
 

@@ -2,6 +2,7 @@ try:
     from .pytorch import (
         CoralTrainer,
         PyTorchIntegration,
+        StreamingWeightLoader,
         compare_model_weights,
         create_model_from_weights,
         load_from_remote,
@@ -10,6 +11,7 @@ try:
         load_model_from_coral,
         save_model,
         save_model_to_coral,
+        stream_load_model,
     )
 
     __all__ = [
@@ -23,6 +25,8 @@ try:
         "create_model_from_weights",
         "save_model_to_coral",
         "load_model_from_coral",
+        "StreamingWeightLoader",
+        "stream_load_model",
     ]
 except ImportError:
     # PyTorch not installed
@@ -52,4 +56,22 @@ try:
     ])
 except ImportError:
     # huggingface-hub not installed
+    pass
+
+# PyTorch Lightning integration
+try:
+    from .lightning import CoralCallback  # noqa: F401
+
+    __all__.append("CoralCallback")
+except ImportError:
+    # pytorch-lightning not installed
+    pass
+
+# HuggingFace Transformers Trainer integration
+try:
+    from .hf_trainer import CoralTrainerCallback  # noqa: F401
+
+    __all__.append("CoralTrainerCallback")
+except ImportError:
+    # transformers not installed
     pass
