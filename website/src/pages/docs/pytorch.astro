@@ -1,0 +1,125 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+---
+
+<DocsLayout title="PyTorch Integration">
+  <h1>PyTorch Integration</h1>
+
+  <p>
+    Coral provides seamless integration with PyTorch for automatic checkpoint
+    management during training.
+  </p>
+
+  <h2>Installation</h2>
+
+  <pre><code>pip install coral-ml[torch]</code></pre>
+
+  <h2>CoralTrainer</h2>
+
+  <p>The CoralTrainer wraps your model and handles checkpointing automatically:</p>
+
+  <pre><code>from coral.integrations.pytorch import CoralTrainer
+from coral.training import CheckpointConfig
+
+# Configure checkpoint policy
+config = CheckpointConfig(
+    save_every_n_epochs=1,
+    save_on_best_metric="val_loss",
+    minimize_metric=True,
+    keep_best_n_checkpoints=3,
+    keep_last_n_checkpoints=5,
+)
+
+# Create trainer
+trainer = CoralTrainer(
+    model,
+    repo_path="./checkpoints",
+    config=config
+)
+
+# Train
+trainer.fit(train_loader, val_loader, epochs=10)</code></pre>
+
+  <h2>Checkpoint Configuration</h2>
+
+  <pre><code>@dataclass
+class CheckpointConfig:
+    # Checkpoint frequency
+    save_every_n_steps: int | None = None
+    save_every_n_epochs: int | None = None
+    save_on_best_metric: str | None = None
+    minimize_metric: bool = True
+
+    # Retention policy
+    keep_last_n_checkpoints: int | None = None
+    keep_best_n_checkpoints: int | None = None
+
+    # What to save
+    save_optimizer_state: bool = True
+    save_scheduler_state: bool = True
+    save_random_state: bool = True
+
+    # Commit options
+    auto_commit: bool = True
+    tag_best_checkpoints: bool = True</code></pre>
+
+  <h2>PyTorch Lightning</h2>
+
+  <p>Use the CoralCallback with PyTorch Lightning:</p>
+
+  <pre><code>from coral.integrations.lightning import CoralCallback
+import pytorch_lightning as pl
+
+callback = CoralCallback(
+    repo_path="./weights",
+    save_every_n_epochs=1,
+    save_on_best="val_loss",
+    mode="min",
+)
+
+trainer = pl.Trainer(callbacks=[callback])
+trainer.fit(model, train_loader, val_loader)</code></pre>
+
+  <h2>Hugging Face Trainer</h2>
+
+  <pre><code>from coral.integrations.hf_trainer import HFTrainerCallback
+from transformers import Trainer
+
+callback = HFTrainerCallback(
+    repo_path="./hf-checkpoints",
+    save_on_best="eval_loss",
+)
+
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    callbacks=[callback],
+)
+trainer.train()</code></pre>
+
+  <h2>Manual Integration</h2>
+
+  <p>For custom training loops:</p>
+
+  <pre><code>from coral import Repository, WeightTensor
+from coral.core.weight_tensor import WeightMetadata
+import torch
+
+repo = Repository("./checkpoints", init=True)
+
+def save_checkpoint(model, epoch, loss):
+    weights = {"{"}
+        name: WeightTensor(
+            data=param.detach().cpu().numpy(),
+            metadata=WeightMetadata(
+                name=name,
+                shape=tuple(param.shape),
+                dtype=param.numpy().dtype
+            )
+        )
+        for name, param in model.named_parameters()
+    {"}"}
+
+    repo.stage_weights(weights)
+    repo.commit(f"Epoch {"{"}epoch{"}"}, loss={"{"}loss:.4f{"}"}")</code></pre>
+</DocsLayout>

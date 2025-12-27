@@ -1,0 +1,234 @@
+---
+
+---
+
+<section class="hero">
+  <div class="hero-bg">
+    <div class="gradient-orb orb-1"></div>
+    <div class="gradient-orb orb-2"></div>
+    <div class="grid-overlay"></div>
+  </div>
+
+  <div class="container">
+    <div class="hero-content">
+      <div class="badge">
+        <span class="badge-dot"></span>
+        v1.0.0 - Production Ready
+      </div>
+
+      <h1 class="hero-title">
+        <span class="text-gradient">Git</span> for Neural Networks
+      </h1>
+
+      <p class="hero-subtitle">
+        Coral is a production-ready weight versioning system with lossless delta encoding,
+        automatic deduplication, and seamless training integration.
+        <strong>Save 47%+ storage</strong> with perfect fidelity.
+      </p>
+
+      <div class="hero-actions">
+        <a href="/docs/quickstart" class="btn btn-primary btn-lg">
+          Get Started
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" />
+          </svg>
+        </a>
+        <a href="https://github.com/parkerdgabel/coral" class="btn btn-secondary btn-lg" target="_blank" rel="noopener">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+          </svg>
+          View on GitHub
+        </a>
+      </div>
+
+      <div class="hero-code">
+        <div class="code-header">
+          <div class="code-dots">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <span class="code-title">terminal</span>
+        </div>
+        <pre class="code-content"><code><span class="code-comment"># Install coral-ml</span>
+<span class="code-prompt">$</span> pip install coral-ml
+
+<span class="code-comment"># Initialize a repository</span>
+<span class="code-prompt">$</span> coral-ml init ./my-model
+
+<span class="code-comment"># Stage and commit weights</span>
+<span class="code-prompt">$</span> coral-ml add model.weights
+<span class="code-prompt">$</span> coral-ml commit -m <span class="code-string">"Initial model weights"</span>
+
+<span class="code-comment"># Create branches for experiments</span>
+<span class="code-prompt">$</span> coral-ml branch experiment-v2
+<span class="code-prompt">$</span> coral-ml checkout experiment-v2</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    padding: calc(80px + var(--space-3xl)) 0 var(--space-3xl);
+    overflow: hidden;
+  }
+
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+  }
+
+  .gradient-orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.4;
+  }
+
+  .orb-1 {
+    width: 600px;
+    height: 600px;
+    background: var(--coral-500);
+    top: -200px;
+    right: -200px;
+  }
+
+  .orb-2 {
+    width: 500px;
+    height: 500px;
+    background: var(--ocean-500);
+    bottom: -150px;
+    left: -150px;
+  }
+
+  .grid-overlay {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+
+  .hero-content {
+    max-width: 800px;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-md);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-full);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-xl);
+  }
+
+  .badge-dot {
+    width: 8px;
+    height: 8px;
+    background: #22c55e;
+    border-radius: 50%;
+    animation: pulse-glow 2s infinite;
+  }
+
+  .hero-title {
+    margin-bottom: var(--space-lg);
+    letter-spacing: -0.02em;
+  }
+
+  .hero-subtitle {
+    font-size: 1.25rem;
+    color: var(--text-secondary);
+    max-width: 600px;
+    margin: 0 auto var(--space-xl);
+    line-height: 1.7;
+  }
+
+  .hero-subtitle strong {
+    color: var(--text-primary);
+  }
+
+  .hero-actions {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-md);
+    margin-bottom: var(--space-3xl);
+  }
+
+  .hero-code {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+    text-align: left;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .code-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .code-dots {
+    display: flex;
+    gap: 6px;
+  }
+
+  .code-dots span {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--gray-600);
+  }
+
+  .code-dots span:first-child { background: #ff5f56; }
+  .code-dots span:nth-child(2) { background: #ffbd2e; }
+  .code-dots span:last-child { background: #27ca3f; }
+
+  .code-title {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+
+  .code-content {
+    padding: var(--space-lg);
+    margin: 0;
+    font-size: 0.9rem;
+    line-height: 1.8;
+    background: transparent !important;
+    border: none;
+  }
+
+  .code-comment { color: var(--gray-500); }
+  .code-prompt { color: var(--coral-400); }
+  .code-string { color: var(--ocean-400); }
+
+  @media (max-width: 768px) {
+    .hero-actions {
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .btn-lg {
+      width: 100%;
+      max-width: 300px;
+      justify-content: center;
+    }
+  }
+</style>

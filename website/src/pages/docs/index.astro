@@ -1,0 +1,71 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+---
+
+<DocsLayout title="Documentation">
+  <h1>Coral Documentation</h1>
+
+  <p>
+    Welcome to the Coral documentation! Coral is a production-ready neural network weight
+    versioning system that provides git-like version control for ML model weights.
+  </p>
+
+  <h2>What is Coral?</h2>
+
+  <p>
+    Coral ("git for neural networks") offers:
+  </p>
+
+  <ul>
+    <li><strong>Lossless Delta Encoding</strong> - Store similar weights as deltas with perfect reconstruction</li>
+    <li><strong>Git-like Version Control</strong> - Full branching, committing, merging, and tagging workflow</li>
+    <li><strong>Content-Addressable Storage</strong> - Automatic deduplication via SimHash and LSH</li>
+    <li><strong>Training Integration</strong> - Seamless PyTorch and Lightning callbacks</li>
+    <li><strong>Cloud Storage</strong> - S3-compatible backend with push/pull/sync</li>
+  </ul>
+
+  <h2>Quick Install</h2>
+
+  <pre><code># Install from PyPI
+pip install coral-ml
+
+# With PyTorch support
+pip install coral-ml[torch]
+
+# With all optional dependencies
+pip install coral-ml[all]</code></pre>
+
+  <h2>Basic Usage</h2>
+
+  <pre><code>from coral import Repository, WeightTensor
+from coral.core.weight_tensor import WeightMetadata
+import numpy as np
+
+# Initialize repository
+repo = Repository("./my_model", init=True)
+
+# Create and stage weights
+weight = WeightTensor(
+    data=np.random.randn(256, 128).astype(np.float32),
+    metadata=WeightMetadata(
+        name="layer1.weight",
+        shape=(256, 128),
+        dtype=np.float32
+    )
+)
+
+repo.stage_weights({"{"}layer1.weight": weight{"}"})
+commit = repo.commit("Initial model weights")
+
+# Create branches for experiments
+repo.create_branch("experiment")
+repo.checkout("experiment")</code></pre>
+
+  <h2>Next Steps</h2>
+
+  <ul>
+    <li><a href="/docs/quickstart">Quick Start Guide</a> - Get up and running in 5 minutes</li>
+    <li><a href="/docs/architecture">Architecture</a> - Understand how Coral works</li>
+    <li><a href="/docs/cli">CLI Reference</a> - Full command documentation</li>
+  </ul>
+</DocsLayout>

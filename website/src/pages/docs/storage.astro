@@ -1,0 +1,102 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+---
+
+<DocsLayout title="Storage Backends">
+  <h1>Storage Backends</h1>
+
+  <p>
+    Coral supports multiple storage backends for local and cloud storage
+    of neural network weights.
+  </p>
+
+  <h2>HDF5 (Local)</h2>
+
+  <p>The default backend stores weights in HDF5 format with compression:</p>
+
+  <pre><code>from coral.storage.hdf5_store import HDF5Store
+
+store = HDF5Store(
+    path="./weights.h5",
+    compression="gzip",  # or "lzf", "szip"
+    compression_opts=4   # compression level
+)</code></pre>
+
+  <h2>S3 (Cloud)</h2>
+
+  <p>For cloud storage, use the S3-compatible backend:</p>
+
+  <pre><code>from coral.storage.s3_store import S3Store, S3Config
+
+config = S3Config(
+    bucket="my-models",
+    prefix="coral/",
+    region="us-east-1",
+    # For MinIO or other S3-compatible services:
+    # endpoint_url="http://localhost:9000",
+    # access_key="minioadmin",
+    # secret_key="minioadmin",
+)
+
+store = S3Store(config)</code></pre>
+
+  <h2>Remote Operations</h2>
+
+  <h3>Adding Remotes</h3>
+
+  <pre><code># CLI
+coral-ml remote add origin s3://my-bucket/models
+
+# Python
+repo.add_remote("origin", "s3://my-bucket/models")</code></pre>
+
+  <h3>Push & Pull</h3>
+
+  <pre><code># Push to remote
+coral-ml push origin
+
+# Pull from remote
+coral-ml pull origin
+
+# Bidirectional sync
+coral-ml sync origin</code></pre>
+
+  <h3>Clone</h3>
+
+  <pre><code>coral-ml clone s3://my-bucket/models ./local-copy</code></pre>
+
+  <h2>Supported Services</h2>
+
+  <ul>
+    <li><strong>AWS S3:</strong> <code>s3://bucket/prefix</code></li>
+    <li><strong>MinIO:</strong> <code>minio://host:port/bucket</code></li>
+    <li><strong>DigitalOcean Spaces:</strong> Configure endpoint_url</li>
+    <li><strong>Local filesystem:</strong> <code>file:///path/to/repo</code></li>
+  </ul>
+
+  <h2>Configuration</h2>
+
+  <p>Remote configuration is stored in <code>.coral/config.json</code>:</p>
+
+  <pre><code>{"{"}
+    "remotes": {"{"}
+        "origin": {"{"}
+            "url": "s3://my-bucket/models",
+            "backend": "s3",
+            "region": "us-east-1"
+        {"}"}
+    {"}"}
+{"}"}</code></pre>
+
+  <h2>Environment Variables</h2>
+
+  <pre><code># AWS credentials (or use ~/.aws/credentials)
+export AWS_ACCESS_KEY_ID=your-key
+export AWS_SECRET_ACCESS_KEY=your-secret
+export AWS_DEFAULT_REGION=us-east-1
+
+# For MinIO
+export MINIO_ENDPOINT=http://localhost:9000
+export MINIO_ACCESS_KEY=minioadmin
+export MINIO_SECRET_KEY=minioadmin</code></pre>
+</DocsLayout>

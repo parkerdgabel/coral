@@ -1,0 +1,83 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+---
+
+<DocsLayout title="Architecture">
+  <h1>Architecture Overview</h1>
+
+  <p>
+    Coral is built around several core components that work together to provide
+    efficient, lossless neural network weight versioning.
+  </p>
+
+  <h2>Core Components</h2>
+
+  <h3>WeightTensor</h3>
+  <p>
+    The fundamental data structure representing neural network weights with metadata
+    including shape, dtype, name, and content hash.
+  </p>
+
+  <pre><code>from coral import WeightTensor
+from coral.core.weight_tensor import WeightMetadata
+
+weight = WeightTensor(
+    data=np.random.randn(256, 128).astype(np.float32),
+    metadata=WeightMetadata(
+        name="layer1.weight",
+        shape=(256, 128),
+        dtype=np.float32
+    )
+)</code></pre>
+
+  <h3>Deduplicator</h3>
+  <p>
+    Advanced engine for identifying and eliminating duplicate/similar weights
+    using SimHash fingerprinting and LSH indexing for O(1) similarity lookup.
+  </p>
+
+  <h3>DeltaEncoder</h3>
+  <p>
+    Provides multiple encoding strategies for storing weight differences:
+  </p>
+  <ul>
+    <li><strong>Lossless:</strong> FLOAT32_RAW, COMPRESSED, XOR_FLOAT32, XOR_BFLOAT16, EXPONENT_MANTISSA</li>
+    <li><strong>Lossy:</strong> INT8_QUANTIZED, INT16_QUANTIZED, SPARSE, PER_AXIS_SCALED</li>
+  </ul>
+
+  <h3>Repository</h3>
+  <p>
+    Main class for all version control operations including staging, committing,
+    branching, merging, and tagging.
+  </p>
+
+  <h2>Storage System</h2>
+
+  <h3>HDF5Store</h3>
+  <p>Local content-addressable storage with configurable compression (gzip, lzf, szip).</p>
+
+  <h3>S3Store</h3>
+  <p>S3-compatible cloud storage supporting AWS S3, MinIO, and DigitalOcean Spaces.</p>
+
+  <h2>Directory Structure</h2>
+
+  <pre><code>.coral/
+├── config.json          # Repository configuration
+├── HEAD                 # Current branch reference
+├── refs/
+│   └── heads/           # Branch references
+├── objects/
+│   ├── weights.h5       # Weight storage (HDF5)
+│   └── commits/         # Commit objects
+└── staging/             # Staged weights</code></pre>
+
+  <h2>Key Design Patterns</h2>
+
+  <ul>
+    <li><strong>Content-Addressable Storage:</strong> Weights identified by xxHash content hash</li>
+    <li><strong>Lossless Delta Encoding:</strong> Similar weights stored as deltas for perfect reconstruction</li>
+    <li><strong>Metadata Separation:</strong> Weight data and metadata handled separately</li>
+    <li><strong>Pluggable Backends:</strong> Storage backends implement WeightStore interface</li>
+    <li><strong>Similarity-Based Deduplication:</strong> Configurable thresholds with LSH acceleration</li>
+  </ul>
+</DocsLayout>

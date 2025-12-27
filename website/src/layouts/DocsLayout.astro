@@ -1,0 +1,188 @@
+---
+import Layout from './Layout.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+
+const sidebarLinks = [
+  { title: 'Getting Started', links: [
+    { href: '/docs', label: 'Introduction' },
+    { href: '/docs/quickstart', label: 'Quick Start' },
+    { href: '/docs/installation', label: 'Installation' },
+  ]},
+  { title: 'Core Concepts', links: [
+    { href: '/docs/architecture', label: 'Architecture' },
+    { href: '/docs/delta-encoding', label: 'Delta Encoding' },
+    { href: '/docs/version-control', label: 'Version Control' },
+  ]},
+  { title: 'Guides', links: [
+    { href: '/docs/cli', label: 'CLI Reference' },
+    { href: '/docs/pytorch', label: 'PyTorch Integration' },
+    { href: '/docs/storage', label: 'Storage Backends' },
+  ]},
+];
+---
+
+<Layout title={title} description={description}>
+  <Header />
+  <div class="docs-layout">
+    <aside class="sidebar">
+      <nav class="sidebar-nav">
+        {sidebarLinks.map(section => (
+          <div class="sidebar-section">
+            <h4>{section.title}</h4>
+            <ul>
+              {section.links.map(link => (
+                <li>
+                  <a href={link.href} class:list={[{ active: Astro.url.pathname === link.href }]}>
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </nav>
+    </aside>
+    <main class="docs-content">
+      <article class="prose">
+        <slot />
+      </article>
+    </main>
+  </div>
+  <Footer />
+</Layout>
+
+<style>
+  .docs-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: var(--space-2xl);
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: calc(80px + var(--space-2xl)) var(--container-padding) var(--space-2xl);
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: calc(80px + var(--space-xl));
+    height: fit-content;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+  }
+
+  .sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xl);
+  }
+
+  .sidebar-section h4 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: var(--space-sm);
+  }
+
+  .sidebar-section ul {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .sidebar-section a {
+    display: block;
+    padding: var(--space-sm) var(--space-md);
+    color: var(--text-secondary);
+    border-radius: var(--radius-md);
+    font-size: 0.95rem;
+    transition: all 0.2s ease;
+  }
+
+  .sidebar-section a:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+  }
+
+  .sidebar-section a.active {
+    color: var(--accent-primary);
+    background: rgba(255, 71, 87, 0.1);
+  }
+
+  .docs-content {
+    max-width: 800px;
+  }
+
+  .prose {
+    color: var(--text-secondary);
+    line-height: 1.8;
+  }
+
+  .prose :global(h1) {
+    font-size: 2.5rem;
+    margin-bottom: var(--space-lg);
+    color: var(--text-primary);
+  }
+
+  .prose :global(h2) {
+    font-size: 1.75rem;
+    margin-top: var(--space-2xl);
+    margin-bottom: var(--space-md);
+    color: var(--text-primary);
+  }
+
+  .prose :global(h3) {
+    font-size: 1.25rem;
+    margin-top: var(--space-xl);
+    margin-bottom: var(--space-sm);
+    color: var(--text-primary);
+  }
+
+  .prose :global(p) {
+    margin-bottom: var(--space-md);
+  }
+
+  .prose :global(ul), .prose :global(ol) {
+    margin-bottom: var(--space-md);
+    padding-left: var(--space-xl);
+  }
+
+  .prose :global(li) {
+    margin-bottom: var(--space-sm);
+  }
+
+  .prose :global(pre) {
+    margin: var(--space-lg) 0;
+  }
+
+  .prose :global(a) {
+    color: var(--accent-primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .prose :global(strong) {
+    color: var(--text-primary);
+  }
+
+  @media (max-width: 1024px) {
+    .docs-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+      display: none;
+    }
+  }
+</style>

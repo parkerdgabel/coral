@@ -1,0 +1,104 @@
+---
+
+---
+
+<section class="cta">
+  <div class="container">
+    <div class="cta-content">
+      <h2>Ready to version your neural networks?</h2>
+      <p>Get started with Coral in minutes. It's open source and free forever.</p>
+      <div class="cta-actions">
+        <a href="/docs/quickstart" class="btn btn-primary btn-lg">
+          Read the Docs
+        </a>
+        <div class="install-command">
+          <code>pip install coral-ml</code>
+          <button class="copy-btn" data-copy="pip install coral-ml">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const text = btn.getAttribute('data-copy');
+      if (text) {
+        navigator.clipboard.writeText(text);
+        btn.classList.add('copied');
+        setTimeout(() => btn.classList.remove('copied'), 2000);
+      }
+    });
+  });
+</script>
+
+<style>
+  .cta {
+    padding: var(--space-4xl) 0;
+  }
+
+  .cta-content {
+    text-align: center;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .cta-content h2 {
+    margin-bottom: var(--space-md);
+  }
+
+  .cta-content p {
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    margin-bottom: var(--space-xl);
+  }
+
+  .cta-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-lg);
+  }
+
+  .install-command {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .install-command code {
+    background: none;
+    padding: 0;
+    font-size: 1rem;
+    color: var(--text-primary);
+  }
+
+  .copy-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: var(--space-xs);
+    border-radius: var(--radius-sm);
+    transition: all 0.2s ease;
+  }
+
+  .copy-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+  }
+
+  .copy-btn.copied {
+    color: #22c55e;
+  }
+</style>
