@@ -1,5 +1,7 @@
 """Visualization utilities for weight analysis"""
 
+from __future__ import annotations
+
 import logging
 from typing import Any
 

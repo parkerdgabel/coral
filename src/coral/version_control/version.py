@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Optional
 
@@ -27,7 +29,7 @@ class Version:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Version":
+    def from_dict(cls, data: dict) -> Version:
         """Create from dictionary."""
         return cls(**data)
 

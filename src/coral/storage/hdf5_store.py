@@ -1,5 +1,7 @@
 """HDF5-based storage backend for weight tensors"""
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -220,7 +222,7 @@ class HDF5Store(WeightStore):
         if hasattr(self, "file") and self.file:
             self.file.close()
 
-    def __enter__(self) -> "HDF5Store":
+    def __enter__(self) -> HDF5Store:
         """Enter context manager."""
         return self
 

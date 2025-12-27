@@ -9,6 +9,8 @@ This module provides cloud storage support for Coral, enabling:
 Requires: boto3 (install with `pip install coral-ml[s3]`)
 """
 
+from __future__ import annotations
+
 import io
 import json
 import logging

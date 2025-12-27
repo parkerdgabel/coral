@@ -3,6 +3,8 @@
 Provides git-like remote operations for syncing weights across storage backends.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from dataclasses import asdict, dataclass, field
@@ -48,12 +50,12 @@ class RemoteConfig:
         return d
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "RemoteConfig":
+    def from_dict(cls, data: dict[str, Any]) -> RemoteConfig:
         """Create from dictionary."""
         return cls(**data)
 
     @classmethod
-    def from_url(cls, name: str, url: str) -> "RemoteConfig":
+    def from_url(cls, name: str, url: str) -> RemoteConfig:
         """Create from a URL string.
 
         Examples:
@@ -123,7 +125,7 @@ class Remote:
         self._refs: dict[str, str] = {}  # branch/tag -> commit hash
 
     @classmethod
-    def from_config(cls, config: RemoteConfig) -> "Remote":
+    def from_config(cls, config: RemoteConfig) -> Remote:
         """Create Remote from configuration.
 
         This will create the appropriate storage backend based on config.

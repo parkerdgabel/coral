@@ -1,5 +1,7 @@
 """PyTorch integration for Coral version control."""
 
+from __future__ import annotations
+
 import logging
 from typing import Any, Callable, Optional
 
