@@ -22,6 +22,6 @@ def get_s3_store(*args, **kwargs):
         raise ImportError(
             "S3 storage requires boto3. Install with: pip install coral-ml[s3]"
         )
-    from coral.storage.s3_store import S3Config, S3Store
+    from coral.storage.s3_store import S3Store
 
     return S3Store(*args, **kwargs)

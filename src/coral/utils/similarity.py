@@ -158,7 +158,7 @@ def relative_difference(
 
     mean_rel = float(np.mean(relative_diff))
     max_rel = float(np.max(relative_diff))
-    rmse = float(np.sqrt(np.mean(diff ** 2)))
+    rmse = float(np.sqrt(np.mean(diff**2)))
 
     return mean_rel, max_rel, rmse
 

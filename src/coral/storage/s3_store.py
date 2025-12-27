@@ -240,7 +240,7 @@ class S3Store(WeightStore):
 
             # Deserialize
             buffer = io.BytesIO(weight_bytes)
-            npz = np.load(buffer)
+            npz = np.load(buffer, allow_pickle=False)
             data = npz["data"]
 
             # Load metadata
@@ -338,8 +338,7 @@ class S3Store(WeightStore):
 
         with ThreadPoolExecutor(max_workers=self.config.max_concurrency) as executor:
             futures = {
-                executor.submit(self.load, hash_key): hash_key
-                for hash_key in hash_keys
+                executor.submit(self.load, hash_key): hash_key for hash_key in hash_keys
             }
 
             for future in as_completed(futures):

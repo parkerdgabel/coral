@@ -8,7 +8,7 @@ Coral is a production-ready neural network weight versioning system that provide
 
 **Version**: 1.0.0
 **Package Name**: `coral-ml`
-**Python Support**: 3.8+
+**Python Support**: 3.9+
 
 ## Development Workflow
 

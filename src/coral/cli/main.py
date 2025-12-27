@@ -444,11 +444,11 @@ class CoralCLI:
 
             # Load based on file extension
             if path.suffix == ".npy":
-                data = np.load(path)
+                data = np.load(path, allow_pickle=False)
                 name = path.stem
             elif path.suffix == ".npz":
                 # Load compressed numpy archive
-                archive = np.load(path)
+                archive = np.load(path, allow_pickle=False)
                 for name, data in archive.items():
                     weight = WeightTensor(
                         data=data,

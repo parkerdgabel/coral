@@ -16,7 +16,7 @@ rounding algorithms". STOC '02.
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -500,7 +500,7 @@ class MultiDimSimHashIndex:
         """Return total number of vectors across all dimensions."""
         return sum(index.size for index in self._indices.values())
 
-    def get_stats(self) -> Dict[str, any]:
+    def get_stats(self) -> Dict[str, Any]:
         """Get index statistics across all dimensions.
 
         Returns:
