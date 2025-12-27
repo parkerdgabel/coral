@@ -34,7 +34,7 @@ class TestFinalPush80Coverage:
             ["checkout", "branch"],
             ["branch"],
             ["merge", "feature"],
-            ["diff"],
+            ["diff", "from_ref"],  # diff requires at least one argument
             ["tag", "v1.0"],
             ["show", "weight"],
             ["gc"],
@@ -62,7 +62,7 @@ class TestFinalPush80Coverage:
             )
 
             hash_key = weight.compute_hash()
-            store.store(hash_key, weight)
+            store.store(weight, hash_key)
 
             # Verify storage info
             info = store.get_storage_info()
@@ -106,7 +106,7 @@ class TestFinalPush80Coverage:
             assert merge_commit is not None
 
     def test_commit_to_from_json(self):
-        """Test Commit JSON serialization."""
+        """Test Commit dict serialization."""
         metadata = CommitMetadata(
             message="Test commit",
             author="Test Author",
@@ -121,27 +121,35 @@ class TestFinalPush80Coverage:
             metadata=metadata,
         )
 
-        # To JSON
-        json_str = commit.to_json()
-        assert isinstance(json_str, str)
+        # To dict
+        commit_dict = commit.to_dict()
+        assert isinstance(commit_dict, dict)
+        assert commit_dict["commit_hash"] == "abc123"
 
-        # From JSON
-        commit2 = Commit.from_json(json_str)
+        # From dict
+        commit2 = Commit.from_dict(commit_dict)
         assert commit2.commit_hash == commit.commit_hash
         assert commit2.metadata.message == commit.metadata.message
 
     def test_version_timestamp_handling(self):
-        """Test Version with timestamp."""
-        import datetime
+        """Test Version attributes."""
+        # Create version
+        v1 = Version(
+            version_id="id1", commit_hash="hash1", name="v1.0", description="Test"
+        )
+        assert v1.version_id == "id1"
+        assert v1.commit_hash == "hash1"
+        assert v1.name == "v1.0"
 
-        # Without timestamp
-        v1 = Version("v1.0", "id1", "hash1", "Test")
-        assert v1.timestamp is not None
-
-        # With timestamp
-        ts = datetime.datetime.now()
-        v2 = Version("v2.0", "id2", "hash2", "Test", timestamp=ts)
-        assert v2.timestamp == ts
+        # Test with metrics
+        v2 = Version(
+            version_id="id2",
+            commit_hash="hash2",
+            name="v2.0",
+            description="Test",
+            metrics={"accuracy": 0.95},
+        )
+        assert v2.metrics == {"accuracy": 0.95}
 
     def test_pytorch_integration_weights_to_model(self):
         """Test PyTorchIntegration weights_to_model."""
@@ -151,8 +159,6 @@ class TestFinalPush80Coverage:
 
                 # Mock model
                 mock_model = Mock()
-                mock_state_dict = {}
-                mock_model.state_dict.return_value = mock_state_dict
 
                 # Create weights
                 weights = {
@@ -168,33 +174,33 @@ class TestFinalPush80Coverage:
                 mock_tensor = Mock()
                 mock_torch.from_numpy.return_value = mock_tensor
 
-                # Load weights
-                integration.weights_to_model(mock_model, weights)
+                # Load weights (weights first, then model)
+                integration.weights_to_model(weights, mock_model)
 
                 # Verify
                 mock_model.load_state_dict.assert_called_once()
 
     def test_repository_status_detailed(self):
-        """Test Repository status with various states."""
+        """Test Repository staging and commit operations."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Repository(tmpdir, init=True)
 
-            # Initial status
-            status = repo.status()
-            assert status["branch"] == "main"
-            assert len(status["staged"]) == 0
+            # Test current branch
+            current_branch = repo.branch_manager.get_current_branch()
+            assert current_branch == "main"
 
             # Stage a weight
             weight = WeightTensor(
                 data=np.array([1, 2, 3], dtype=np.float32),
                 metadata=WeightMetadata(name="w1", shape=(3,), dtype=np.float32),
             )
-            repo.stage_weights({"w1": weight})
+            staged_hashes = repo.stage_weights({"w1": weight})
+            assert "w1" in staged_hashes
 
-            # Status with staged
-            status = repo.status()
-            assert len(status["staged"]) == 1
-            assert "w1" in status["staged"]
+            # Commit the weight
+            commit = repo.commit("Test commit")
+            assert commit is not None
+            assert commit.metadata.message == "Test commit"
 
     def test_hdf5_store_batch_operations(self):
         """Test HDF5Store batch operations."""
@@ -239,16 +245,15 @@ class TestFinalPush80Coverage:
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
             mock_repo = Mock()
+            mock_branch_manager = Mock()
+            mock_repo.branch_manager = mock_branch_manager
             mock_repo_class.return_value = mock_repo
 
-            with patch("sys.exit") as mock_exit:
-                args = argparse.Namespace(
-                    command="branch", name=None, delete="old-feature", list=False
-                )
+            args = argparse.Namespace(
+                command="branch", name=None, delete="old-feature", list=False
+            )
 
-                # Import argparse for Namespace
+            result = cli._cmd_branch(args, Path("."))
 
-                cli._run_branch(args)
-
-                mock_repo.delete_branch.assert_called_once_with("old-feature")
-                mock_exit.assert_called_once_with(0)
+            mock_branch_manager.delete_branch.assert_called_once_with("old-feature")
+            assert result == 0

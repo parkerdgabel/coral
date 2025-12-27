@@ -374,6 +374,8 @@ class TestCLICommandsCoverage:
             "compare",
             "sync",
             "sync-status",
+            "experiment",
+            "publish",
         }
         assert set(subparsers.keys()) == expected_commands
 

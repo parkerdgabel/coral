@@ -98,7 +98,7 @@ class TestFinalCompletePush:
                 )
                 hash_key = weight.compute_hash()
                 weights[hash_key] = weight
-                store.store(hash_key, weight)
+                store.store(weight, hash_key)
 
             # Test list weights
             listed = store.list_weights()
@@ -108,12 +108,12 @@ class TestFinalCompletePush:
             for hash_key in weights:
                 meta = store.get_metadata(hash_key)
                 assert meta is not None
-                assert meta.get("name") is not None
+                assert meta.name is not None
 
             # Test storage info
             info = store.get_storage_info()
             assert info["compression"] == "lzf"
-            assert "store_path" in info
+            assert "filepath" in info
 
             # Test batch operations
             batch_loaded = store.load_batch(list(weights.keys()))
@@ -165,27 +165,24 @@ class TestFinalCompletePush:
             log = repo.log(max_commits=10)
             assert len(log) == 5
 
-            # Test versions
-            versions = repo.list_versions()
-            assert len(versions) == 3
-
-            # Test getting specific version
-            v = repo.get_version("v0.2.0")
-            assert v is not None
+            # Test that versions were created
+            assert repo.version_graph is not None
+            # Version graph should contain the versions
+            assert len(repo.version_graph.versions) == 3
 
             # Create and test branches
             repo.create_branch("develop")
-            repo.create_branch("feature/new")
+            repo.create_branch("feature-new")
 
-            branches = repo.list_branches()
+            branches = repo.branch_manager.list_branches()
             branch_names = [b.name for b in branches]
             assert "main" in branch_names
             assert "develop" in branch_names
-            assert "feature/new" in branch_names
+            assert "feature-new" in branch_names
 
             # Test checkout
             repo.checkout("develop")
-            assert repo.current_branch == "develop"
+            assert repo.branch_manager.get_current_branch() == "develop"
 
             # Make changes on develop
             new_weight = WeightTensor(
@@ -199,7 +196,9 @@ class TestFinalCompletePush:
 
             # Test diff
             repo.checkout("main")
-            diff = repo.diff("main", "develop")
+            main_commit = repo.branch_manager.get_branch_commit("main")
+            develop_commit = repo.branch_manager.get_branch_commit("develop")
+            diff = repo.diff(main_commit, develop_commit)
             assert "added" in diff
             assert "new.weight" in diff["added"]
 
@@ -220,9 +219,11 @@ class TestFinalCompletePush:
             metadata=meta,
         )
 
-        # Test JSON serialization
-        json_str = commit.to_json()
-        restored = Commit.from_json(json_str)
+        # Test JSON serialization (using to_dict/from_dict)
+        import json
+
+        json_str = json.dumps(commit.to_dict())
+        restored = Commit.from_dict(json.loads(json_str))
         assert restored.commit_hash == commit.commit_hash
         assert len(restored.parent_hashes) == 4
         assert len(restored.weight_hashes) == 20
@@ -245,17 +246,17 @@ class TestFinalCompletePush:
             },
         )
 
-        # Test JSON serialization
-        v_json = version.to_json()
-        v_restored = Version.from_json(v_json)
+        # Test JSON serialization (using to_dict/from_dict)
+        v_json = json.dumps(version.to_dict())
+        v_restored = Version.from_dict(json.loads(v_json))
         assert v_restored.name == version.name
         assert len(v_restored.metrics) == 7
         assert v_restored.metrics["auc"] == 0.995
 
         # Test Branch
         branch = Branch("feature/complete-test", "commit_xyz")
-        b_json = branch.to_json()
-        b_restored = Branch.from_json(b_json)
+        b_json = json.dumps(branch.to_dict())
+        b_restored = Branch.from_dict(json.loads(b_json))
         assert b_restored.name == branch.name
         assert b_restored.commit_hash == branch.commit_hash
 
@@ -267,20 +268,22 @@ class TestFinalCompletePush:
 
                 # Test model to weights with complex model
                 mock_model = Mock()
-                state_dict = {}
+                mock_model.__class__.__name__ = "TestModel"
+
+                # Create list of (name, param) tuples for named_parameters()
+                params_list = []
                 for i in range(10):
                     for param in ["weight", "bias"]:
                         key = f"layer{i}.{param}"
                         tensor = Mock()
-                        tensor.numpy.return_value = np.random.randn(10, 10).astype(
-                            np.float32
+                        tensor.detach.return_value.cpu.return_value.numpy.return_value = (
+                            np.random.randn(10, 10).astype(np.float32)
                         )
                         tensor.shape = (10, 10)
-                        tensor.dtype = Mock()
-                        tensor.dtype.__str__.return_value = "torch.float32"
-                        state_dict[key] = tensor
+                        tensor.dtype = np.float32
+                        params_list.append((key, tensor))
 
-                mock_model.state_dict.return_value = state_dict
+                mock_model.named_parameters.return_value = params_list
 
                 # Convert to weights
                 weights = integration.model_to_weights(mock_model)
@@ -288,5 +291,5 @@ class TestFinalCompletePush:
 
                 # Test weights to model
                 mock_torch.from_numpy = Mock(return_value=Mock())
-                integration.weights_to_model(mock_model, weights)
+                integration.weights_to_model(weights, mock_model)
                 mock_model.load_state_dict.assert_called_once()

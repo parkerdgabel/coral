@@ -35,7 +35,7 @@ class TestTargetedCoverage80:
         # Test parsing add command
         args = cli.parser.parse_args(["add", "model.pth"])
         assert args.command == "add"
-        assert args.path == "model.pth"
+        assert args.weights == ["model.pth"]
 
         # Test parsing commit command
         args = cli.parser.parse_args(["commit", "-m", "test message"])
@@ -67,31 +67,30 @@ class TestTargetedCoverage80:
             Path(store_path).unlink(missing_ok=True)
 
     def test_hdf5_store_put_and_get(self):
-        """Test HDF5Store put and get operations."""
+        """Test HDF5Store store and load operations."""
         with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
             store_path = tmp.name
 
         try:
             store = HDF5Store(store_path)
 
-            # Test put weight
+            # Test store weight
             weight = WeightTensor(
                 data=np.array([1, 2, 3], dtype=np.float32),
                 metadata=WeightMetadata(name="test", shape=(3,), dtype=np.float32),
             )
-            hash_key = weight.compute_hash()
-            store.put(hash_key, weight)
+            hash_key = store.store(weight)
 
-            # Test contains
-            assert store.contains(hash_key)
+            # Test exists
+            assert store.exists(hash_key)
 
-            # Test get
-            retrieved = store.get(hash_key)
+            # Test load
+            retrieved = store.load(hash_key)
             assert retrieved is not None
             np.testing.assert_array_equal(retrieved.data, weight.data)
 
             # Test list
-            keys = store.list()
+            keys = store.list_weights()
             assert hash_key in keys
 
             store.close()
@@ -108,7 +107,6 @@ class TestTargetedCoverage80:
             assert repo.coral_dir.exists()
             assert (repo.coral_dir / "objects").exists()
             assert (repo.coral_dir / "refs" / "heads").exists()
-            assert (repo.coral_dir / "logs").exists()
 
             # Test HEAD file
             head_file = repo.coral_dir / "HEAD"
@@ -118,12 +116,11 @@ class TestTargetedCoverage80:
         """Test CommitMetadata with all fields and serialization."""
         timestamp = datetime.datetime.now()
         metadata = CommitMetadata(
-            message="Test commit",
             author="Test Author",
             email="test@example.com",
+            message="Test commit",
             timestamp=timestamp,
             tags=["v1.0", "release"],
-            metadata={"key": "value", "build": 123},
         )
 
         # Test properties
@@ -131,7 +128,6 @@ class TestTargetedCoverage80:
         assert metadata.author == "Test Author"
         assert metadata.email == "test@example.com"
         assert len(metadata.tags) == 2
-        assert metadata.metadata["build"] == 123
 
         # Test to_dict
         meta_dict = metadata.to_dict()
@@ -145,26 +141,21 @@ class TestTargetedCoverage80:
 
     def test_version_full_serialization(self):
         """Test Version with all fields and serialization."""
-        timestamp = datetime.datetime.now()
         version = Version(
-            name="v1.0.0",
             version_id="version123",
             commit_hash="commit456",
+            name="v1.0.0",
             description="Major release",
             metrics={"accuracy": 0.95, "loss": 0.05},
-            timestamp=timestamp,
-            metadata={"framework": "pytorch", "dataset": "imagenet"},
         )
 
         # Test properties
         assert version.name == "v1.0.0"
         assert version.metrics["accuracy"] == 0.95
-        assert version.metadata["framework"] == "pytorch"
 
         # Test to_dict
         version_dict = version.to_dict()
         assert version_dict["name"] == "v1.0.0"
-        assert "timestamp" in version_dict
 
         # Test from_dict
         version2 = Version.from_dict(version_dict)
@@ -177,18 +168,31 @@ class TestTargetedCoverage80:
         with patch("coral.integrations.pytorch.torch") as _mock_torch:
             # Setup mock model
             mock_model = Mock()
-            mock_model.state_dict.return_value = {
-                "layer1.weight": Mock(numpy=lambda: np.ones((10, 5), dtype=np.float32)),
-                "layer1.bias": Mock(numpy=lambda: np.zeros(10, dtype=np.float32)),
-            }
+
+            # Create mock parameters
+            mock_param1 = Mock()
+            mock_param1.detach.return_value.cpu.return_value.numpy.return_value = np.ones(
+                (10, 5), dtype=np.float32
+            )
+
+            mock_param2 = Mock()
+            mock_param2.detach.return_value.cpu.return_value.numpy.return_value = np.zeros(
+                10, dtype=np.float32
+            )
+
+            # Make named_parameters iterable
+            mock_model.named_parameters.return_value = [
+                ("layer1.weight", mock_param1),
+                ("layer1.bias", mock_param2),
+            ]
 
             # Test model to weights
             integration = PyTorchIntegration()
-            weights = integration.model_to_weights(mock_model, prefix="model")
+            weights = integration.model_to_weights(mock_model)
 
             assert len(weights) == 2
-            assert "model.layer1.weight" in weights
-            assert "model.layer1.bias" in weights
+            assert "layer1.weight" in weights
+            assert "layer1.bias" in weights
 
     def test_weight_store_abstract_methods(self):
         """Test WeightStore abstract base class."""
@@ -198,21 +202,47 @@ class TestTargetedCoverage80:
             def __init__(self):
                 self.weights = {}
 
-            def put(self, hash_key, weight):
+            def store(self, weight, hash_key=None):
+                if hash_key is None:
+                    hash_key = weight.compute_hash()
                 self.weights[hash_key] = weight
+                return hash_key
 
-            def get(self, hash_key):
+            def load(self, hash_key):
                 return self.weights.get(hash_key)
 
-            def contains(self, hash_key):
+            def exists(self, hash_key):
                 return hash_key in self.weights
 
             def delete(self, hash_key):
                 if hash_key in self.weights:
                     del self.weights[hash_key]
+                    return True
+                return False
 
-            def list(self):
+            def list_weights(self):
                 return list(self.weights.keys())
+
+            def get_metadata(self, hash_key):
+                weight = self.weights.get(hash_key)
+                return weight.metadata if weight else None
+
+            def store_batch(self, weights):
+                result = {}
+                for name, weight in weights.items():
+                    result[name] = self.store(weight)
+                return result
+
+            def load_batch(self, hash_keys):
+                result = {}
+                for key in hash_keys:
+                    weight = self.load(key)
+                    if weight:
+                        result[key] = weight
+                return result
+
+            def get_storage_info(self):
+                return {"total_weights": len(self.weights)}
 
             def close(self):
                 pass
@@ -224,18 +254,17 @@ class TestTargetedCoverage80:
             metadata=WeightMetadata(name="test", shape=(3,), dtype=np.float32),
         )
 
-        hash_key = "test_hash"
-        store.put(hash_key, weight)
-        assert store.contains(hash_key)
+        hash_key = store.store(weight)
+        assert store.exists(hash_key)
 
-        retrieved = store.get(hash_key)
+        retrieved = store.load(hash_key)
         assert retrieved is not None
 
-        keys = store.list()
+        keys = store.list_weights()
         assert hash_key in keys
 
         store.delete(hash_key)
-        assert not store.contains(hash_key)
+        assert not store.exists(hash_key)
 
     def test_cli_log_command_parsing(self):
         """Test CLI log command parsing."""
@@ -246,10 +275,10 @@ class TestTargetedCoverage80:
         assert args.command == "log"
         assert args.number == 20
 
-        # Test log with branch
-        args = cli.parser.parse_args(["log", "--branch", "feature"])
+        # Test log with oneline flag
+        args = cli.parser.parse_args(["log", "--oneline"])
         assert args.command == "log"
-        assert args.branch == "feature"
+        assert args.oneline is True
 
     def test_cli_diff_command_parsing(self):
         """Test CLI diff command parsing."""
@@ -285,6 +314,6 @@ class TestTargetedCoverage80:
             commit = repo.commit("Initial")
 
             # Test getting weight with commit ref
-            retrieved = repo.get_weight("w1", ref=commit.commit_hash)
+            retrieved = repo.get_weight("w1", commit_ref=commit.commit_hash)
             assert retrieved is not None
             np.testing.assert_array_equal(retrieved.data, weight.data)

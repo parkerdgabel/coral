@@ -1,7 +1,7 @@
 import numpy as np
 
 from coral.core.deduplicator import DeduplicationStats
-from coral.core.weight_tensor import WeightTensor
+from coral.core.weight_tensor import WeightTensor, WeightMetadata
 from coral.utils.visualization import plot_deduplication_stats, plot_weight_distribution
 
 
@@ -12,15 +12,15 @@ class TestVisualization:
         weights = [
             WeightTensor(
                 data=np.random.randn(10, 10).astype(np.float32),
-                metadata={"name": "layer1.weight"},
+                metadata=WeightMetadata(name="layer1.weight", shape=(10, 10), dtype=np.float32),
             ),
             WeightTensor(
                 data=np.random.randn(5, 5).astype(np.float32),
-                metadata={"name": "layer2.weight"},
+                metadata=WeightMetadata(name="layer2.weight", shape=(5, 5), dtype=np.float32),
             ),
             WeightTensor(
                 data=np.zeros((3, 3), dtype=np.float32),  # All zeros for sparsity test
-                metadata={"name": "layer3.weight"},
+                metadata=WeightMetadata(name="layer3.weight", shape=(3, 3), dtype=np.float32),
             ),
         ]
 
@@ -63,7 +63,7 @@ class TestVisualization:
         weights = [
             WeightTensor(
                 data=np.ones((5, 5), dtype=np.float32) * 2.5,
-                metadata={"name": "uniform.weight"},
+                metadata=WeightMetadata(name="uniform.weight", shape=(5, 5), dtype=np.float32),
             )
         ]
 
