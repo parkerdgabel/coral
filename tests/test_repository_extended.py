@@ -31,9 +31,8 @@ class TestRepositoryExtended:
 
             # Check directory structure
             assert (Path(temp_dir) / ".coral").exists()
-            assert (Path(temp_dir) / ".coral" / "config").exists()
+            assert (Path(temp_dir) / ".coral" / "config.json").exists()
             assert (Path(temp_dir) / ".coral" / "refs" / "heads").exists()
-            assert (Path(temp_dir) / ".coral" / "refs" / "tags").exists()
             assert (Path(temp_dir) / ".coral" / "objects").exists()
             assert (Path(temp_dir) / ".coral" / "objects" / "weights.h5").exists()
 

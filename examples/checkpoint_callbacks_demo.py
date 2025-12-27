@@ -130,7 +130,7 @@ def main():
 
             print(f"--- Epoch {epoch} ---")
             commit_hash = manager.save_checkpoint(weights, state, force=True)
-            commit_short = commit_hash[:8] if commit_hash else 'None'
+            commit_short = commit_hash[:8] if commit_hash else "None"
             print(f"Checkpoint saved with commit: {commit_short}")
             print()
 

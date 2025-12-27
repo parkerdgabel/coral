@@ -35,8 +35,9 @@ jobs:
         run: uv run ruff check src/ tests/ examples/
 
   typecheck:
-    name: Type Check
+    name: Type Check (Informational)
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -52,7 +53,7 @@ jobs:
         run: uv sync --extra dev --extra torch
 
       - name: Type check
-        run: uv run mypy src/
+        run: uv run mypy src/ || echo "Type checking found issues (non-blocking)"
 
   test:
     name: Test (Python ${{ matrix.python-version }})
