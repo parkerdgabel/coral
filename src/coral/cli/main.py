@@ -103,6 +103,64 @@ class CoralCLI:
             "gc", help="Garbage collect unreferenced weights"
         )
 
+        # Remote command
+        remote_parser = subparsers.add_parser("remote", help="Manage remote storage")
+        remote_subparsers = remote_parser.add_subparsers(
+            dest="remote_command", help="Remote commands"
+        )
+
+        # remote add
+        remote_add = remote_subparsers.add_parser("add", help="Add a remote")
+        remote_add.add_argument("name", help="Remote name (e.g., origin)")
+        remote_add.add_argument(
+            "url",
+            help="Remote URL (s3://bucket/path, minio://host/bucket, file:///path)",
+        )
+
+        # remote remove
+        remote_rm = remote_subparsers.add_parser("remove", help="Remove a remote")
+        remote_rm.add_argument("name", help="Remote name to remove")
+
+        # remote list
+        remote_subparsers.add_parser("list", help="List remotes")
+
+        # remote show
+        remote_show = remote_subparsers.add_parser("show", help="Show remote details")
+        remote_show.add_argument("name", help="Remote name")
+
+        # Push command
+        push_parser = subparsers.add_parser("push", help="Push weights to remote")
+        push_parser.add_argument(
+            "remote", nargs="?", default="origin", help="Remote name (default: origin)"
+        )
+        push_parser.add_argument(
+            "--all", action="store_true", help="Push all weights"
+        )
+        push_parser.add_argument(
+            "--force", "-f", action="store_true", help="Force push (overwrite remote)"
+        )
+
+        # Pull command
+        pull_parser = subparsers.add_parser("pull", help="Pull weights from remote")
+        pull_parser.add_argument(
+            "remote", nargs="?", default="origin", help="Remote name (default: origin)"
+        )
+        pull_parser.add_argument(
+            "--all", action="store_true", help="Pull all weights"
+        )
+        pull_parser.add_argument(
+            "--force", "-f", action="store_true", help="Force pull (overwrite local)"
+        )
+
+        # Clone command
+        clone_parser = subparsers.add_parser(
+            "clone", help="Clone a remote repository"
+        )
+        clone_parser.add_argument("url", help="Remote URL to clone")
+        clone_parser.add_argument(
+            "path", nargs="?", default=".", help="Local path (default: current dir)"
+        )
+
         return parser
 
     def run(self, args=None) -> int:
@@ -146,6 +204,14 @@ class CoralCLI:
                 return self._cmd_show(args, repo_path)
             elif args.command == "gc":
                 return self._cmd_gc(args, repo_path)
+            elif args.command == "remote":
+                return self._cmd_remote(args, repo_path)
+            elif args.command == "push":
+                return self._cmd_push(args, repo_path)
+            elif args.command == "pull":
+                return self._cmd_pull(args, repo_path)
+            elif args.command == "clone":
+                return self._cmd_clone(args)
             else:
                 print(f"Error: Unknown command '{args.command}'", file=sys.stderr)
                 return 1
@@ -432,6 +498,138 @@ class CoralCLI:
         print(f"  Remaining: {result['remaining_weights']} weight(s)")
 
         return 0
+
+    def _cmd_remote(self, args, repo_path: Path) -> int:
+        """Manage remotes."""
+        repo = Repository(repo_path)
+
+        if not args.remote_command or args.remote_command == "list":
+            # List remotes
+            remotes = repo.list_remotes()
+            if not remotes:
+                print("No remotes configured")
+            else:
+                for name, config in remotes.items():
+                    print(f"{name}\t{config.get('url', 'N/A')}")
+            return 0
+
+        elif args.remote_command == "add":
+            repo.add_remote(args.name, args.url)
+            print(f"Added remote '{args.name}' -> {args.url}")
+            return 0
+
+        elif args.remote_command == "remove":
+            repo.remove_remote(args.name)
+            print(f"Removed remote '{args.name}'")
+            return 0
+
+        elif args.remote_command == "show":
+            remote = repo.get_remote(args.name)
+            if not remote:
+                print(f"Error: Remote '{args.name}' not found", file=sys.stderr)
+                return 1
+            print(f"Remote: {args.name}")
+            print(f"  URL: {remote.get('url', 'N/A')}")
+            print(f"  Backend: {remote.get('backend', 'N/A')}")
+            if remote.get("endpoint_url"):
+                print(f"  Endpoint: {remote['endpoint_url']}")
+            return 0
+
+        return 0
+
+    def _cmd_push(self, args, repo_path: Path) -> int:
+        """Push weights to remote."""
+        repo = Repository(repo_path)
+
+        remote_name = args.remote
+        remote = repo.get_remote(remote_name)
+
+        if not remote:
+            print(f"Error: Remote '{remote_name}' not found", file=sys.stderr)
+            print("Use 'coral remote add <name> <url>' to add a remote")
+            return 1
+
+        print(f"Pushing to {remote_name} ({remote['url']})...")
+
+        try:
+            result = repo.push(remote_name, force=args.force)
+
+            print("Push complete:")
+            print(f"  Weights pushed: {result.get('weights_pushed', 0)}")
+            print(f"  Bytes transferred: {result.get('bytes_transferred', 0):,}")
+            if result.get("skipped", 0) > 0:
+                print(f"  Skipped (already exists): {result['skipped']}")
+
+            return 0
+        except Exception as e:
+            print(f"Error: Push failed: {e}", file=sys.stderr)
+            return 1
+
+    def _cmd_pull(self, args, repo_path: Path) -> int:
+        """Pull weights from remote."""
+        repo = Repository(repo_path)
+
+        remote_name = args.remote
+        remote = repo.get_remote(remote_name)
+
+        if not remote:
+            print(f"Error: Remote '{remote_name}' not found", file=sys.stderr)
+            print("Use 'coral remote add <name> <url>' to add a remote")
+            return 1
+
+        print(f"Pulling from {remote_name} ({remote['url']})...")
+
+        try:
+            result = repo.pull(remote_name, force=args.force)
+
+            print("Pull complete:")
+            print(f"  Weights pulled: {result.get('weights_pulled', 0)}")
+            print(f"  Bytes transferred: {result.get('bytes_transferred', 0):,}")
+            if result.get("skipped", 0) > 0:
+                print(f"  Skipped (already exists): {result['skipped']}")
+
+            return 0
+        except Exception as e:
+            print(f"Error: Pull failed: {e}", file=sys.stderr)
+            return 1
+
+    def _cmd_clone(self, args) -> int:
+        """Clone a remote repository."""
+
+        url = args.url
+        path = Path(args.path).resolve()
+
+        # Determine repository name from URL if path is current dir
+        if args.path == ".":
+            # Extract name from URL
+            if url.startswith("s3://"):
+                name = url.rstrip("/").split("/")[-1]
+            elif url.startswith("file://"):
+                name = Path(url[7:]).name
+            else:
+                name = "coral-repo"
+            path = Path.cwd() / name
+
+        print(f"Cloning {url} into {path}...")
+
+        try:
+            # Initialize new repository
+            repo = Repository(path, init=True)
+
+            # Add origin remote
+            repo.add_remote("origin", url)
+
+            # Pull all weights
+            result = repo.pull("origin")
+
+            print("Clone complete:")
+            print(f"  Weights: {result.get('weights_pulled', 0)}")
+            print(f"  Bytes: {result.get('bytes_transferred', 0):,}")
+
+            return 0
+        except Exception as e:
+            print(f"Error: Clone failed: {e}", file=sys.stderr)
+            return 1
 
 
 def main():

@@ -563,16 +563,16 @@ class Repository:
                     and parent_commit.weight_hashes[name] != current_hash
                 ):
                     parent_hash = parent_commit.weight_hashes[name]
-                    
+
                     try:
                         # Load current and parent weights
                         current_weight = store.load(current_hash)
                         parent_weight = store.load(parent_hash)
-                        
+
                         if current_weight is None or parent_weight is None:
                             logger.warning(f"Could not load weights for delta calculation: {name}")
                             continue
-                        
+
                         # Check if delta encoding is beneficial
                         if self.deduplicator.delta_encoder.can_encode_as_delta(
                             current_weight, parent_weight
@@ -581,16 +581,16 @@ class Repository:
                             delta = self.deduplicator.delta_encoder.encode_delta(
                                 current_weight, parent_weight
                             )
-                            
+
                             # Generate delta hash
                             delta_hash = self.deduplicator._compute_delta_hash(delta)
-                            
+
                             # Store delta in the storage backend
                             store.store_delta(delta, delta_hash)
-                            
+
                             # Track delta for this weight
                             deltas[name] = delta_hash
-                            
+
                             logger.debug(
                                 f"Created delta for {name}: {delta.compression_ratio:.2%} compression, "
                                 f"hash {delta_hash}"
@@ -599,7 +599,7 @@ class Repository:
                             logger.debug(
                                 f"Delta encoding not beneficial for {name}, storing full weight"
                             )
-                    
+
                     except Exception as e:
                         logger.error(f"Failed to create delta for {name}: {e}")
                         # Continue without delta encoding for this weight
@@ -629,7 +629,6 @@ class Repository:
         Raises:
             MergeConflictError: If strategy is FAIL and conflicts are detected
         """
-        import numpy as np
 
         from ..core.weight_tensor import WeightMetadata
 
@@ -764,3 +763,185 @@ class Repository:
                 cleaned += 1
 
         return {"cleaned_weights": cleaned, "remaining_weights": len(referenced_hashes)}
+
+    # ==================== Remote Management ====================
+
+    def _get_remotes_file(self) -> Path:
+        """Get path to remotes configuration file."""
+        return self.coral_dir / "remotes.json"
+
+    def list_remotes(self) -> Dict[str, Dict]:
+        """List all configured remotes."""
+        remotes_file = self._get_remotes_file()
+        if remotes_file.exists():
+            with open(remotes_file) as f:
+                return json.load(f)
+        return {}
+
+    def get_remote(self, name: str) -> Optional[Dict]:
+        """Get a specific remote configuration."""
+        remotes = self.list_remotes()
+        return remotes.get(name)
+
+    def add_remote(self, name: str, url: str) -> None:
+        """Add a new remote.
+
+        Args:
+            name: Remote name (e.g., 'origin')
+            url: Remote URL (s3://bucket/path, minio://host/bucket, file:///path)
+        """
+        from ..remotes.remote import RemoteConfig
+
+        # Parse URL to determine backend
+        config = RemoteConfig.from_url(name, url)
+
+        remotes = self.list_remotes()
+        if name in remotes:
+            raise ValueError(f"Remote '{name}' already exists")
+
+        remotes[name] = {
+            "url": config.url,
+            "backend": config.backend,
+            "endpoint_url": config.endpoint_url,
+        }
+
+        with open(self._get_remotes_file(), "w") as f:
+            json.dump(remotes, f, indent=2)
+
+    def remove_remote(self, name: str) -> None:
+        """Remove a remote."""
+        remotes = self.list_remotes()
+        if name not in remotes:
+            raise ValueError(f"Remote '{name}' not found")
+
+        del remotes[name]
+
+        with open(self._get_remotes_file(), "w") as f:
+            json.dump(remotes, f, indent=2)
+
+    def _get_remote_store(self, remote_name: str):
+        """Get a storage backend for a remote."""
+        remote = self.get_remote(remote_name)
+        if not remote:
+            raise ValueError(f"Remote '{remote_name}' not found")
+
+        backend = remote.get("backend", "file")
+        url = remote["url"]
+
+        if backend == "s3":
+            from ..storage.s3_store import S3Config, S3Store
+
+            # Parse S3 URL: s3://bucket/prefix
+            path = url[5:]  # Remove "s3://"
+            parts = path.split("/", 1)
+            bucket = parts[0]
+            prefix = parts[1] if len(parts) > 1 else "coral/"
+
+            config = S3Config(
+                bucket=bucket,
+                prefix=prefix,
+                endpoint_url=remote.get("endpoint_url"),
+            )
+            return S3Store(config)
+
+        elif backend == "file":
+            # Local file backend (for testing or local backups)
+            from ..storage.hdf5_store import HDF5Store
+
+            path = url[7:]  # Remove "file://"
+            store_path = Path(path) / "weights.h5"
+            store_path.parent.mkdir(parents=True, exist_ok=True)
+            return HDF5Store(store_path)
+
+        else:
+            raise ValueError(f"Unsupported backend: {backend}")
+
+    def push(self, remote_name: str, force: bool = False) -> Dict[str, int]:
+        """Push weights to a remote.
+
+        Args:
+            remote_name: Name of the remote to push to
+            force: If True, overwrite existing weights on remote
+
+        Returns:
+            Dictionary with push statistics
+        """
+        remote_store = self._get_remote_store(remote_name)
+
+        # Get all referenced weight hashes
+        weight_hashes = set()
+        for commit in self.version_graph.commits.values():
+            weight_hashes.update(commit.weight_hashes.values())
+
+        weights_pushed = 0
+        bytes_transferred = 0
+        skipped = 0
+
+        with HDF5Store(self.weights_store_path) as local_store:
+            for hash_key in weight_hashes:
+                # Check if weight exists on remote
+                if not force and remote_store.exists(hash_key):
+                    skipped += 1
+                    continue
+
+                # Load and push weight
+                weight = local_store.load(hash_key)
+                if weight:
+                    remote_store.store(weight, hash_key)
+                    weights_pushed += 1
+                    bytes_transferred += weight.nbytes
+
+        # Close remote store if it has a close method
+        if hasattr(remote_store, "close"):
+            remote_store.close()
+
+        return {
+            "weights_pushed": weights_pushed,
+            "bytes_transferred": bytes_transferred,
+            "skipped": skipped,
+        }
+
+    def pull(self, remote_name: str, force: bool = False) -> Dict[str, int]:
+        """Pull weights from a remote.
+
+        Args:
+            remote_name: Name of the remote to pull from
+            force: If True, overwrite existing local weights
+
+        Returns:
+            Dictionary with pull statistics
+        """
+        remote_store = self._get_remote_store(remote_name)
+
+        # List weights on remote
+        remote_hashes = set(remote_store.list_weights())
+
+        weights_pulled = 0
+        bytes_transferred = 0
+        skipped = 0
+
+        with HDF5Store(self.weights_store_path) as local_store:
+            local_hashes = set(local_store.list_weights())
+
+            for hash_key in remote_hashes:
+                # Check if weight exists locally
+                if not force and hash_key in local_hashes:
+                    skipped += 1
+                    continue
+
+                # Load from remote and store locally
+                weight = remote_store.load(hash_key)
+                if weight:
+                    local_store.store(weight, hash_key)
+                    weights_pulled += 1
+                    bytes_transferred += weight.nbytes
+
+        # Close remote store if it has a close method
+        if hasattr(remote_store, "close"):
+            remote_store.close()
+
+        return {
+            "weights_pulled": weights_pulled,
+            "bytes_transferred": bytes_transferred,
+            "skipped": skipped,
+        }
