@@ -7,7 +7,7 @@ import json
 import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Optional
 
 from coral.storage.weight_store import WeightStore
 
@@ -39,7 +39,7 @@ class RemoteConfig:
     auto_push: bool = False  # Auto-push on commit
     auto_pull: bool = False  # Auto-pull before operations
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         d = asdict(self)
         # Don't serialize credentials
@@ -48,7 +48,7 @@ class RemoteConfig:
         return d
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "RemoteConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "RemoteConfig":
         """Create from dictionary."""
         return cls(**data)
 
@@ -93,7 +93,7 @@ class SyncResult:
     pushed_commits: int = 0
     pulled_commits: int = 0
     bytes_transferred: int = 0
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     @property
     def success(self) -> bool:
@@ -120,7 +120,7 @@ class Remote:
         """
         self.config = config
         self.store = store
-        self._refs: Dict[str, str] = {}  # branch/tag -> commit hash
+        self._refs: dict[str, str] = {}  # branch/tag -> commit hash
 
     @classmethod
     def from_config(cls, config: RemoteConfig) -> "Remote":
@@ -173,7 +173,7 @@ class Remote:
     def push(
         self,
         local_store: WeightStore,
-        weight_hashes: Optional[Set[str]] = None,
+        weight_hashes: Optional[set[str]] = None,
         force: bool = False,
     ) -> SyncResult:
         """Push weights from local store to remote.
@@ -218,7 +218,7 @@ class Remote:
     def pull(
         self,
         local_store: WeightStore,
-        weight_hashes: Optional[Set[str]] = None,
+        weight_hashes: Optional[set[str]] = None,
         force: bool = False,
     ) -> SyncResult:
         """Pull weights from remote to local store.
@@ -260,7 +260,7 @@ class Remote:
 
         return result
 
-    def fetch_refs(self) -> Dict[str, str]:
+    def fetch_refs(self) -> dict[str, str]:
         """Fetch remote references (branches, tags).
 
         Returns:
@@ -276,11 +276,11 @@ class Remote:
 
         return self._refs
 
-    def list_remote_weights(self) -> List[str]:
+    def list_remote_weights(self) -> list[str]:
         """List all weight hashes on remote."""
         return self.store.list_weights()
 
-    def get_remote_info(self) -> Dict[str, Any]:
+    def get_remote_info(self) -> dict[str, Any]:
         """Get information about the remote."""
         return {
             "name": self.config.name,
@@ -310,7 +310,7 @@ class RemoteManager:
             config_path: Path to remotes config file (usually .coral/remotes.json)
         """
         self.config_path = config_path
-        self.remotes: Dict[str, RemoteConfig] = {}
+        self.remotes: dict[str, RemoteConfig] = {}
         self._load_config()
 
     def _load_config(self):
@@ -325,9 +325,7 @@ class RemoteManager:
         """Save remotes to config file."""
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
-            "remotes": {
-                name: config.to_dict() for name, config in self.remotes.items()
-            }
+            "remotes": {name: config.to_dict() for name, config in self.remotes.items()}
         }
         with open(self.config_path, "w") as f:
             json.dump(data, f, indent=2)
@@ -351,6 +349,6 @@ class RemoteManager:
             return None
         return Remote.from_config(self.remotes[name])
 
-    def list(self) -> List[str]:
+    def list(self) -> list[str]:
         """List all remote names."""
         return list(self.remotes.keys())

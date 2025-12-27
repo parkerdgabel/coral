@@ -6,7 +6,7 @@ saves model checkpoints to a Coral repository.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ class CoralCallback(Callback):
             return current < self.best_metric
         return current > self.best_metric
 
-    def _extract_metadata(self, trainer: "pl.Trainer") -> Dict[str, Any]:
+    def _extract_metadata(self, trainer: "pl.Trainer") -> dict[str, Any]:
         """Extract metadata from trainer."""
         metadata = {}
         for key in self.metadata_keys:
@@ -132,7 +132,7 @@ class CoralCallback(Callback):
         trainer: "pl.Trainer",
         pl_module: "pl.LightningModule",
         message: str,
-        metrics: Optional[Dict[str, float]] = None,
+        metrics: Optional[dict[str, float]] = None,
     ) -> None:
         """Save model weights to Coral repository."""
         from coral.core.weight_tensor import WeightMetadata, WeightTensor
@@ -258,7 +258,7 @@ class CoralCallback(Callback):
         pl_module: "pl.LightningModule",
         commit_ref: Optional[str] = None,
         strict: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Load weights from Coral repository into a Lightning module.
 
         Args:

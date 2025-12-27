@@ -1,7 +1,7 @@
 # 🪸 Coral: Neural Network Weight Versioning System
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/parkerdgabel/coral)
-[![Python](https://img.shields.io/badge/python-3.8+-green.svg)](https://python.org)
+[![Python](https://img.shields.io/badge/python-3.9+-green.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Coverage](https://img.shields.io/badge/coverage-84%25-brightgreen.svg)](#testing)
 

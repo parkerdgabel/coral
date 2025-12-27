@@ -125,7 +125,7 @@ class TestModelPublisher:
             assert (export_path / "coral_metadata.json").exists()
 
             # Verify weights can be loaded
-            loaded = np.load(export_path / "model.npz")
+            loaded = np.load(export_path / "model.npz", allow_pickle=False)
             assert "layer1.weight" in loaded.files
             assert "layer1.bias" in loaded.files
 

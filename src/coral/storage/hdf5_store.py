@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import h5py
 import numpy as np
@@ -138,7 +138,7 @@ class HDF5Store(WeightStore):
         self.file.flush()
         return True
 
-    def list_weights(self) -> List[str]:
+    def list_weights(self) -> list[str]:
         """List all weight hashes in storage"""
         return list(self.file["weights"].keys())
 
@@ -163,7 +163,7 @@ class HDF5Store(WeightStore):
             hash=dataset.attrs.get("hash", hash_key),
         )
 
-    def store_batch(self, weights: Dict[str, WeightTensor]) -> Dict[str, str]:
+    def store_batch(self, weights: dict[str, WeightTensor]) -> dict[str, str]:
         """Store multiple weights efficiently"""
         result = {}
 
@@ -173,7 +173,7 @@ class HDF5Store(WeightStore):
 
         return result
 
-    def load_batch(self, hash_keys: List[str]) -> Dict[str, WeightTensor]:
+    def load_batch(self, hash_keys: list[str]) -> dict[str, WeightTensor]:
         """Load multiple weights efficiently"""
         result = {}
 
@@ -184,7 +184,7 @@ class HDF5Store(WeightStore):
 
         return result
 
-    def get_storage_info(self) -> Dict[str, Any]:
+    def get_storage_info(self) -> dict[str, Any]:
         """Get information about storage usage and statistics"""
         weights_group = self.file["weights"]
 
@@ -290,11 +290,11 @@ class HDF5Store(WeightStore):
         self.file.flush()
         return True
 
-    def list_deltas(self) -> List[str]:
+    def list_deltas(self) -> list[str]:
         """List all delta hashes in storage."""
         return list(self.file["deltas"].keys())
 
-    def get_delta_storage_info(self) -> Dict[str, Any]:
+    def get_delta_storage_info(self) -> dict[str, Any]:
         """Get information about delta storage."""
         if "deltas" not in self.file:
             return {"total_deltas": 0, "total_delta_bytes": 0}

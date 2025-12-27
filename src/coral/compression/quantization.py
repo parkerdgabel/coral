@@ -1,7 +1,12 @@
-"""Weight quantization for compression"""
+"""Weight quantization for compression.
+
+.. warning::
+    EXPERIMENTAL: This module is experimental and not yet integrated into the
+    core Coral workflow. The API may change in future versions.
+"""
 
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 
@@ -23,7 +28,7 @@ class Quantizer:
     @staticmethod
     def quantize_uniform(
         weight: WeightTensor, bits: int = 8, symmetric: bool = True
-    ) -> Tuple[WeightTensor, Dict[str, Any]]:
+    ) -> tuple[WeightTensor, dict[str, Any]]:
         """
         Perform uniform quantization on weights.
 
@@ -117,7 +122,7 @@ class Quantizer:
     @staticmethod
     def dequantize(
         quantized_weight: WeightTensor,
-        quantization_params: Optional[Dict[str, Any]] = None,
+        quantization_params: Optional[dict[str, Any]] = None,
     ) -> WeightTensor:
         """
         Dequantize a quantized weight tensor.
@@ -163,7 +168,7 @@ class Quantizer:
     @staticmethod
     def quantize_per_channel(
         weight: WeightTensor, bits: int = 8, axis: int = 0
-    ) -> Tuple[WeightTensor, Dict[str, Any]]:
+    ) -> tuple[WeightTensor, dict[str, Any]]:
         """
         Perform per-channel quantization.
 

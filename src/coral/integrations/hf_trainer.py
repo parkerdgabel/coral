@@ -6,7 +6,7 @@ saves model checkpoints to a Coral repository.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +126,7 @@ class CoralTrainerCallback(TrainerCallback):
         self,
         model: Any,
         message: str,
-        metrics: Optional[Dict[str, float]] = None,
+        metrics: Optional[dict[str, float]] = None,
         step: Optional[int] = None,
         epoch: Optional[int] = None,
     ) -> None:
@@ -229,7 +229,7 @@ class CoralTrainerCallback(TrainerCallback):
         state: "TrainerState",
         control: "TrainerControl",
         model: Any = None,
-        metrics: Optional[Dict[str, float]] = None,
+        metrics: Optional[dict[str, float]] = None,
         **kwargs,
     ):
         """Called after evaluation."""
@@ -279,7 +279,7 @@ class CoralTrainerCallback(TrainerCallback):
         model: Any,
         commit_ref: Optional[str] = None,
         strict: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Load weights from Coral repository into a HuggingFace model.
 
         Args:

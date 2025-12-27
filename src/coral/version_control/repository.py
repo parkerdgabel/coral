@@ -3,7 +3,7 @@ import json
 import logging
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 
 from ..core.deduplicator import Deduplicator
 from ..core.weight_tensor import WeightTensor
@@ -34,7 +34,7 @@ class MergeStrategy(Enum):
 class MergeConflictError(Exception):
     """Raised when merge conflicts occur and strategy is FAIL."""
 
-    def __init__(self, conflicts: List[str], message: str = "Merge conflicts detected"):
+    def __init__(self, conflicts: list[str], message: str = "Merge conflicts detected"):
         self.conflicts = conflicts
         super().__init__(f"{message}: {', '.join(conflicts)}")
 
@@ -133,7 +133,7 @@ class Repository:
         with open(main_branch_file, "w") as f:
             json.dump(initial_branch_data, f, indent=2)
 
-    def _load_config(self) -> Dict:
+    def _load_config(self) -> dict:
         """Load repository configuration."""
         config_file = self.coral_dir / "config.json"
         if config_file.exists():
@@ -147,7 +147,7 @@ class Repository:
             commit = Commit.load(commit_file)
             self.version_graph.add_commit(commit)
 
-    def stage_weights(self, weights: Dict[str, WeightTensor]) -> Dict[str, str]:
+    def stage_weights(self, weights: dict[str, WeightTensor]) -> dict[str, str]:
         """Stage weights for commit with delta encoding support."""
         staged = {}
 
@@ -196,7 +196,7 @@ class Repository:
         message: str,
         author: Optional[str] = None,
         email: Optional[str] = None,
-        tags: Optional[List[str]] = None,
+        tags: Optional[list[str]] = None,
     ) -> Commit:
         """Create a new commit from staged weights."""
         # Load staged weights
@@ -434,7 +434,7 @@ class Repository:
 
     def get_all_weights(
         self, commit_ref: Optional[str] = None
-    ) -> Dict[str, WeightTensor]:
+    ) -> dict[str, WeightTensor]:
         """Get all weights from a commit, reconstructing from deltas if needed."""
         if commit_ref is None:
             current_branch = self.branch_manager.get_current_branch()
@@ -455,7 +455,7 @@ class Repository:
 
         return weights
 
-    def diff(self, from_ref: str, to_ref: Optional[str] = None) -> Dict[str, Dict]:
+    def diff(self, from_ref: str, to_ref: Optional[str] = None) -> dict[str, dict]:
         """Show differences between commits."""
         if to_ref is None:
             # Compare with current HEAD
@@ -494,7 +494,7 @@ class Repository:
 
         return diff_info
 
-    def log(self, max_commits: int = 10, branch: Optional[str] = None) -> List[Commit]:
+    def log(self, max_commits: int = 10, branch: Optional[str] = None) -> list[Commit]:
         """Get commit history."""
         if branch is None:
             branch = self.branch_manager.get_current_branch()
@@ -513,7 +513,7 @@ class Repository:
         self,
         name: str,
         description: Optional[str] = None,
-        metrics: Optional[Dict[str, float]] = None,
+        metrics: Optional[dict[str, float]] = None,
         commit_ref: Optional[str] = None,
     ) -> Version:
         """Tag a commit as a named version."""
@@ -546,8 +546,8 @@ class Repository:
         return version
 
     def _calculate_deltas(
-        self, weight_hashes: Dict[str, str], parent_commit: Commit
-    ) -> Dict[str, str]:
+        self, weight_hashes: dict[str, str], parent_commit: Commit
+    ) -> dict[str, str]:
         """Calculate delta encodings for changed weights."""
         deltas = {}
 
@@ -603,8 +603,7 @@ class Repository:
                             )
                         else:
                             logger.debug(
-                                f"Delta not beneficial for {name}, "
-                                "storing full weight"
+                                f"Delta not beneficial for {name}, storing full weight"
                             )
 
                     except Exception as e:
@@ -620,7 +619,7 @@ class Repository:
         ancestor: Optional[Commit],
         strategy: MergeStrategy = MergeStrategy.OURS,
         merge_alpha: float = 0.5,
-    ) -> Dict[str, WeightTensor]:
+    ) -> dict[str, WeightTensor]:
         """Perform three-way merge of weights.
 
         Args:
@@ -753,7 +752,7 @@ class Repository:
 
         return merged
 
-    def gc(self) -> Dict[str, int]:
+    def gc(self) -> dict[str, int]:
         """Garbage collect unreferenced weights."""
         # Find all referenced weight hashes
         referenced_hashes = set()
@@ -779,7 +778,7 @@ class Repository:
         """Get path to remotes configuration file."""
         return self.coral_dir / "remotes.json"
 
-    def list_remotes(self) -> Dict[str, Dict]:
+    def list_remotes(self) -> dict[str, dict]:
         """List all configured remotes."""
         remotes_file = self._get_remotes_file()
         if remotes_file.exists():
@@ -787,7 +786,7 @@ class Repository:
                 return json.load(f)
         return {}
 
-    def get_remote(self, name: str) -> Optional[Dict]:
+    def get_remote(self, name: str) -> Optional[dict]:
         """Get a specific remote configuration."""
         remotes = self.list_remotes()
         return remotes.get(name)
@@ -870,7 +869,7 @@ class Repository:
         remote_name: str,
         force: bool = False,
         progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Push weights to a remote.
 
         Args:
@@ -929,7 +928,7 @@ class Repository:
         remote_name: str,
         force: bool = False,
         progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Pull weights from a remote.
 
         Args:
@@ -990,7 +989,7 @@ class Repository:
         sync_dir.mkdir(exist_ok=True)
         return sync_dir / f"{remote_name}.json"
 
-    def _load_sync_state(self, remote_name: str) -> Dict[str, Any]:
+    def _load_sync_state(self, remote_name: str) -> dict[str, Any]:
         """Load sync state for a remote."""
         state_file = self._get_sync_state_file(remote_name)
         if state_file.exists():
@@ -998,7 +997,7 @@ class Repository:
                 return json.load(f)
         return {"last_push": {}, "last_pull": {}, "remote_hashes": set()}
 
-    def _save_sync_state(self, remote_name: str, state: Dict[str, Any]) -> None:
+    def _save_sync_state(self, remote_name: str, state: dict[str, Any]) -> None:
         """Save sync state for a remote."""
         state_file = self._get_sync_state_file(remote_name)
         # Convert sets to lists for JSON serialization
@@ -1010,7 +1009,7 @@ class Repository:
         with open(state_file, "w") as f:
             json.dump(serializable, f, indent=2)
 
-    def get_sync_status(self, remote_name: str) -> Dict[str, Any]:
+    def get_sync_status(self, remote_name: str) -> dict[str, Any]:
         """
         Get synchronization status with a remote.
 
@@ -1060,7 +1059,7 @@ class Repository:
         self,
         remote_name: str,
         progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """
         Push only new/changed weights to remote (incremental sync).
 
@@ -1123,7 +1122,7 @@ class Repository:
         self,
         remote_name: str,
         progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """
         Pull only new/changed weights from remote (incremental sync).
 
@@ -1180,7 +1179,7 @@ class Repository:
         self,
         remote_name: str,
         progress_callback: Optional[Callable[[int, int, int, str], None]] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Bidirectional sync with a remote.
 

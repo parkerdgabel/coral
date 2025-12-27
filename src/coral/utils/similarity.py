@@ -1,6 +1,6 @@
 """Similarity computation utilities for weight tensors."""
 
-from typing import Tuple, Union
+from typing import Union
 
 import numpy as np
 
@@ -134,7 +134,7 @@ def weight_similarity(
 def relative_difference(
     a: Union[np.ndarray, "np.floating"],
     b: Union[np.ndarray, "np.floating"],
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """Compute relative difference statistics between two arrays.
 
     Useful for understanding how weights differ element-wise.
@@ -158,7 +158,7 @@ def relative_difference(
 
     mean_rel = float(np.mean(relative_diff))
     max_rel = float(np.max(relative_diff))
-    rmse = float(np.sqrt(np.mean(diff ** 2)))
+    rmse = float(np.sqrt(np.mean(diff**2)))
 
     return mean_rel, max_rel, rmse
 

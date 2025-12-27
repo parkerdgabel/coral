@@ -8,7 +8,7 @@ Coral is a production-ready neural network weight versioning system that provide
 
 **Version**: 1.0.0
 **Package Name**: `coral-ml`
-**Python Support**: 3.8+
+**Python Support**: 3.9+
 
 ## Development Workflow
 
@@ -127,7 +127,7 @@ src/coral/
 │   ├── __init__.py
 │   ├── checkpoint_manager.py # Checkpoint policies
 │   └── training_state.py    # Training state tracking
-├── compression/             # Weight compression
+├── compression/             # Weight compression (EXPERIMENTAL)
 │   ├── __init__.py
 │   ├── quantization.py      # Quantization techniques
 │   └── pruning.py           # Weight pruning

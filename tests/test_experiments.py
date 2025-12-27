@@ -279,15 +279,15 @@ class TestExperimentTracker:
         tracker = ExperimentTracker(temp_repo)
 
         # Create experiments with different metrics
-        exp1 = tracker.start("exp1")
+        tracker.start("exp1")
         tracker.log("loss", 0.5)
         tracker.end()
 
-        exp2 = tracker.start("exp2")
+        tracker.start("exp2")
         tracker.log("loss", 0.3)
         tracker.end()
 
-        exp3 = tracker.start("exp3")
+        tracker.start("exp3")
         tracker.log("loss", 0.4)
         tracker.end()
 

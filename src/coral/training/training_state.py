@@ -1,7 +1,7 @@
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 
 @dataclass
@@ -12,10 +12,10 @@ class TrainingState:
     global_step: int
     learning_rate: float
     loss: float
-    metrics: Dict[str, float] = field(default_factory=dict)
-    optimizer_state: Optional[Dict[str, Any]] = None
-    scheduler_state: Optional[Dict[str, Any]] = None
-    random_state: Optional[Dict[str, Any]] = None
+    metrics: dict[str, float] = field(default_factory=dict)
+    optimizer_state: Optional[dict[str, Any]] = None
+    scheduler_state: Optional[dict[str, Any]] = None
+    random_state: Optional[dict[str, Any]] = None
     timestamp: datetime = field(default_factory=datetime.now)
 
     # Training configuration
@@ -30,7 +30,7 @@ class TrainingState:
     experiment_name: Optional[str] = None
     notes: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
 
         def serialize_nested_dict(obj):
@@ -76,7 +76,7 @@ class TrainingState:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "TrainingState":
+    def from_dict(cls, data: dict[str, Any]) -> "TrainingState":
         """Create from dictionary."""
         data = data.copy()
         data["timestamp"] = datetime.fromisoformat(data["timestamp"])

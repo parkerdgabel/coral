@@ -48,12 +48,14 @@ try:
         load_pretrained_efficient,
     )
 
-    __all__.extend([
-        "CoralHubClient",
-        "ModelInfo",
-        "DownloadStats",
-        "load_pretrained_efficient",
-    ])
+    __all__.extend(
+        [
+            "CoralHubClient",
+            "ModelInfo",
+            "DownloadStats",
+            "load_pretrained_efficient",
+        ]
+    )
 except ImportError:
     # huggingface-hub not installed
     pass

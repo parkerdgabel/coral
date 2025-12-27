@@ -3,7 +3,7 @@
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 
@@ -38,11 +38,11 @@ class WeightGroup:
 
     reference_hash: str
     reference_weight: WeightTensor
-    duplicates: List[Tuple[str, WeightTensor]] = field(default_factory=list)
-    similar: List[Tuple[str, WeightTensor, float]] = field(
+    duplicates: list[tuple[str, WeightTensor]] = field(default_factory=list)
+    similar: list[tuple[str, WeightTensor, float]] = field(
         default_factory=list
     )  # (name, weight, similarity)
-    deltas: Dict[str, Delta] = field(
+    deltas: dict[str, Delta] = field(
         default_factory=dict
     )  # name -> delta for similar weights
 
@@ -119,13 +119,13 @@ class Deduplicator:
         if enable_lsh:
             self.lsh_index = MultiDimLSHIndex(lsh_config or LSHConfig())
 
-        self.weight_index: Dict[str, WeightTensor] = {}  # hash -> weight
-        self.weight_groups: Dict[str, WeightGroup] = {}  # reference_hash -> group
-        self.name_to_hash: Dict[str, str] = {}  # weight name -> hash
-        self.name_to_delta: Dict[
+        self.weight_index: dict[str, WeightTensor] = {}  # hash -> weight
+        self.weight_groups: dict[str, WeightGroup] = {}  # reference_hash -> group
+        self.name_to_hash: dict[str, str] = {}  # weight name -> hash
+        self.name_to_delta: dict[
             str, str
         ] = {}  # weight name -> delta hash (for similar weights)
-        self.delta_index: Dict[str, Delta] = {}  # delta hash -> delta object
+        self.delta_index: dict[str, Delta] = {}  # delta hash -> delta object
         self.stats = DeduplicationStats()
 
         # Thread safety lock for concurrent access
@@ -380,7 +380,7 @@ class Deduplicator:
         hash_val = self.name_to_hash[name]
         return self.weight_index.get(hash_val)
 
-    def get_deduplication_report(self) -> Dict[str, Any]:
+    def get_deduplication_report(self) -> dict[str, Any]:
         """Get detailed deduplication report"""
         stats = self.compute_stats()
 
@@ -474,7 +474,7 @@ class Deduplicator:
         """Check if a weight is delta-encoded."""
         return name in self.name_to_delta
 
-    def get_compression_stats(self) -> Dict[str, Any]:
+    def get_compression_stats(self) -> dict[str, Any]:
         """Get detailed compression statistics including delta encoding."""
         base_stats = self.compute_stats()
 

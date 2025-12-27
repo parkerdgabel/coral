@@ -1,7 +1,7 @@
 """Repository synchronization utilities."""
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from coral.remotes.remote import Remote
 from coral.storage.weight_store import WeightStore
@@ -14,7 +14,7 @@ def sync_repositories(
     remote: Remote,
     direction: str = "both",
     force: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Synchronize local and remote repositories.
 
     Args:

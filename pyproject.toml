@@ -7,7 +7,7 @@ name = "coral-ml"
 version = "1.0.0"
 description = "Neural network weight storage and deduplication system"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
     {name = "Coral Contributors"},
@@ -28,10 +28,10 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
@@ -63,11 +63,19 @@ huggingface = [
     "huggingface-hub>=0.19.0",
     "safetensors>=0.4.0",
 ]
+lightning = [
+    "pytorch-lightning>=2.0.0",
+]
+mlflow = [
+    "mlflow>=2.0.0",
+]
 all = [
     "torch>=1.10.0",
     "boto3>=1.26.0",
     "huggingface-hub>=0.19.0",
     "safetensors>=0.4.0",
+    "pytorch-lightning>=2.0.0",
+    "mlflow>=2.0.0",
 ]
 
 [project.scripts]
@@ -86,7 +94,7 @@ where = ["src"]
 coral = ["py.typed"]
 
 [tool.ruff]
-target-version = "py38"
+target-version = "py39"
 line-length = 88
 
 [tool.ruff.lint]
@@ -106,7 +114,7 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

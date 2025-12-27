@@ -412,7 +412,7 @@ class TestCheckpointManager:
         # Test callback unregistration
         removed = manager.unregister_checkpoint_callback(test_callback)
         assert removed is True
-        
+
         # Try to remove again (should return False)
         removed = manager.unregister_checkpoint_callback(test_callback)
         assert removed is False

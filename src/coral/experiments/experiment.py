@@ -137,9 +137,7 @@ class Experiment:
         history = self.get_metric_history(name)
         return history[-1] if history else None
 
-    def get_best_metric(
-        self, name: str, mode: str = "min"
-    ) -> ExperimentMetric | None:
+    def get_best_metric(self, name: str, mode: str = "min") -> ExperimentMetric | None:
         """Get the best value of a specific metric.
 
         Args:

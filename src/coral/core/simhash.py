@@ -16,7 +16,7 @@ rounding algorithms". STOC '02.
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 
@@ -96,7 +96,7 @@ class SimHash:
 
     def compute_fingerprint(
         self, vector: np.ndarray
-    ) -> Union[np.uint64, Tuple[np.uint64, np.uint64]]:
+    ) -> Union[np.uint64, tuple[np.uint64, np.uint64]]:
         """Compute SimHash fingerprint for a vector.
 
         Args:
@@ -124,8 +124,8 @@ class SimHash:
         return self._pack_bits(bits)
 
     def compute_fingerprint_batch(
-        self, vectors: List[np.ndarray]
-    ) -> List[Union[np.uint64, Tuple[np.uint64, np.uint64]]]:
+        self, vectors: list[np.ndarray]
+    ) -> list[Union[np.uint64, tuple[np.uint64, np.uint64]]]:
         """Compute fingerprints for multiple vectors efficiently.
 
         Args:
@@ -163,7 +163,7 @@ class SimHash:
 
     def _pack_bits(
         self, bits: np.ndarray
-    ) -> Union[np.uint64, Tuple[np.uint64, np.uint64]]:
+    ) -> Union[np.uint64, tuple[np.uint64, np.uint64]]:
         """Pack binary array into uint64 fingerprint(s).
 
         Args:
@@ -193,8 +193,8 @@ class SimHash:
 
     @staticmethod
     def hamming_distance(
-        fp1: Union[np.uint64, Tuple[np.uint64, np.uint64]],
-        fp2: Union[np.uint64, Tuple[np.uint64, np.uint64]],
+        fp1: Union[np.uint64, tuple[np.uint64, np.uint64]],
+        fp2: Union[np.uint64, tuple[np.uint64, np.uint64]],
     ) -> int:
         """Compute Hamming distance between two fingerprints.
 
@@ -217,8 +217,8 @@ class SimHash:
 
     def are_similar(
         self,
-        fp1: Union[np.uint64, Tuple[np.uint64, np.uint64]],
-        fp2: Union[np.uint64, Tuple[np.uint64, np.uint64]],
+        fp1: Union[np.uint64, tuple[np.uint64, np.uint64]],
+        fp2: Union[np.uint64, tuple[np.uint64, np.uint64]],
         threshold: Optional[float] = None,
     ) -> bool:
         """Check if two fingerprints indicate similar vectors.
@@ -239,8 +239,8 @@ class SimHash:
 
     def estimated_similarity(
         self,
-        fp1: Union[np.uint64, Tuple[np.uint64, np.uint64]],
-        fp2: Union[np.uint64, Tuple[np.uint64, np.uint64]],
+        fp1: Union[np.uint64, tuple[np.uint64, np.uint64]],
+        fp2: Union[np.uint64, tuple[np.uint64, np.uint64]],
     ) -> float:
         """Estimate cosine similarity from fingerprint distance.
 
@@ -279,13 +279,13 @@ class SimHashIndex:
         self.hasher = SimHash(self.config)
 
         # Storage: fingerprint -> list of (id, vector_hash)
-        self._fingerprints: Dict[
-            Union[np.uint64, Tuple[np.uint64, np.uint64]], List[str]
+        self._fingerprints: dict[
+            Union[np.uint64, tuple[np.uint64, np.uint64]], list[str]
         ] = {}
 
         # ID to fingerprint mapping for O(1) lookup
-        self._id_to_fingerprint: Dict[
-            str, Union[np.uint64, Tuple[np.uint64, np.uint64]]
+        self._id_to_fingerprint: dict[
+            str, Union[np.uint64, tuple[np.uint64, np.uint64]]
         ] = {}
 
         # Statistics
@@ -312,7 +312,7 @@ class SimHashIndex:
         vector: np.ndarray,
         max_candidates: int = 100,
         threshold: Optional[float] = None,
-    ) -> List[Tuple[str, int]]:
+    ) -> list[tuple[str, int]]:
         """Find similar vectors in the index.
 
         Args:
@@ -341,10 +341,10 @@ class SimHashIndex:
 
     def query_by_fingerprint(
         self,
-        fingerprint: Union[np.uint64, Tuple[np.uint64, np.uint64]],
+        fingerprint: Union[np.uint64, tuple[np.uint64, np.uint64]],
         max_candidates: int = 100,
         threshold: Optional[float] = None,
-    ) -> List[Tuple[str, int]]:
+    ) -> list[tuple[str, int]]:
         """Find similar vectors using a precomputed fingerprint.
 
         Args:
@@ -403,7 +403,7 @@ class SimHashIndex:
         """Return number of vectors in the index."""
         return self._num_vectors
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """Get index statistics.
 
         Returns:
@@ -432,7 +432,7 @@ class MultiDimSimHashIndex:
             config: SimHashConfig with fingerprint parameters
         """
         self.config = config or SimHashConfig()
-        self._indices: Dict[int, SimHashIndex] = {}
+        self._indices: dict[int, SimHashIndex] = {}
 
     def _get_or_create_index(self, dim: int) -> SimHashIndex:
         """Get or create index for given dimension."""
@@ -456,7 +456,7 @@ class MultiDimSimHashIndex:
         vector: np.ndarray,
         max_candidates: int = 100,
         threshold: Optional[float] = None,
-    ) -> List[str]:
+    ) -> list[str]:
         """Find similar vectors with matching dimension.
 
         Args:
@@ -500,7 +500,7 @@ class MultiDimSimHashIndex:
         """Return total number of vectors across all dimensions."""
         return sum(index.size for index in self._indices.values())
 
-    def get_stats(self) -> Dict[str, any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get index statistics across all dimensions.
 
         Returns:
