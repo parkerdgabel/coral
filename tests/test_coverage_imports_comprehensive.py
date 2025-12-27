@@ -135,7 +135,9 @@ class TestComprehensiveImports:
             assert decoded is not None
             # For SPARSE, allow some tolerance due to thresholding
             if strategy == DeltaType.SPARSE:
-                np.testing.assert_allclose(decoded.data, target_data, rtol=1e-3, atol=1e-6)
+                np.testing.assert_allclose(
+                    decoded.data, target_data, rtol=1e-3, atol=1e-6
+                )
             else:
                 np.testing.assert_allclose(decoded.data, target_data, rtol=1e-5)
 

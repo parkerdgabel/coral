@@ -87,7 +87,9 @@ class TestCLIComprehensive:
             else:
                 # For other commands, need to mock find_repo_root
                 with patch.object(cli.parser, "parse_args", return_value=args):
-                    with patch.object(cli, "_find_repo_root", return_value="/fake/repo"):
+                    with patch.object(
+                        cli, "_find_repo_root", return_value="/fake/repo"
+                    ):
                         result = cli.run()
                         assert result == 0
                         mock_method.assert_called_once()
@@ -110,7 +112,9 @@ class TestCLIComprehensive:
             from pathlib import Path
 
             with patch("builtins.print"):
-                args = argparse.Namespace(command="merge", branch="feature", message=None)
+                args = argparse.Namespace(
+                    command="merge", branch="feature", message=None
+                )
                 result = cli._cmd_merge(args, Path("."))
 
                 mock_repo.merge.assert_called_once_with("feature", message=None)
@@ -175,10 +179,14 @@ class TestCLIComprehensive:
             from pathlib import Path
 
             with patch("builtins.print"):
-                args = argparse.Namespace(command="show", weight="test_weight", commit=None)
+                args = argparse.Namespace(
+                    command="show", weight="test_weight", commit=None
+                )
                 result = cli._cmd_show(args, Path("."))
 
-                mock_repo.get_weight.assert_called_once_with("test_weight", commit_ref=None)
+                mock_repo.get_weight.assert_called_once_with(
+                    "test_weight", commit_ref=None
+                )
                 assert result == 0
 
     def test_cli_gc_command(self):

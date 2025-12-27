@@ -198,7 +198,9 @@ class TestCLICoverageBoost:
 
                 args = Mock(name=None, delete="old-feature", list=False)
                 cli._cmd_branch(args, repo_path)
-                mock_repo.branch_manager.delete_branch.assert_called_once_with("old-feature")
+                mock_repo.branch_manager.delete_branch.assert_called_once_with(
+                    "old-feature"
+                )
 
     def test_cli_merge_cmd_method(self):
         """Test _cmd_merge method."""
@@ -239,7 +241,11 @@ class TestCLICoverageBoost:
                     "added": ["w1", "w2"],
                     "modified": {"w3": {"from_hash": "h1", "to_hash": "h2"}},
                     "removed": [],
-                    "summary": {"total_added": 2, "total_modified": 1, "total_removed": 0},
+                    "summary": {
+                        "total_added": 2,
+                        "total_modified": 1,
+                        "total_removed": 0,
+                    },
                 }
 
                 args = Mock(from_ref="main", to_ref="feature")
@@ -266,7 +272,9 @@ class TestCLICoverageBoost:
                 mock_version.version_id = "vid123"
                 mock_repo.tag_version.return_value = mock_version
 
-                args = Mock(name="v1.0.0", description="First release", metric=None, commit=None)
+                args = Mock(
+                    name="v1.0.0", description="First release", metric=None, commit=None
+                )
                 repo_path = Path(".")
                 cli._cmd_tag(args, repo_path)
 
@@ -307,7 +315,9 @@ class TestCLICoverageBoost:
                 repo_path = Path(".")
                 cli._cmd_show(args, repo_path)
 
-                mock_repo.get_weight.assert_called_once_with("test_weight", commit_ref=None)
+                mock_repo.get_weight.assert_called_once_with(
+                    "test_weight", commit_ref=None
+                )
                 # Should print weight details
                 assert mock_print.call_count >= 5
 

@@ -276,9 +276,9 @@ class TestFinalCompletePush:
                     for param in ["weight", "bias"]:
                         key = f"layer{i}.{param}"
                         tensor = Mock()
-                        tensor.detach.return_value.cpu.return_value.numpy.return_value = (
-                            np.random.randn(10, 10).astype(np.float32)
-                        )
+                        tensor.detach.return_value.cpu.return_value.numpy.return_value = np.random.randn(
+                            10, 10
+                        ).astype(np.float32)
                         tensor.shape = (10, 10)
                         tensor.dtype = np.float32
                         params_list.append((key, tensor))

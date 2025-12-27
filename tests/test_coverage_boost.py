@@ -163,7 +163,10 @@ class TestCoverageBoost:
         # With custom timestamp
         timestamp = datetime.datetime.now()
         metadata = CommitMetadata(
-            author="Author", email="test@example.com", message="Test", timestamp=timestamp
+            author="Author",
+            email="test@example.com",
+            message="Test",
+            timestamp=timestamp,
         )
         assert metadata.timestamp == timestamp
 

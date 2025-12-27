@@ -171,13 +171,13 @@ class TestTargetedCoverage80:
 
             # Create mock parameters
             mock_param1 = Mock()
-            mock_param1.detach.return_value.cpu.return_value.numpy.return_value = np.ones(
-                (10, 5), dtype=np.float32
+            mock_param1.detach.return_value.cpu.return_value.numpy.return_value = (
+                np.ones((10, 5), dtype=np.float32)
             )
 
             mock_param2 = Mock()
-            mock_param2.detach.return_value.cpu.return_value.numpy.return_value = np.zeros(
-                10, dtype=np.float32
+            mock_param2.detach.return_value.cpu.return_value.numpy.return_value = (
+                np.zeros(10, dtype=np.float32)
             )
 
             # Make named_parameters iterable

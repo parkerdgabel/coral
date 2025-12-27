@@ -198,7 +198,9 @@ class TestRepositoryExtended:
 
         # Third commit adds weight2 (includes all weights)
         weight2 = create_weight_tensor(np.ones(5) * 2, "weight2")
-        temp_repo.stage_weights({"weight0": weight0, "weight1": weight1, "weight2": weight2})
+        temp_repo.stage_weights(
+            {"weight0": weight0, "weight1": weight1, "weight2": weight2}
+        )
         commits.append(temp_repo.commit("Commit 2"))
 
         # Checkout middle commit using full hash

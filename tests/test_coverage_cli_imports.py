@@ -95,7 +95,11 @@ class TestCLICoverage:
 
             with patch("builtins.print"):
                 args = argparse.Namespace(
-                    command="commit", message="Test commit", author=None, email=None, tag=None
+                    command="commit",
+                    message="Test commit",
+                    author=None,
+                    email=None,
+                    tag=None,
                 )
                 result = cli._cmd_commit(args, Path("."))
 
@@ -231,6 +235,8 @@ class TestCLICoverage:
                 args = argparse.Namespace(command="status")
                 # The run() method catches exceptions, so test that directly
                 with patch.object(cli.parser, "parse_args", return_value=args):
-                    with patch.object(cli, "_find_repo_root", return_value="/fake/repo"):
+                    with patch.object(
+                        cli, "_find_repo_root", return_value="/fake/repo"
+                    ):
                         result = cli.run()
                         assert result == 1

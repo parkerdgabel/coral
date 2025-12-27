@@ -133,7 +133,10 @@ class TestCoverageFinal80Percent:
 
         # Test plot_deduplication_stats
         stats = DeduplicationStats(
-            total_weights=100, unique_weights=60, duplicate_weights=30, similar_weights=10
+            total_weights=100,
+            unique_weights=60,
+            duplicate_weights=30,
+            similar_weights=10,
         )
         stats_viz = plot_deduplication_stats(stats)
         assert isinstance(stats_viz, dict)

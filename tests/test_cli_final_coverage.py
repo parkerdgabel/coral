@@ -146,7 +146,9 @@ class TestCLIFinalCoverage:
                         with patch("numpy.load", return_value=np.array([1, 2, 3])):
                             with patch("builtins.print") as mock_print:
                                 mock_repo = Mock()
-                                mock_repo.stage_weights.return_value = {"model": "hash123"}
+                                mock_repo.stage_weights.return_value = {
+                                    "model": "hash123"
+                                }
                                 mock_repo_class.return_value = mock_repo
 
                                 result = cli._cmd_add(args, repo_path)
@@ -163,7 +165,10 @@ class TestCLIFinalCoverage:
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
             mock_repo = Mock()
-            mock_repo.stage_weights.return_value = {"layer1": "hash1", "layer2": "hash2"}
+            mock_repo.stage_weights.return_value = {
+                "layer1": "hash1",
+                "layer2": "hash2",
+            }
             mock_repo_class.return_value = mock_repo
 
             # Create a mock Path object with proper attributes
@@ -264,6 +269,7 @@ class TestCLIFinalCoverage:
             # Mock the file read
             with patch("builtins.open", create=True) as mock_open:
                 import io
+
                 mock_open.return_value.__enter__ = Mock(
                     return_value=io.StringIO('{"w1": "hash1", "w2": "hash2"}')
                 )
