@@ -8,11 +8,18 @@ from coral.utils.similarity import (
     relative_difference,
     weight_similarity,
 )
-from coral.utils.visualization import plot_deduplication_stats, plot_weight_distribution
+from coral.utils.visualization import (
+    compare_models,
+    format_model_diff,
+    plot_deduplication_stats,
+    plot_weight_distribution,
+)
 
 __all__ = [
     "plot_weight_distribution",
     "plot_deduplication_stats",
+    "compare_models",
+    "format_model_diff",
     "NumpyJSONEncoder",
     "dumps_numpy",
     "dump_numpy",
