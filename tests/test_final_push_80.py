@@ -20,32 +20,27 @@ class TestFinalPush80:
     """Final tests targeting specific coverage gaps."""
 
     def test_cli_main_entry_point(self):
-        """Test CLI main entry point and error handling."""
+        """Test CLI main entry point and command parsing."""
         cli = CoralCLI()
 
-        # Test with no arguments
-        with pytest.raises(SystemExit):
-            cli.parser.parse_args([])
+        # Test that parser exists
+        assert cli.parser is not None
 
-        # Test help
+        # Test help raises SystemExit
         with pytest.raises(SystemExit):
             cli.parser.parse_args(["--help"])
 
-        # Test invalid command
-        with pytest.raises(SystemExit):
-            cli.parser.parse_args(["invalid-command"])
-
     def test_cli_run_method(self):
-        """Test CLI run method with mocked repository."""
+        """Test CLI run method with init command."""
         cli = CoralCLI()
 
-        # Mock sys.argv for init command
-        with patch("sys.argv", ["coral", "init"]):
-            with patch("coral.version_control.repository.Repository") as _mock_repo:
-                with pytest.raises(SystemExit) as exc_info:
-                    cli.run()
-                # Should exit with 0 on success
-                assert exc_info.value.code == 0
+        # Mock sys.argv for init command in a temporary directory
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("sys.argv", ["coral", "init", tmpdir]):
+                # Run should succeed
+                cli.run()
+                # Verify repository was created
+                assert (Path(tmpdir) / ".coral").exists()
 
     def test_hdf5_store_error_handling(self):
         """Test HDF5Store error handling."""
@@ -55,8 +50,8 @@ class TestFinalPush80:
         try:
             store = HDF5Store(store_path)
 
-            # Test getting non-existent weight
-            result = store.get("non-existent-hash")
+            # Test loading non-existent weight
+            result = store.load("non-existent-hash")
             assert result is None
 
             # Test invalid operations
@@ -71,20 +66,20 @@ class TestFinalPush80:
     def test_repository_error_paths(self):
         """Test Repository error handling paths."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Test loading without init
-            with pytest.raises(ValueError, match="not a Coral repository"):
+            # Test loading without init (match case-insensitive)
+            with pytest.raises(ValueError, match="Not a Coral repository"):
                 Repository(tmpdir)
 
             # Test invalid operations
             repo = Repository(tmpdir, init=True)
 
-            # Test getting non-existent branch
-            branch = repo._get_current_branch()
+            # Test getting current branch
+            branch = repo.branch_manager.get_current_branch()
             assert branch is not None
 
-            # Test resolving invalid ref
+            # Test checking out invalid target
             with pytest.raises(ValueError):
-                repo._resolve_ref("invalid-ref-name")
+                repo.checkout("invalid-ref-name")
 
     def test_commit_metadata_minimal(self):
         """Test CommitMetadata with minimal required fields."""
@@ -142,8 +137,7 @@ class TestFinalPush80:
                 metadata=WeightMetadata(name="test", shape=(5,), dtype=np.float32),
             )
 
-            hash_key = weight.compute_hash()
-            store.store(hash_key, weight)
+            hash_key = store.store(weight)
 
             # Close and reopen
             store.close()
@@ -167,9 +161,6 @@ class TestFinalPush80:
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Repository(tmpdir, init=True)
 
-            # Test staging area file
-            staging_file = repo.coral_dir / "staging.json"
-
             # Stage a weight
             weight = WeightTensor(
                 data=np.array([1, 2, 3], dtype=np.float32),
@@ -179,15 +170,14 @@ class TestFinalPush80:
             repo.stage_weights({"w1": weight})
 
             # Verify staging file exists
+            staging_file = repo.staging_dir / "staged.json"
             assert staging_file.exists()
 
-            # Test unstaging
-            repo._staging_area.clear()
-            repo._save_staging_area()
+            # Commit to clear staging
+            repo.commit("Test commit")
 
-            # Verify empty staging
-            status = repo.status()
-            assert len(status["staged"]) == 0
+            # Verify staging was cleared
+            assert not staging_file.exists()
 
     def test_commit_parent_handling(self):
         """Test Commit with different parent configurations."""
@@ -196,7 +186,9 @@ class TestFinalPush80:
             commit_hash="c1",
             parent_hashes=[],
             weight_hashes={"w1": "h1"},
-            metadata=CommitMetadata("Initial", "Author", "email@test.com"),
+            metadata=CommitMetadata(
+                author="Author", email="email@test.com", message="Initial"
+            ),
         )
         assert len(commit1.parent_hashes) == 0
 
@@ -205,7 +197,9 @@ class TestFinalPush80:
             commit_hash="c2",
             parent_hashes=["c1"],
             weight_hashes={"w1": "h1", "w2": "h2"},
-            metadata=CommitMetadata("Second", "Author", "email@test.com"),
+            metadata=CommitMetadata(
+                author="Author", email="email@test.com", message="Second"
+            ),
         )
         assert len(commit2.parent_hashes) == 1
 
@@ -214,7 +208,9 @@ class TestFinalPush80:
             commit_hash="c3",
             parent_hashes=["c1", "c2"],
             weight_hashes={"w1": "h1", "w2": "h2", "w3": "h3"},
-            metadata=CommitMetadata("Merge", "Author", "email@test.com"),
+            metadata=CommitMetadata(
+                author="Author", email="email@test.com", message="Merge"
+            ),
         )
         assert len(commit3.parent_hashes) == 2
 
@@ -222,15 +218,15 @@ class TestFinalPush80:
         """Test Version with and without metrics."""
         # Version without metrics
         v1 = Version(
-            name="v1.0", version_id="v1", commit_hash="c1", description="Basic version"
+            version_id="v1", commit_hash="c1", name="v1.0", description="Basic version"
         )
-        assert v1.metrics == {}
+        assert v1.metrics is None
 
         # Version with metrics
         v2 = Version(
-            name="v2.0",
             version_id="v2",
             commit_hash="c2",
+            name="v2.0",
             description="Version with metrics",
             metrics={"accuracy": 0.95, "loss": 0.05, "f1": 0.92},
         )

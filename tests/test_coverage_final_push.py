@@ -62,10 +62,14 @@ class TestCoverageFinalPush:
     def test_branch_manager_basics(self):
         """Test BranchManager basic operations."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            refs_dir = Path(tmpdir) / "refs" / "heads"
-            refs_dir.mkdir(parents=True)
+            # BranchManager expects repo_path, not refs_dir
+            repo_path = Path(tmpdir)
+            coral_dir = repo_path / ".coral"
+            coral_dir.mkdir(parents=True)
+            (coral_dir / "refs" / "heads").mkdir(parents=True)
+            (coral_dir / "HEAD").write_text("ref: refs/heads/main")
 
-            manager = BranchManager(refs_dir)
+            manager = BranchManager(repo_path)
 
             # Create branch
             branch = manager.create_branch("test-branch", "commit123")
@@ -130,10 +134,12 @@ class TestCoverageFinalPush:
         assert metadata1 == metadata2
         assert metadata1 != metadata3
 
-        # Test as dict
-        meta_dict = metadata1.to_dict()
-        assert meta_dict["name"] == "weight1"
-        assert meta_dict["shape"] == [10, 20]
+        # Test that metadata can be used in WeightTensor
+        data = np.random.randn(10, 20).astype(np.float32)
+        weight = WeightTensor(data=data, metadata=metadata1)
+        weight_dict = weight.to_dict()
+        assert weight_dict["metadata"]["name"] == "weight1"
+        assert weight_dict["metadata"]["shape"] == [10, 20]
 
     def test_commit_metadata_dict(self):
         """Test CommitMetadata dict conversion."""

@@ -130,7 +130,7 @@ class TestCoverageImports:
 
     def test_hdf5_store_class_methods(self):
         """Test HDF5Store class has expected methods."""
-        assert hasattr(HDF5Store, "store_weight")
-        assert hasattr(HDF5Store, "get_weight")
-        assert hasattr(HDF5Store, "has_weight")
+        assert hasattr(HDF5Store, "store")
+        assert hasattr(HDF5Store, "load")
+        assert hasattr(HDF5Store, "exists")
         assert hasattr(HDF5Store, "list_weights")

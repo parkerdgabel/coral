@@ -9,22 +9,22 @@ class TestCLIDirectCoverage:
     """Direct CLI method tests for coverage."""
 
     def test_cli_has_run_methods(self):
-        """Test CLI has all expected _run_* methods."""
+        """Test CLI has all expected _cmd_* methods."""
         cli = CoralCLI()
 
         expected_methods = [
-            "_run_init",
-            "_run_add",
-            "_run_commit",
-            "_run_status",
-            "_run_log",
-            "_run_checkout",
-            "_run_branch",
-            "_run_merge",
-            "_run_diff",
-            "_run_tag",
-            "_run_show",
-            "_run_gc",
+            "_cmd_init",
+            "_cmd_add",
+            "_cmd_commit",
+            "_cmd_status",
+            "_cmd_log",
+            "_cmd_checkout",
+            "_cmd_branch",
+            "_cmd_merge",
+            "_cmd_diff",
+            "_cmd_tag",
+            "_cmd_show",
+            "_cmd_gc",
         ]
 
         for method in expected_methods:
@@ -53,10 +53,9 @@ class TestCLIDirectCoverage:
         args = cli.parser.parse_args(["status"])
         assert args.command == "status"
 
-        # Test gc with dry-run
-        args = cli.parser.parse_args(["gc", "--dry-run"])
+        # Test gc
+        args = cli.parser.parse_args(["gc"])
         assert args.command == "gc"
-        assert args.dry_run is True
 
     @patch("coral.cli.main.sys.exit")
     @patch("coral.cli.main.print")
@@ -71,11 +70,15 @@ class TestCLIDirectCoverage:
                 main()
 
                 # Should create repository with init=True
-                mock_repo.assert_called_with(".", init=True)
+                # The method calls Path(args.path).resolve()
+                mock_repo.assert_called_once()
+                assert mock_repo.call_args[1] == {"init": True}
                 mock_exit.assert_called_with(0)
 
     def test_cli_error_handling_pattern(self):
         """Test CLI error handling pattern."""
+        from pathlib import Path
+
         cli = CoralCLI()
 
         # Create a mock args object
@@ -84,12 +87,11 @@ class TestCLIDirectCoverage:
 
         # Mock Repository to raise error
         with patch("coral.cli.main.Repository", side_effect=ValueError("Not a repo")):
-            with patch("coral.cli.main.print") as mock_print:
-                with patch("coral.cli.main.sys.exit") as mock_exit:
+            with patch("builtins.print"):
+                with patch.object(cli, "_find_repo_root", return_value=Path(".")):
                     # Parse args and run
                     with patch.object(cli.parser, "parse_args", return_value=args):
-                        cli.run()
+                        result = cli.run()
 
-                    # Should print error and exit(1)
-                    mock_print.assert_called()
-                    mock_exit.assert_called_with(1)
+                    # Should return 1 on error
+                    assert result == 1

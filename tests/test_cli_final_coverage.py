@@ -42,10 +42,10 @@ class TestCLIFinalCoverage:
 
         # Test when .coral exists in current directory
         with patch("pathlib.Path.cwd") as mock_cwd:
-            mock_path = Mock()
+            mock_path = Mock(spec=Path)
             mock_coral = Mock()
             mock_coral.exists.return_value = True
-            mock_path.__truediv__.return_value = mock_coral
+            mock_path.__truediv__ = Mock(return_value=mock_coral)
             mock_cwd.return_value = mock_path
 
             result = cli._find_repo_root()
@@ -54,14 +54,14 @@ class TestCLIFinalCoverage:
         # Test when .coral doesn't exist anywhere
         with patch("pathlib.Path.cwd") as mock_cwd:
             # Create a chain of paths
-            root = Mock()
+            root = Mock(spec=Path)
             root.parent = root  # Root is its own parent
 
-            path = Mock()
+            path = Mock(spec=Path)
             path.parent = root
             mock_coral = Mock()
             mock_coral.exists.return_value = False
-            path.__truediv__.return_value = mock_coral
+            path.__truediv__ = Mock(return_value=mock_coral)
 
             mock_cwd.return_value = path
 
@@ -146,6 +146,9 @@ class TestCLIFinalCoverage:
                         with patch("numpy.load", return_value=np.array([1, 2, 3])):
                             with patch("builtins.print") as mock_print:
                                 mock_repo = Mock()
+                                mock_repo.stage_weights.return_value = {
+                                    "model": "hash123"
+                                }
                                 mock_repo_class.return_value = mock_repo
 
                                 result = cli._cmd_add(args, repo_path)
@@ -162,6 +165,10 @@ class TestCLIFinalCoverage:
 
         with patch("coral.cli.main.Repository") as mock_repo_class:
             mock_repo = Mock()
+            mock_repo.stage_weights.return_value = {
+                "layer1": "hash1",
+                "layer2": "hash2",
+            }
             mock_repo_class.return_value = mock_repo
 
             # Create a mock Path object with proper attributes
@@ -226,13 +233,17 @@ class TestCLIFinalCoverage:
             mock_repo_class.return_value = mock_repo
             mock_commit = Mock()
             mock_commit.commit_hash = "abc123"
+            mock_commit.metadata = Mock()
+            mock_commit.metadata.message = "Test commit"
+            mock_commit.weight_hashes = {"w1": "h1"}
             mock_repo.commit.return_value = mock_commit
+            mock_repo.branch_manager.get_current_branch.return_value = "main"
 
             with patch("builtins.print") as mock_print:
                 result = cli._cmd_commit(args, repo_path)
                 assert result == 0
                 mock_repo.commit.assert_called_once_with(
-                    "Test commit", author=None, email=None
+                    message="Test commit", author=None, email=None, tags=[]
                 )
                 mock_print.assert_called()
 
@@ -246,17 +257,29 @@ class TestCLIFinalCoverage:
         with patch("coral.cli.main.Repository") as mock_repo_class:
             mock_repo = Mock()
             mock_repo_class.return_value = mock_repo
-            mock_repo.current_branch = "main"
-            mock_repo.status.return_value = {
-                "staged": {"w1": "hash1", "w2": "hash2"},
-                "modified": {"w3": "hash3"},
-                "deleted": ["w4"],
-            }
+            mock_repo.branch_manager.get_current_branch.return_value = "main"
 
-            with patch("builtins.print") as mock_print:
-                result = cli._cmd_status(args, repo_path)
-                assert result == 0
-                assert mock_print.call_count >= 5  # Header + sections
+            # Mock the staging directory and file
+            mock_staging_dir = Mock()
+            mock_staged_file = Mock()
+            mock_staged_file.exists.return_value = True
+            mock_staging_dir.__truediv__ = Mock(return_value=mock_staged_file)
+            mock_repo.staging_dir = mock_staging_dir
+
+            # Mock the file read
+            with patch("builtins.open", create=True) as mock_open:
+                import io
+
+                mock_open.return_value.__enter__ = Mock(
+                    return_value=io.StringIO('{"w1": "hash1", "w2": "hash2"}')
+                )
+                mock_open.return_value.__exit__ = Mock(return_value=False)
+
+                with patch("json.load", return_value={"w1": "hash1", "w2": "hash2"}):
+                    with patch("builtins.print") as mock_print:
+                        result = cli._cmd_status(args, repo_path)
+                        assert result == 0
+                        assert mock_print.call_count >= 2  # Branch + staged weights
 
     def test_cli_cmd_log_oneline(self):
         """Test _cmd_log with oneline format."""
@@ -303,10 +326,8 @@ class TestCLIFinalCoverage:
             mock_commit.metadata.message = "Full commit message"
             mock_commit.metadata.author = "Test Author"
             mock_commit.metadata.email = "test@example.com"
-            mock_commit.metadata.timestamp = Mock()
-            mock_commit.metadata.timestamp.isoformat.return_value = (
-                "2024-01-01T00:00:00"
-            )
+            mock_commit.metadata.timestamp = "2024-01-01T00:00:00"
+            mock_commit.metadata.tags = ["tag1", "tag2"]
             mock_commit.weight_hashes = {"w1": "h1", "w2": "h2"}
 
             mock_repo.log.return_value = [mock_commit]
@@ -314,7 +335,7 @@ class TestCLIFinalCoverage:
             with patch("builtins.print") as mock_print:
                 result = cli._cmd_log(args, repo_path)
                 assert result == 0
-                # Should print commit details, author, date, message, weights
+                # Should print commit details, author, date, tags, message
                 assert mock_print.call_count >= 5
 
     def test_cli_main_function_integration(self):

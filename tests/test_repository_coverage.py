@@ -22,7 +22,7 @@ class TestRepositoryCoverage:
             # Test basic properties
             assert repo.path == Path(tmpdir)
             assert repo.coral_dir.exists()
-            assert repo.current_branch is not None
+            assert repo.branch_manager.get_current_branch() is not None
 
             # Create and stage weights
             weight1 = WeightTensor(
@@ -48,10 +48,9 @@ class TestRepositoryCoverage:
             assert retrieved is not None
             np.testing.assert_array_equal(retrieved.data, weight1.data)
 
-            # Status
-            status = repo.status()
-            assert "staged" in status
-            assert len(status["staged"]) == 0  # Nothing staged after commit
+            # Verify nothing staged after commit (staging file should not exist)
+            staged_file = repo.staging_dir / "staged.json"
+            assert not staged_file.exists()
 
             # Log
             log_entries = repo.log(max_commits=10)
@@ -73,12 +72,12 @@ class TestRepositoryCoverage:
 
             # Create branch
             repo.create_branch("feature")
-            branches = repo.list_branches()
+            branches = repo.branch_manager.list_branches()
             assert "feature" in [b.name for b in branches]
 
             # Switch branch
             repo.checkout("feature")
-            assert repo.current_branch == "feature"
+            assert repo.branch_manager.get_current_branch() == "feature"
 
             # Make change on feature branch
             weight2 = WeightTensor(
@@ -90,13 +89,13 @@ class TestRepositoryCoverage:
 
             # Switch back to main
             repo.checkout("main")
-            assert repo.current_branch == "main"
+            assert repo.branch_manager.get_current_branch() == "main"
 
             # Verify isolation
             assert repo.get_weight("w2") is None
 
             # Get commit
-            commit = repo.get_commit(initial_commit.commit_hash)
+            commit = repo.version_graph.get_commit(initial_commit.commit_hash)
             assert commit is not None
             assert commit.metadata.message == "Initial"
 
@@ -119,12 +118,12 @@ class TestRepositoryCoverage:
             assert version.description == "First release"
 
             # List versions
-            versions = repo.list_versions()
+            versions = list(repo.version_graph.versions.values())
             assert len(versions) == 1
             assert versions[0].name == "v1.0.0"
 
-            # Get version
-            retrieved = repo.get_version("v1.0.0")
+            # Get version by ID
+            retrieved = repo.version_graph.get_version(version.version_id)
             assert retrieved is not None
             assert retrieved.name == "v1.0.0"
 
@@ -181,6 +180,5 @@ class TestRepositoryCoverage:
             # Test getting non-existent weight
             assert repo.get_weight("non-existent") is None
 
-            # Test getting non-existent commit
-            with pytest.raises(ValueError):
-                repo.get_commit("non-existent-hash")
+            # Test getting non-existent commit (returns None, doesn't raise)
+            assert repo.version_graph.get_commit("non-existent-hash") is None

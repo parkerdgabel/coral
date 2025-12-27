@@ -1,6 +1,5 @@
 """Tests for remote repository management."""
 
-import json
 import tempfile
 from pathlib import Path
 
