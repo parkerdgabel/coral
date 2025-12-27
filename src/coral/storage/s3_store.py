@@ -14,7 +14,7 @@ import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 
@@ -150,7 +150,7 @@ class S3Store(WeightStore):
         """Get S3 key for a delta."""
         return f"{self.config.prefix}deltas/{hash_key}.npz"
 
-    def _compress_data(self, data: bytes) -> Tuple[bytes, str]:
+    def _compress_data(self, data: bytes) -> tuple[bytes, str]:
         """Compress data based on configuration."""
         if self.config.compression == "none":
             return data, "none"
@@ -281,7 +281,7 @@ class S3Store(WeightStore):
         )
         return True
 
-    def list_weights(self) -> List[str]:
+    def list_weights(self) -> list[str]:
         """List all weight hashes in S3."""
         hashes = []
         prefix = f"{self.config.prefix}weights/"
@@ -311,7 +311,7 @@ class S3Store(WeightStore):
         except ClientError:
             return None
 
-    def store_batch(self, weights: Dict[str, WeightTensor]) -> Dict[str, str]:
+    def store_batch(self, weights: dict[str, WeightTensor]) -> dict[str, str]:
         """Store multiple weights efficiently using concurrent uploads."""
         results = {}
 
@@ -332,7 +332,7 @@ class S3Store(WeightStore):
 
         return results
 
-    def load_batch(self, hash_keys: List[str]) -> Dict[str, WeightTensor]:
+    def load_batch(self, hash_keys: list[str]) -> dict[str, WeightTensor]:
         """Load multiple weights efficiently using concurrent downloads."""
         results = {}
 
@@ -353,7 +353,7 @@ class S3Store(WeightStore):
 
         return results
 
-    def get_storage_info(self) -> Dict[str, Any]:
+    def get_storage_info(self) -> dict[str, Any]:
         """Get information about S3 storage usage."""
         total_size = 0
         weight_count = 0
@@ -392,7 +392,7 @@ class S3Store(WeightStore):
 
     # === Delta Storage Methods ===
 
-    def store_delta(self, delta_hash: str, delta_data: bytes, metadata: Dict) -> None:
+    def store_delta(self, delta_hash: str, delta_data: bytes, metadata: dict) -> None:
         """Store a delta object to S3."""
         compressed, compression = self._compress_data(delta_data)
         metadata["compression"] = compression
@@ -404,7 +404,7 @@ class S3Store(WeightStore):
             Metadata={k: str(v) for k, v in metadata.items()},
         )
 
-    def load_delta(self, delta_hash: str) -> Optional[Tuple[bytes, Dict]]:
+    def load_delta(self, delta_hash: str) -> Optional[tuple[bytes, dict]]:
         """Load a delta object from S3."""
         try:
             response = self._client.get_object(
@@ -434,7 +434,7 @@ class S3Store(WeightStore):
 
     # === Sync Methods ===
 
-    def sync_from_local(self, local_store: WeightStore) -> Dict[str, int]:
+    def sync_from_local(self, local_store: WeightStore) -> dict[str, int]:
         """Sync weights from a local store to S3.
 
         Args:
@@ -461,7 +461,7 @@ class S3Store(WeightStore):
         stats["skipped"] = len(local_hashes) - stats["uploaded"]
         return stats
 
-    def sync_to_local(self, local_store: WeightStore) -> Dict[str, int]:
+    def sync_to_local(self, local_store: WeightStore) -> dict[str, int]:
         """Sync weights from S3 to a local store.
 
         Args:

@@ -1,7 +1,7 @@
 """PyTorch integration for Coral version control."""
 
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 
 try:
     import torch
@@ -37,7 +37,7 @@ class PyTorchIntegration:
     """Integration utilities for PyTorch models."""
 
     @staticmethod
-    def model_to_weights(model: nn.Module) -> Dict[str, WeightTensor]:
+    def model_to_weights(model: nn.Module) -> dict[str, WeightTensor]:
         """Convert PyTorch model to Coral weights."""
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
@@ -64,7 +64,7 @@ class PyTorchIntegration:
         return weights
 
     @staticmethod
-    def weights_to_model(weights: Dict[str, WeightTensor], model: nn.Module) -> None:
+    def weights_to_model(weights: dict[str, WeightTensor], model: nn.Module) -> None:
         """Load Coral weights into PyTorch model."""
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
@@ -76,7 +76,7 @@ class PyTorchIntegration:
         model.load_state_dict(state_dict, strict=False)
 
     @staticmethod
-    def save_optimizer_state(optimizer: Optimizer) -> Dict[str, Any]:
+    def save_optimizer_state(optimizer: Optimizer) -> dict[str, Any]:
         """Save optimizer state."""
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
@@ -84,7 +84,7 @@ class PyTorchIntegration:
         return optimizer.state_dict()
 
     @staticmethod
-    def load_optimizer_state(optimizer: Optimizer, state: Dict[str, Any]) -> None:
+    def load_optimizer_state(optimizer: Optimizer, state: dict[str, Any]) -> None:
         """Load optimizer state."""
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
@@ -92,7 +92,7 @@ class PyTorchIntegration:
         optimizer.load_state_dict(state)
 
     @staticmethod
-    def save_scheduler_state(scheduler: _LRScheduler) -> Dict[str, Any]:
+    def save_scheduler_state(scheduler: _LRScheduler) -> dict[str, Any]:
         """Save scheduler state."""
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
@@ -100,7 +100,7 @@ class PyTorchIntegration:
         return scheduler.state_dict()
 
     @staticmethod
-    def load_scheduler_state(scheduler: _LRScheduler, state: Dict[str, Any]) -> None:
+    def load_scheduler_state(scheduler: _LRScheduler, state: dict[str, Any]) -> None:
         """Load scheduler state."""
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
@@ -108,7 +108,7 @@ class PyTorchIntegration:
         scheduler.load_state_dict(state)
 
     @staticmethod
-    def get_random_state() -> Dict[str, Any]:
+    def get_random_state() -> dict[str, Any]:
         """Get random state for reproducibility."""
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
@@ -121,7 +121,7 @@ class PyTorchIntegration:
         }
 
     @staticmethod
-    def set_random_state(state: Dict[str, Any]) -> None:
+    def set_random_state(state: dict[str, Any]) -> None:
         """Set random state for reproducibility."""
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
@@ -196,9 +196,9 @@ class CoralTrainer:
         self.scheduler: Optional[_LRScheduler] = None
 
         # Callbacks
-        self.on_epoch_end_callbacks: List[Callable] = []
-        self.on_step_end_callbacks: List[Callable] = []
-        self.on_checkpoint_save_callbacks: List[Callable] = []
+        self.on_epoch_end_callbacks: list[Callable] = []
+        self.on_step_end_callbacks: list[Callable] = []
+        self.on_checkpoint_save_callbacks: list[Callable] = []
 
     def set_optimizer(self, optimizer: Optimizer) -> None:
         """Set the optimizer."""
@@ -337,11 +337,11 @@ class CoralTrainer:
         logger.info(f"Loaded checkpoint: {checkpoint_data['commit_hash']}")
         return True
 
-    def list_checkpoints(self) -> List[Dict[str, Any]]:
+    def list_checkpoints(self) -> list[dict[str, Any]]:
         """List available checkpoints."""
         return self.checkpoint_manager.list_checkpoints()
 
-    def get_training_summary(self) -> Dict[str, Any]:
+    def get_training_summary(self) -> dict[str, Any]:
         """Get summary of training progress."""
         return {
             "experiment_name": self.experiment_name,
@@ -444,12 +444,12 @@ def load_model_from_coral(
 
 def load_into_model(
     model: nn.Module,
-    weights: Dict[str, WeightTensor],
+    weights: dict[str, WeightTensor],
     strict: bool = True,
-    key_map: Optional[Dict[str, str]] = None,
+    key_map: Optional[dict[str, str]] = None,
     prefix: str = "",
     device: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Load Coral weights directly into a PyTorch model.
 
@@ -544,7 +544,7 @@ def load_from_repo(
     tag: Optional[str] = None,
     strict: bool = True,
     device: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Load weights from a Coral repository into a PyTorch model.
 
@@ -601,7 +601,7 @@ def load_from_remote(
     strict: bool = True,
     device: Optional[str] = None,
     pull_first: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Load weights from a remote Coral repository into a PyTorch model.
 
@@ -660,7 +660,7 @@ def save_model(
     create_branch: bool = False,
     push_to: Optional[str] = None,
     **metadata,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Save a PyTorch model to a Coral repository.
 
@@ -740,8 +740,8 @@ def save_model(
 
 def compare_model_weights(
     model: nn.Module,
-    weights: Dict[str, WeightTensor],
-) -> Dict[str, Any]:
+    weights: dict[str, WeightTensor],
+) -> dict[str, Any]:
     """
     Compare a PyTorch model's current weights with Coral weights.
 
@@ -809,7 +809,7 @@ def compare_model_weights(
 
 def create_model_from_weights(
     model_class: type,
-    weights: Dict[str, WeightTensor],
+    weights: dict[str, WeightTensor],
     device: Optional[str] = None,
     **model_kwargs,
 ) -> nn.Module:
@@ -891,7 +891,7 @@ class StreamingWeightLoader:
             raise ValueError(f"Commit {self.commit_ref} not found")
 
     @property
-    def weight_names(self) -> List[str]:
+    def weight_names(self) -> list[str]:
         """Get list of weight names in the commit."""
         return list(self._commit.weight_hashes.keys())
 
@@ -955,7 +955,7 @@ class StreamingWeightLoader:
         device: Optional[str] = None,
         strict: bool = False,
         progress: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Stream weights directly into a model one at a time.
 
@@ -1018,7 +1018,7 @@ class StreamingWeightLoader:
             "matched": len(loaded),
         }
 
-    def get_weight_info(self) -> Dict[str, Dict[str, Any]]:
+    def get_weight_info(self) -> dict[str, dict[str, Any]]:
         """
         Get information about weights without loading them.
 
@@ -1064,7 +1064,7 @@ def stream_load_model(
     device: Optional[str] = None,
     strict: bool = False,
     progress: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Stream weights from a Coral repository into a model.
 

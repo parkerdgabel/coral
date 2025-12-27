@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 import networkx as nx
 
@@ -14,9 +14,9 @@ class Version:
     commit_hash: str
     name: str
     description: Optional[str] = None
-    metrics: Optional[Dict[str, float]] = None
+    metrics: Optional[dict[str, float]] = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
             "version_id": self.version_id,
@@ -27,7 +27,7 @@ class Version:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "Version":
+    def from_dict(cls, data: dict) -> "Version":
         """Create from dictionary."""
         return cls(**data)
 
@@ -37,8 +37,8 @@ class VersionGraph:
 
     def __init__(self):
         self.graph = nx.DiGraph()
-        self.commits: Dict[str, Commit] = {}
-        self.versions: Dict[str, Version] = {}
+        self.commits: dict[str, Commit] = {}
+        self.versions: dict[str, Version] = {}
 
     def add_commit(self, commit: Commit) -> None:
         """Add commit to the graph."""
@@ -61,14 +61,14 @@ class VersionGraph:
         """Get version by ID."""
         return self.versions.get(version_id)
 
-    def get_commit_ancestors(self, commit_hash: str) -> List[str]:
+    def get_commit_ancestors(self, commit_hash: str) -> list[str]:
         """Get all ancestors of a commit."""
         if commit_hash not in self.graph:
             return []
 
         return list(nx.ancestors(self.graph, commit_hash))
 
-    def get_commit_descendants(self, commit_hash: str) -> List[str]:
+    def get_commit_descendants(self, commit_hash: str) -> list[str]:
         """Get all descendants of a commit."""
         if commit_hash not in self.graph:
             return []
@@ -98,7 +98,7 @@ class VersionGraph:
 
         return None
 
-    def get_commit_path(self, from_hash: str, to_hash: str) -> Optional[List[str]]:
+    def get_commit_path(self, from_hash: str, to_hash: str) -> Optional[list[str]]:
         """Get path between two commits if it exists."""
         if from_hash not in self.graph or to_hash not in self.graph:
             return None
@@ -110,7 +110,7 @@ class VersionGraph:
 
     def get_branch_history(
         self, tip_hash: str, max_depth: Optional[int] = None
-    ) -> List[str]:
+    ) -> list[str]:
         """Get linear history from a commit backwards."""
         history = []
         current = tip_hash
@@ -135,7 +135,7 @@ class VersionGraph:
 
     def get_weight_history(
         self, weight_name: str, from_commit: str
-    ) -> List[Tuple[str, str]]:
+    ) -> list[tuple[str, str]]:
         """Get history of changes for a specific weight."""
         history = []
 
@@ -146,7 +146,7 @@ class VersionGraph:
 
         return history
 
-    def find_commits_with_weight(self, weight_hash: str) -> List[str]:
+    def find_commits_with_weight(self, weight_hash: str) -> list[str]:
         """Find all commits containing a specific weight hash."""
         commits = []
 

@@ -1,7 +1,7 @@
 """Weight pruning for sparsity-based compression"""
 
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 
@@ -26,7 +26,7 @@ class Pruner:
         sparsity: float = 0.5,
         structured: bool = False,
         axis: Optional[int] = None,
-    ) -> Tuple[WeightTensor, Dict[str, Any]]:
+    ) -> tuple[WeightTensor, dict[str, Any]]:
         """
         Prune weights based on magnitude.
 
@@ -136,7 +136,7 @@ class Pruner:
     @staticmethod
     def prune_random(
         weight: WeightTensor, sparsity: float = 0.5
-    ) -> Tuple[WeightTensor, Dict[str, Any]]:
+    ) -> tuple[WeightTensor, dict[str, Any]]:
         """
         Random pruning (mainly for testing/comparison).
 
@@ -180,7 +180,7 @@ class Pruner:
         return pruned_weight, pruning_info
 
     @staticmethod
-    def get_sparsity_pattern(weight: WeightTensor) -> Dict[str, Any]:
+    def get_sparsity_pattern(weight: WeightTensor) -> dict[str, Any]:
         """
         Analyze sparsity pattern of a weight tensor.
 

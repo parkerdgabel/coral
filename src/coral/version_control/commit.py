@@ -2,7 +2,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Optional
 
 
 @dataclass
@@ -13,9 +13,9 @@ class CommitMetadata:
     email: str
     message: str
     timestamp: datetime = field(default_factory=datetime.now)
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
             "author": self.author,
@@ -26,7 +26,7 @@ class CommitMetadata:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "CommitMetadata":
+    def from_dict(cls, data: dict) -> "CommitMetadata":
         """Create from dictionary."""
         data = data.copy()
         data["timestamp"] = datetime.fromisoformat(data["timestamp"])
@@ -39,10 +39,10 @@ class Commit:
     def __init__(
         self,
         commit_hash: str,
-        parent_hashes: List[str],
-        weight_hashes: Dict[str, str],
+        parent_hashes: list[str],
+        weight_hashes: dict[str, str],
         metadata: CommitMetadata,
-        delta_weights: Optional[Dict[str, str]] = None,
+        delta_weights: Optional[dict[str, str]] = None,
     ):
         self.commit_hash = commit_hash
         self.parent_hashes = parent_hashes
@@ -60,7 +60,7 @@ class Commit:
         """Check if this is a root commit."""
         return len(self.parent_hashes) == 0
 
-    def get_changed_weights(self, parent_commit: Optional["Commit"]) -> Dict[str, str]:
+    def get_changed_weights(self, parent_commit: Optional["Commit"]) -> dict[str, str]:
         """Get weights that changed from parent commit."""
         if parent_commit is None:
             return self.weight_hashes
@@ -75,21 +75,21 @@ class Commit:
 
         return changed
 
-    def get_added_weights(self, parent_commit: Optional["Commit"]) -> Set[str]:
+    def get_added_weights(self, parent_commit: Optional["Commit"]) -> set[str]:
         """Get weights added in this commit."""
         if parent_commit is None:
             return set(self.weight_hashes.keys())
 
         return set(self.weight_hashes.keys()) - set(parent_commit.weight_hashes.keys())
 
-    def get_removed_weights(self, parent_commit: Optional["Commit"]) -> Set[str]:
+    def get_removed_weights(self, parent_commit: Optional["Commit"]) -> set[str]:
         """Get weights removed in this commit."""
         if parent_commit is None:
             return set()
 
         return set(parent_commit.weight_hashes.keys()) - set(self.weight_hashes.keys())
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
             "commit_hash": self.commit_hash,
@@ -100,7 +100,7 @@ class Commit:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "Commit":
+    def from_dict(cls, data: dict) -> "Commit":
         """Create from dictionary."""
         data = data.copy()
         data["metadata"] = CommitMetadata.from_dict(data["metadata"])

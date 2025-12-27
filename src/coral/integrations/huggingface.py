@@ -32,7 +32,7 @@ import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
 from coral.delta.delta_encoder import DeltaConfig, DeltaEncoder, DeltaType
@@ -81,10 +81,10 @@ class ModelInfo:
 
     repo_id: str
     revision: str
-    files: List[str]
+    files: list[str]
     base_model: Optional[str] = None
     total_size_bytes: int = 0
-    weight_files: List[str] = None
+    weight_files: list[str] = None
 
     def __post_init__(self):
         if self.weight_files is None:
@@ -162,8 +162,8 @@ class CoralHubClient:
         self.last_download_stats: Optional[DownloadStats] = None
 
         # Local weight cache for deduplication
-        self._weight_cache: Dict[str, WeightTensor] = {}
-        self._weight_index: Dict[Tuple[tuple, str], str] = {}  # (shape, dtype) -> hash
+        self._weight_cache: dict[str, WeightTensor] = {}
+        self._weight_index: dict[tuple[tuple, str], str] = {}  # (shape, dtype) -> hash
 
     def get_model_info(
         self,
@@ -202,8 +202,8 @@ class CoralHubClient:
         repo_id: str,
         base_model: Optional[str] = None,
         revision: str = "main",
-        allow_patterns: Optional[List[str]] = None,
-    ) -> Dict[str, WeightTensor]:
+        allow_patterns: Optional[list[str]] = None,
+    ) -> dict[str, WeightTensor]:
         """Download model weights with delta optimization.
 
         If a base_model is specified (or detected), this will:
@@ -285,7 +285,7 @@ class CoralHubClient:
 
         return weights
 
-    def _download_full_model(self, repo_id: str) -> Dict[str, WeightTensor]:
+    def _download_full_model(self, repo_id: str) -> dict[str, WeightTensor]:
         """Download full model without delta optimization."""
         _require_safetensors()
 
@@ -304,7 +304,7 @@ class CoralHubClient:
 
         return weights
 
-    def _load_cached_model(self, repo_id: str) -> Dict[str, WeightTensor]:
+    def _load_cached_model(self, repo_id: str) -> dict[str, WeightTensor]:
         """Load model from local cache if available."""
         cache_path = self.cache_dir / "models" / repo_id.replace("/", "_")
         if not cache_path.exists():
@@ -315,7 +315,7 @@ class CoralHubClient:
         except Exception:
             return {}
 
-    def _load_safetensors_dir(self, path: Path) -> Dict[str, WeightTensor]:
+    def _load_safetensors_dir(self, path: Path) -> dict[str, WeightTensor]:
         """Load all safetensors files from a directory."""
         weights = {}
 
@@ -373,7 +373,7 @@ class CoralHubClient:
 
     def upload_model(
         self,
-        weights: Dict[str, WeightTensor],
+        weights: dict[str, WeightTensor],
         repo_id: str,
         base_model: Optional[str] = None,
         commit_message: str = "Upload model via Coral",
@@ -446,7 +446,7 @@ Base model: [{base_model}](https://huggingface.co/{base_model})
         self,
         model_a: str,
         model_b: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compare two models and return difference statistics.
 
         Args:
@@ -514,7 +514,7 @@ def load_pretrained_efficient(
     model_id: str,
     base_model: Optional[str] = None,
     **kwargs,
-) -> Dict[str, WeightTensor]:
+) -> dict[str, WeightTensor]:
     """Convenience function to load a model efficiently.
 
     This is the main entry point for users wanting to use delta-efficient

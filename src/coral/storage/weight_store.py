@@ -1,7 +1,7 @@
 """Abstract interface for weight storage backends"""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
 
@@ -60,7 +60,7 @@ class WeightStore(ABC):
         pass
 
     @abstractmethod
-    def list_weights(self) -> List[str]:
+    def list_weights(self) -> list[str]:
         """List all weight hashes in storage"""
         pass
 
@@ -70,7 +70,7 @@ class WeightStore(ABC):
         pass
 
     @abstractmethod
-    def store_batch(self, weights: Dict[str, WeightTensor]) -> Dict[str, str]:
+    def store_batch(self, weights: dict[str, WeightTensor]) -> dict[str, str]:
         """
         Store multiple weights efficiently.
 
@@ -83,7 +83,7 @@ class WeightStore(ABC):
         pass
 
     @abstractmethod
-    def load_batch(self, hash_keys: List[str]) -> Dict[str, WeightTensor]:
+    def load_batch(self, hash_keys: list[str]) -> dict[str, WeightTensor]:
         """
         Load multiple weights efficiently.
 
@@ -96,7 +96,7 @@ class WeightStore(ABC):
         pass
 
     @abstractmethod
-    def get_storage_info(self) -> Dict[str, Any]:
+    def get_storage_info(self) -> dict[str, Any]:
         """Get information about storage usage and statistics"""
         pass
 

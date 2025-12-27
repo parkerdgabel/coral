@@ -19,7 +19,7 @@ Trade-offs:
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Optional
 
 import numpy as np
 
@@ -48,7 +48,7 @@ class LSHTable:
     """A single LSH hash table."""
 
     hyperplanes: np.ndarray  # Shape: (num_hyperplanes, vector_dim)
-    buckets: Dict[int, Set[str]] = field(default_factory=dict)
+    buckets: dict[int, set[str]] = field(default_factory=dict)
 
     def hash_vector(self, vector: np.ndarray) -> int:
         """Compute hash for a vector using hyperplane hashing."""
@@ -70,7 +70,7 @@ class LSHTable:
         self.buckets[bucket_hash].add(key)
         return bucket_hash
 
-    def query(self, vector: np.ndarray) -> Set[str]:
+    def query(self, vector: np.ndarray) -> set[str]:
         """Find all keys in the same bucket as the query vector."""
         bucket_hash = self.hash_vector(vector)
         return self.buckets.get(bucket_hash, set()).copy()
@@ -118,7 +118,7 @@ class LSHIndex:
         self.rng = np.random.RandomState(self.config.seed)
 
         # Create hash tables with random hyperplanes
-        self.tables: List[LSHTable] = []
+        self.tables: list[LSHTable] = []
         for _ in range(self.config.num_tables):
             # Random hyperplanes from standard normal distribution
             hyperplanes = self.rng.randn(
@@ -130,8 +130,8 @@ class LSHIndex:
             self.tables.append(LSHTable(hyperplanes=hyperplanes))
 
         # Track inserted keys for stats
-        self.keys: Set[str] = set()
-        self._key_to_hashes: Dict[str, List[int]] = {}
+        self.keys: set[str] = set()
+        self._key_to_hashes: dict[str, list[int]] = {}
 
     def insert(self, vector: np.ndarray, key: str) -> None:
         """Insert a vector into the index.
@@ -166,7 +166,7 @@ class LSHIndex:
         self,
         vector: np.ndarray,
         max_candidates: Optional[int] = None,
-    ) -> Set[str]:
+    ) -> set[str]:
         """Find candidate similar vectors.
 
         Args:
@@ -190,7 +190,7 @@ class LSHIndex:
             flat_vector = flat_vector / norm
 
         # Union of candidates from all tables
-        candidates: Set[str] = set()
+        candidates: set[str] = set()
         for table in self.tables:
             candidates.update(table.query(flat_vector))
 
@@ -238,7 +238,7 @@ class LSHIndex:
         """Return number of indexed vectors."""
         return len(self.keys)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get statistics about the index."""
         bucket_sizes = []
         for table in self.tables:
@@ -270,8 +270,8 @@ class MultiDimLSHIndex:
             config: LSH configuration (shared across all dimension-specific indices)
         """
         self.config = config or LSHConfig()
-        self.indices: Dict[int, LSHIndex] = {}
-        self.key_to_dim: Dict[str, int] = {}
+        self.indices: dict[int, LSHIndex] = {}
+        self.key_to_dim: dict[str, int] = {}
 
     def insert(self, vector: np.ndarray, key: str) -> None:
         """Insert a vector, automatically handling its dimension."""
@@ -287,7 +287,7 @@ class MultiDimLSHIndex:
         self,
         vector: np.ndarray,
         max_candidates: Optional[int] = None,
-    ) -> Set[str]:
+    ) -> set[str]:
         """Query for similar vectors of the same dimension."""
         dim = vector.size
 
@@ -320,7 +320,7 @@ class MultiDimLSHIndex:
         """Return total number of indexed vectors."""
         return len(self.key_to_dim)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get statistics about all indices."""
         return {
             "num_dimensions": len(self.indices),

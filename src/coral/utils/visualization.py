@@ -1,7 +1,7 @@
 """Visualization utilities for weight analysis"""
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 
@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 def plot_weight_distribution(
-    weights: List[WeightTensor], bins: int = 50
-) -> Dict[str, Any]:
+    weights: list[WeightTensor], bins: int = 50
+) -> dict[str, Any]:
     """
     Analyze weight distribution (returns data for plotting).
 
@@ -46,7 +46,7 @@ def plot_weight_distribution(
     return distributions
 
 
-def plot_deduplication_stats(stats: DeduplicationStats) -> Dict[str, Any]:
+def plot_deduplication_stats(stats: DeduplicationStats) -> dict[str, Any]:
     """
     Prepare deduplication statistics for visualization.
 
@@ -76,11 +76,11 @@ def plot_deduplication_stats(stats: DeduplicationStats) -> Dict[str, Any]:
 
 
 def compare_models(
-    weights_a: Dict[str, WeightTensor],
-    weights_b: Dict[str, WeightTensor],
+    weights_a: dict[str, WeightTensor],
+    weights_b: dict[str, WeightTensor],
     model_a_name: str = "Model A",
     model_b_name: str = "Model B",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compare two sets of model weights and generate diff visualization data.
 
@@ -232,7 +232,7 @@ def compare_models(
     }
 
 
-def format_model_diff(diff_data: Dict[str, Any], verbose: bool = False) -> str:
+def format_model_diff(diff_data: dict[str, Any], verbose: bool = False) -> str:
     """
     Format model comparison data as a human-readable string.
 

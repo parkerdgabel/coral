@@ -1,7 +1,7 @@
 """Base class for representing neural network weights"""
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import xxhash
@@ -15,11 +15,11 @@ class WeightMetadata:
     """Metadata associated with a weight tensor"""
 
     name: str
-    shape: Tuple[int, ...]
+    shape: tuple[int, ...]
     dtype: np.dtype
     layer_type: Optional[str] = None
     model_name: Optional[str] = None
-    compression_info: Dict[str, Any] = field(default_factory=dict)
+    compression_info: dict[str, Any] = field(default_factory=dict)
     hash: Optional[str] = None
 
 
@@ -84,7 +84,7 @@ class WeightTensor:
         return self._metadata
 
     @property
-    def shape(self) -> Tuple[int, ...]:
+    def shape(self) -> tuple[int, ...]:
         """Get the shape of the weight tensor"""
         return self.metadata.shape
 
@@ -164,7 +164,7 @@ class WeightTensor:
         similarity = cosine_similarity(self.data, other.data)
         return similarity >= threshold
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization"""
         return {
             "metadata": {
@@ -184,7 +184,7 @@ class WeightTensor:
 
     @classmethod
     def from_dict(
-        cls, data: Dict[str, Any], weight_data: Optional[np.ndarray] = None
+        cls, data: dict[str, Any], weight_data: Optional[np.ndarray] = None
     ) -> "WeightTensor":
         """Create WeightTensor from dictionary"""
         metadata = WeightMetadata(

@@ -1,7 +1,7 @@
 """Additional compression utilities for delta encoding."""
 
 import logging
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -14,7 +14,7 @@ class DeltaCompressor:
     @staticmethod
     def compress_sparse_deltas(
         indices: np.ndarray, values: np.ndarray
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Compress sparse delta representation using run-length encoding."""
         if len(indices) == 0:
             return np.array([], dtype=np.int32), {
@@ -43,8 +43,8 @@ class DeltaCompressor:
 
     @staticmethod
     def decompress_sparse_deltas(
-        compressed_data: np.ndarray, metadata: Dict[str, Any]
-    ) -> Tuple[np.ndarray, np.ndarray]:
+        compressed_data: np.ndarray, metadata: dict[str, Any]
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Decompress sparse delta representation."""
         if metadata["original_length"] == 0:
             return np.array([], dtype=np.int64), np.array([], dtype=np.float32)
@@ -63,7 +63,7 @@ class DeltaCompressor:
     @staticmethod
     def adaptive_quantization(
         data: np.ndarray, target_bits: int = 8
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Apply adaptive quantization based on data distribution."""
         if target_bits not in [8, 16]:
             raise ValueError("target_bits must be 8 or 16")
@@ -112,7 +112,7 @@ class DeltaCompressor:
 
     @staticmethod
     def dequantize_adaptive(
-        quantized_data: np.ndarray, metadata: Dict[str, Any]
+        quantized_data: np.ndarray, metadata: dict[str, Any]
     ) -> np.ndarray:
         """Dequantize adaptively quantized data."""
         scale = metadata["scale"]
@@ -132,7 +132,7 @@ class DeltaCompressor:
     @staticmethod
     def compress_with_dictionary(
         data: np.ndarray, dictionary_size: int = 256
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Compress using a learned dictionary of common values."""
         # Flatten data for analysis
         flat_data = data.flatten()
@@ -167,7 +167,7 @@ class DeltaCompressor:
 
     @staticmethod
     def decompress_with_dictionary(
-        compressed_data: np.ndarray, metadata: Dict[str, Any]
+        compressed_data: np.ndarray, metadata: dict[str, Any]
     ) -> np.ndarray:
         """Decompress dictionary-compressed data."""
         dictionary = np.array(metadata["dictionary"])
@@ -180,7 +180,7 @@ class DeltaCompressor:
         return flat_reconstructed.reshape(original_shape)
 
     @staticmethod
-    def delta_statistics(delta_data: np.ndarray) -> Dict[str, float]:
+    def delta_statistics(delta_data: np.ndarray) -> dict[str, float]:
         """Analyze delta statistics to choose optimal compression."""
         stats = {
             "mean": float(np.mean(delta_data)),

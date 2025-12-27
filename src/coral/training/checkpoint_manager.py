@@ -2,7 +2,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 
 from coral.core.weight_tensor import WeightTensor
 from coral.version_control.repository import Repository
@@ -57,12 +57,12 @@ class CheckpointManager:
         )
 
         # Tracking
-        self.checkpoint_history: List[Dict[str, Any]] = []
+        self.checkpoint_history: list[dict[str, Any]] = []
         self.best_metric_value: Optional[float] = None
         self.best_checkpoint_hash: Optional[str] = None
 
         # Callback system
-        self._callbacks: List[Callable[[TrainingState, Optional[str]], None]] = []
+        self._callbacks: list[Callable[[TrainingState, Optional[str]], None]] = []
 
         # Load existing checkpoint history
         self._load_checkpoint_history()
@@ -102,7 +102,7 @@ class CheckpointManager:
 
     def save_checkpoint(
         self,
-        weights: Dict[str, WeightTensor],
+        weights: dict[str, WeightTensor],
         state: TrainingState,
         force: bool = False,
     ) -> Optional[str]:
@@ -193,7 +193,7 @@ class CheckpointManager:
 
     def load_checkpoint(
         self, commit_hash: Optional[str] = None, load_best: bool = False
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Optional[dict[str, Any]]:
         """Load a checkpoint."""
         if load_best and self.best_checkpoint_hash:
             commit_hash = self.best_checkpoint_hash
@@ -230,7 +230,7 @@ class CheckpointManager:
 
         return {"weights": weights, "state": state, "commit_hash": commit_hash}
 
-    def get_checkpoint_info(self, commit_hash: str) -> Optional[Dict[str, Any]]:
+    def get_checkpoint_info(self, commit_hash: str) -> Optional[dict[str, Any]]:
         """Get information about a specific checkpoint."""
         for checkpoint in self.checkpoint_history:
             if checkpoint["commit_hash"] == commit_hash:
@@ -239,7 +239,7 @@ class CheckpointManager:
 
     def list_checkpoints(
         self, include_metrics: bool = True, only_best: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List available checkpoints."""
         checkpoints = self.checkpoint_history
 
@@ -299,7 +299,7 @@ class CheckpointManager:
         logger.debug(f"Cleared {count} checkpoint callbacks")
         return count
 
-    def list_callbacks(self) -> List[str]:
+    def list_callbacks(self) -> list[str]:
         """List names of all registered callbacks.
 
         Returns:

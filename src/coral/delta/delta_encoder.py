@@ -22,7 +22,7 @@ import json
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 
@@ -122,7 +122,7 @@ class DeltaConfig:
     min_weight_size: int = DEFAULT_MIN_WEIGHT_SIZE_BYTES
     strict_reconstruction: bool = False  # If True, raise error on hash mismatch
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "delta_type": self.delta_type.value,
@@ -136,7 +136,7 @@ class DeltaConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DeltaConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "DeltaConfig":
         """Create from dictionary."""
         data = data.copy()
         data["delta_type"] = DeltaType(data["delta_type"])
@@ -149,13 +149,13 @@ class Delta:
 
     delta_type: DeltaType
     data: np.ndarray
-    metadata: Dict[str, Any]
-    original_shape: Tuple[int, ...]
+    metadata: dict[str, Any]
+    original_shape: tuple[int, ...]
     original_dtype: np.dtype
     reference_hash: str
     compression_ratio: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "delta_type": self.delta_type.value,
@@ -170,7 +170,7 @@ class Delta:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Delta":
+    def from_dict(cls, data: dict[str, Any]) -> "Delta":
         """Create from dictionary."""
         # Reconstruct data array
         data_bytes = data["data_bytes"]
@@ -473,19 +473,19 @@ class DeltaEncoder:
 
         return reconstructed_weight
 
-    def _encode_raw(self, delta_data: np.ndarray) -> Tuple[np.ndarray, Dict[str, Any]]:
+    def _encode_raw(self, delta_data: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
         """Encode as raw float32 differences."""
         return delta_data.astype(np.float32), {}
 
     def _decode_raw(
-        self, encoded_data: np.ndarray, metadata: Dict[str, Any]
+        self, encoded_data: np.ndarray, metadata: dict[str, Any]
     ) -> np.ndarray:
         """Decode raw float32 differences."""
         return encoded_data
 
     def _encode_quantized(
         self, delta_data: np.ndarray, bits: int
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Encode as quantized differences."""
         # Calculate scale and offset for quantization
         min_val = np.min(delta_data)
@@ -519,7 +519,7 @@ class DeltaEncoder:
         return quantized, metadata
 
     def _decode_quantized(
-        self, encoded_data: np.ndarray, metadata: Dict[str, Any], bits: int
+        self, encoded_data: np.ndarray, metadata: dict[str, Any], bits: int
     ) -> np.ndarray:
         """Decode quantized differences."""
         scale = metadata["scale"]
@@ -531,7 +531,7 @@ class DeltaEncoder:
 
     def _encode_sparse(
         self, delta_data: np.ndarray
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Encode as sparse differences (only non-zero values)."""
         # Find non-zero elements
         mask = np.abs(delta_data) > self.config.sparse_threshold
@@ -555,8 +555,8 @@ class DeltaEncoder:
     def _decode_sparse(
         self,
         encoded_data: np.ndarray,
-        metadata: Dict[str, Any],
-        original_shape: Tuple[int, ...],
+        metadata: dict[str, Any],
+        original_shape: tuple[int, ...],
     ) -> np.ndarray:
         """Decode sparse differences."""
         # Reconstruct full delta array
@@ -574,7 +574,7 @@ class DeltaEncoder:
 
     def _encode_compressed(
         self, delta_data: np.ndarray
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Encode with compression."""
         import zlib
 
@@ -595,7 +595,7 @@ class DeltaEncoder:
         return compressed_array, metadata
 
     def _decode_compressed(
-        self, encoded_data: np.ndarray, metadata: Dict[str, Any]
+        self, encoded_data: np.ndarray, metadata: dict[str, Any]
     ) -> np.ndarray:
         """Decode compressed differences."""
         import zlib
@@ -616,7 +616,7 @@ class DeltaEncoder:
 
     def _encode_xor_float32(
         self, weight_data: np.ndarray, reference_data: np.ndarray
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Encode using bitwise XOR with exponent/mantissa separation.
 
         This method:
@@ -675,7 +675,7 @@ class DeltaEncoder:
     def _decode_xor_float32(
         self,
         encoded_data: np.ndarray,
-        metadata: Dict[str, Any],
+        metadata: dict[str, Any],
         reference_data: np.ndarray,
     ) -> np.ndarray:
         """Decode XOR float32 encoding."""
@@ -715,7 +715,7 @@ class DeltaEncoder:
 
     def _encode_xor_bfloat16(
         self, weight_data: np.ndarray, reference_data: np.ndarray
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Encode using bitwise XOR optimized for BFloat16 weights.
 
         BFloat16 is commonly used in ML training. This method:
@@ -770,7 +770,7 @@ class DeltaEncoder:
     def _decode_xor_bfloat16(
         self,
         encoded_data: np.ndarray,
-        metadata: Dict[str, Any],
+        metadata: dict[str, Any],
         reference_data: np.ndarray,
     ) -> np.ndarray:
         """Decode XOR BFloat16 encoding."""
@@ -815,7 +815,7 @@ class DeltaEncoder:
 
     def _encode_exponent_mantissa(
         self, weight_data: np.ndarray, reference_data: np.ndarray
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Encode by separating exponent and mantissa components.
 
         Inspired by ZipNN, this exploits:
@@ -867,7 +867,7 @@ class DeltaEncoder:
     def _decode_exponent_mantissa(
         self,
         encoded_data: np.ndarray,
-        metadata: Dict[str, Any],
+        metadata: dict[str, Any],
         reference_data: np.ndarray,
     ) -> np.ndarray:
         """Decode exponent-mantissa separated encoding."""
@@ -926,7 +926,7 @@ class DeltaEncoder:
 
     def _encode_per_axis_scaled(
         self, delta_data: np.ndarray
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         """Encode using 1-bit signs and per-axis scaling factors.
 
         For fine-tuned models where deltas are structured:
@@ -989,8 +989,8 @@ class DeltaEncoder:
     def _decode_per_axis_scaled(
         self,
         encoded_data: np.ndarray,
-        metadata: Dict[str, Any],
-        original_shape: Tuple[int, ...],
+        metadata: dict[str, Any],
+        original_shape: tuple[int, ...],
     ) -> np.ndarray:
         """Decode per-axis scaled encoding."""
         num_rows = metadata["num_rows"]
