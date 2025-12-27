@@ -1,7 +1,9 @@
-"""Abstract interface for weight storage backends"""
+"""Abstract interface for weight storage backends with large model scaling support"""
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Generator, List, Optional, Tuple, Union
+
+import numpy as np
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
 
@@ -15,6 +17,9 @@ class WeightStore(ABC):
     - Metadata storage and retrieval
     - Batch operations for efficiency
     - Optional compression support
+    - **Partial/slice loading for large weights**
+    - **Memory-mapped loading for huge weights**
+    - **Streaming iterators for bounded memory usage**
     """
 
     @abstractmethod
@@ -112,3 +117,137 @@ class WeightStore(ABC):
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit"""
         self.close()
+
+    # =========================================================================
+    # Large Model Scaling Methods (Optional - with default implementations)
+    # =========================================================================
+
+    def load_slice(
+        self,
+        hash_key: str,
+        slices: Union[slice, Tuple[slice, ...]],
+    ) -> Optional[np.ndarray]:
+        """
+        Load a partial slice of weight data without loading the entire tensor.
+
+        This is essential for large models where loading full weights would exceed RAM.
+
+        Args:
+            hash_key: Hash key of the weight
+            slices: Slice object or tuple of slices for multi-dimensional access
+
+        Returns:
+            Numpy array containing the sliced data, or None if not found
+
+        Note:
+            Default implementation loads full weight and slices in memory.
+            Subclasses should override for efficient partial loading.
+        """
+        weight = self.load(hash_key)
+        if weight is None:
+            return None
+        return weight.data[slices]
+
+    def iter_weights(
+        self,
+        batch_size: int = 100,
+        hash_keys: Optional[List[str]] = None,
+    ) -> Generator[Dict[str, WeightTensor], None, None]:
+        """
+        Iterate over weights in batches for memory-bounded processing.
+
+        Args:
+            batch_size: Number of weights to yield per batch
+            hash_keys: Optional list of specific hashes to iterate over
+
+        Yields:
+            Dict mapping hash keys to WeightTensor objects, batch_size at a time
+        """
+        keys = hash_keys if hash_keys is not None else self.list_weights()
+
+        batch: Dict[str, WeightTensor] = {}
+        for hash_key in keys:
+            weight = self.load(hash_key)
+            if weight is not None:
+                batch[hash_key] = weight
+
+            if len(batch) >= batch_size:
+                yield batch
+                batch = {}
+
+        if batch:
+            yield batch
+
+    def iter_metadata(
+        self,
+        batch_size: int = 1000,
+        hash_keys: Optional[List[str]] = None,
+    ) -> Generator[Dict[str, WeightMetadata], None, None]:
+        """
+        Iterate over weight metadata without loading weight data.
+
+        Args:
+            batch_size: Number of metadata entries per batch
+            hash_keys: Optional list of specific hashes
+
+        Yields:
+            Dict mapping hash keys to WeightMetadata objects
+        """
+        keys = hash_keys if hash_keys is not None else self.list_weights()
+
+        batch: Dict[str, WeightMetadata] = {}
+        for hash_key in keys:
+            metadata = self.get_metadata(hash_key)
+            if metadata is not None:
+                batch[hash_key] = metadata
+
+            if len(batch) >= batch_size:
+                yield batch
+                batch = {}
+
+        if batch:
+            yield batch
+
+    def get_weight_size(self, hash_key: str) -> Optional[int]:
+        """
+        Get the size of a weight in bytes without loading data.
+
+        Default implementation loads the weight to get size.
+        Subclasses should override for efficient size queries.
+        """
+        weight = self.load(hash_key)
+        return weight.nbytes if weight else None
+
+    def estimate_memory_usage(
+        self, hash_keys: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Estimate memory required to load weights.
+
+        Args:
+            hash_keys: Specific weights to check (default: all weights)
+
+        Returns:
+            Dict with memory estimation details
+        """
+        keys = hash_keys if hash_keys is not None else self.list_weights()
+
+        total_bytes = 0
+        weight_sizes: List[Tuple[str, int]] = []
+
+        for hash_key in keys:
+            size = self.get_weight_size(hash_key)
+            if size is not None:
+                total_bytes += size
+                weight_sizes.append((hash_key, size))
+
+        weight_sizes.sort(key=lambda x: x[1], reverse=True)
+
+        return {
+            "total_bytes": total_bytes,
+            "total_mb": total_bytes / (1024 * 1024),
+            "total_gb": total_bytes / (1024 * 1024 * 1024),
+            "num_weights": len(weight_sizes),
+            "largest_weights": weight_sizes[:10],
+            "average_bytes": total_bytes / len(weight_sizes) if weight_sizes else 0,
+        }

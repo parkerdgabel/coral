@@ -338,8 +338,7 @@ class S3Store(WeightStore):
 
         with ThreadPoolExecutor(max_workers=self.config.max_concurrency) as executor:
             futures = {
-                executor.submit(self.load, hash_key): hash_key
-                for hash_key in hash_keys
+                executor.submit(self.load, hash_key): hash_key for hash_key in hash_keys
             }
 
             for future in as_completed(futures):

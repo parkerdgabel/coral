@@ -87,7 +87,7 @@ class Deduplicator:
         similarity_threshold: float = 0.99,
         delta_config: Optional[DeltaConfig] = None,
         enable_delta_encoding: bool = True,
-        enable_lsh: bool = False,
+        enable_lsh: bool = True,
         lsh_config: Optional[LSHConfig] = None,
         magnitude_tolerance: float = 0.1,
     ):
@@ -99,7 +99,8 @@ class Deduplicator:
             delta_config: Configuration for delta encoding
             enable_delta_encoding: Whether to use delta encoding for similar weights
             enable_lsh: Whether to use LSH for O(1) similarity lookup.
-                Enable for large-scale deployments (>10k weights).
+                Enabled by default for scalability with large model collections.
+                Set to False only for small repositories (<1k weights).
             lsh_config: Configuration for LSH index
             magnitude_tolerance: Maximum relative magnitude difference for similarity.
                 E.g., 0.1 means magnitudes must be within 10% of each other.

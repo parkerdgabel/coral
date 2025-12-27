@@ -160,7 +160,7 @@ def compare_models(
                     "std": float(np.std(diff)),
                     "abs_mean": float(np.mean(np.abs(diff))),
                     "abs_max": float(np.max(np.abs(diff))),
-                    "rmse": float(np.sqrt(np.mean(diff ** 2))),
+                    "rmse": float(np.sqrt(np.mean(diff**2))),
                 }
 
                 # Count changed parameters (threshold: 1e-6)
@@ -248,8 +248,8 @@ def format_model_diff(diff_data: Dict[str, Any], verbose: bool = False) -> str:
 
     # Header
     lines.append("=" * 60)
-    model_a = summary['model_a_name']
-    model_b = summary['model_b_name']
+    model_a = summary["model_a_name"]
+    model_b = summary["model_b_name"]
     lines.append(f"Model Comparison: {model_a} vs {model_b}")
     lines.append("=" * 60)
     lines.append("")
@@ -257,8 +257,8 @@ def format_model_diff(diff_data: Dict[str, Any], verbose: bool = False) -> str:
     # Summary stats
     lines.append("Summary:")
     lines.append(f"  Overall Similarity: {summary['overall_similarity']:.2%}")
-    min_sim = summary['min_similarity']
-    max_sim = summary['max_similarity']
+    min_sim = summary["min_similarity"]
+    max_sim = summary["max_similarity"]
     lines.append(f"  Similarity Range: {min_sim:.2%} - {max_sim:.2%}")
     lines.append(f"  Common Layers: {summary['common_layers']}")
     lines.append(f"  Parameters (A): {summary['total_params_a']:,}")
@@ -308,8 +308,8 @@ def format_model_diff(diff_data: Dict[str, Any], verbose: bool = False) -> str:
             if "combined_similarity" in lc:
                 lines.append(f"{lc['name']}:")
                 lines.append(f"  Shape: {lc.get('shape_a', 'N/A')}")
-                cos_sim = lc['cosine_similarity']
-                mag_sim = lc['magnitude_similarity']
+                cos_sim = lc["cosine_similarity"]
+                mag_sim = lc["magnitude_similarity"]
                 lines.append(f"  Cosine Similarity: {cos_sim:.4f}")
                 lines.append(f"  Magnitude Similarity: {mag_sim:.4f}")
                 if "diff_stats" in lc:

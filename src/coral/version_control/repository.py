@@ -603,8 +603,7 @@ class Repository:
                             )
                         else:
                             logger.debug(
-                                f"Delta not beneficial for {name}, "
-                                "storing full weight"
+                                f"Delta not beneficial for {name}, storing full weight"
                             )
 
                     except Exception as e:

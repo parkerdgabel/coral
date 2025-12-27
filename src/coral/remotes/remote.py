@@ -325,9 +325,7 @@ class RemoteManager:
         """Save remotes to config file."""
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
-            "remotes": {
-                name: config.to_dict() for name, config in self.remotes.items()
-            }
+            "remotes": {name: config.to_dict() for name, config in self.remotes.items()}
         }
         with open(self.config_path, "w") as f:
             json.dump(data, f, indent=2)

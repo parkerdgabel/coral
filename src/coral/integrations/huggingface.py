@@ -89,8 +89,7 @@ class ModelInfo:
     def __post_init__(self):
         if self.weight_files is None:
             self.weight_files = [
-                f for f in self.files
-                if f.endswith((".safetensors", ".bin", ".pt"))
+                f for f in self.files if f.endswith((".safetensors", ".bin", ".pt"))
             ]
 
 
@@ -155,9 +154,7 @@ class CoralHubClient:
 
         self.token = token
         self.api = HfApi(token=token)
-        self.delta_config = delta_config or DeltaConfig(
-            delta_type=DeltaType.COMPRESSED
-        )
+        self.delta_config = delta_config or DeltaConfig(delta_type=DeltaType.COMPRESSED)
         self.delta_encoder = DeltaEncoder(self.delta_config)
         self.similarity_threshold = similarity_threshold
 
@@ -361,7 +358,8 @@ class CoralHubClient:
         from coral.utils.similarity import are_similar
 
         return are_similar(
-            a.data, b.data,
+            a.data,
+            b.data,
             threshold=self.similarity_threshold,
             check_magnitude=True,
         )
@@ -426,7 +424,7 @@ base_model: {base_model}
 library_name: coral
 ---
 
-# {repo_id.split('/')[-1]}
+# {repo_id.split("/")[-1]}
 
 This model was created with [Coral](https://github.com/parkerdgabel/coral).
 
@@ -490,12 +488,14 @@ Base model: [{base_model}](https://huggingface.co/{base_model})
                 elif self._are_similar(wa, wb):
                     stats["similar_weights"] += 1
                     from coral.utils.similarity import weight_similarity
+
                     stats["weight_similarities"][name] = weight_similarity(
                         wa.data, wb.data
                     )
                 else:
                     stats["different_weights"] += 1
                     from coral.utils.similarity import weight_similarity
+
                     stats["weight_similarities"][name] = weight_similarity(
                         wa.data, wb.data
                     )
