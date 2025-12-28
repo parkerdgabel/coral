@@ -240,90 +240,6 @@ class CoralCLI:
             "--json", action="store_true", help="Output as JSON"
         )
 
-        # Experiment command
-        experiment_parser = subparsers.add_parser(
-            "experiment", help="Manage experiments"
-        )
-        experiment_subparsers = experiment_parser.add_subparsers(
-            dest="experiment_command", help="Experiment commands"
-        )
-
-        # experiment start
-        exp_start = experiment_subparsers.add_parser(
-            "start", help="Start an experiment"
-        )
-        exp_start.add_argument("name", help="Experiment name")
-        exp_start.add_argument("-d", "--description", help="Experiment description")
-        exp_start.add_argument(
-            "-p", "--param", action="append", help="Parameter (format: key=value)"
-        )
-        exp_start.add_argument("-t", "--tag", action="append", help="Add tags")
-
-        # experiment log
-        exp_log = experiment_subparsers.add_parser("log", help="Log a metric")
-        exp_log.add_argument("metric", help="Metric name")
-        exp_log.add_argument("value", type=float, help="Metric value")
-        exp_log.add_argument("-s", "--step", type=int, help="Training step")
-
-        # experiment end
-        exp_end = experiment_subparsers.add_parser("end", help="End current experiment")
-        exp_end.add_argument(
-            "--status",
-            choices=["completed", "failed", "cancelled"],
-            default="completed",
-            help="Final status",
-        )
-        exp_end.add_argument("-c", "--commit", help="Associate with commit hash")
-
-        # experiment list
-        exp_list = experiment_subparsers.add_parser("list", help="List experiments")
-        exp_list.add_argument(
-            "--status",
-            choices=["pending", "running", "completed", "failed", "cancelled"],
-            help="Filter by status",
-        )
-        exp_list.add_argument("-n", "--number", type=int, default=20, help="Limit")
-        exp_list.add_argument("--json", action="store_true", help="Output as JSON")
-
-        # experiment show
-        exp_show = experiment_subparsers.add_parser(
-            "show", help="Show experiment details"
-        )
-        exp_show.add_argument("experiment_id", help="Experiment ID")
-        exp_show.add_argument("--json", action="store_true", help="Output as JSON")
-
-        # experiment compare
-        exp_compare = experiment_subparsers.add_parser(
-            "compare", help="Compare experiments"
-        )
-        exp_compare.add_argument(
-            "experiments", nargs="+", help="Experiment IDs to compare"
-        )
-        exp_compare.add_argument(
-            "-m", "--metric", action="append", help="Metrics to compare"
-        )
-        exp_compare.add_argument("--json", action="store_true", help="Output as JSON")
-
-        # experiment best
-        exp_best = experiment_subparsers.add_parser(
-            "best", help="Find best experiments by metric"
-        )
-        exp_best.add_argument("metric", help="Metric name to optimize")
-        exp_best.add_argument(
-            "--mode",
-            choices=["min", "max"],
-            default="min",
-            help="Optimization mode",
-        )
-        exp_best.add_argument("-n", "--number", type=int, default=10, help="Limit")
-        exp_best.add_argument("--json", action="store_true", help="Output as JSON")
-
-        # experiment delete
-        exp_delete = experiment_subparsers.add_parser(
-            "delete", help="Delete an experiment"
-        )
-        exp_delete.add_argument("experiment_id", help="Experiment ID to delete")
-
         # Publish command
         publish_parser = subparsers.add_parser(
             "publish", help="Publish model to registry"
@@ -445,8 +361,6 @@ class CoralCLI:
                 return self._cmd_sync(args, repo_path)
             elif args.command == "sync-status":
                 return self._cmd_sync_status(args, repo_path)
-            elif args.command == "experiment":
-                return self._cmd_experiment(args, repo_path)
             elif args.command == "publish":
                 return self._cmd_publish(args, repo_path)
             else:
@@ -1071,7 +985,6 @@ class CoralCLI:
         """Manage configuration."""
         from coral.config import (
             ConfigLoader,
-            CoralConfig,
             load_config,
             validate_config,
         )
@@ -1204,7 +1117,8 @@ class CoralCLI:
         print(f"  enable_lsh = {str(config.core.enable_lsh).lower()}")
         print(f"  delta_encoding = {str(config.core.delta_encoding).lower()}")
         print(f"  delta_type = {config.core.delta_type!r}")
-        print(f"  strict_reconstruction = {str(config.core.strict_reconstruction).lower()}")
+        strict_recon = str(config.core.strict_reconstruction).lower()
+        print(f"  strict_reconstruction = {strict_recon}")
         print()
 
         # Delta
@@ -1424,208 +1338,6 @@ class CoralCLI:
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)
             return 1
-
-    def _cmd_experiment(self, args, repo_path: Path) -> int:
-        """Manage experiments."""
-        from coral.experiments import ExperimentStatus, ExperimentTracker
-
-        repo = Repository(repo_path)
-        tracker = ExperimentTracker(repo)
-
-        if not args.experiment_command:
-            # Show experiment summary
-            summary = tracker.get_summary()
-            print("Experiment Summary:")
-            print(f"  Total experiments: {summary['total_experiments']}")
-            for status, count in summary["by_status"].items():
-                if count > 0:
-                    print(f"  {status}: {count}")
-            return 0
-
-        if args.experiment_command == "start":
-            # Parse params
-            params = {}
-            if args.param:
-                for p in args.param:
-                    key, value = p.split("=", 1)
-                    try:
-                        params[key] = float(value)
-                    except ValueError:
-                        params[key] = value
-
-            exp = tracker.start(
-                name=args.name,
-                description=args.description,
-                params=params,
-                tags=args.tag or [],
-            )
-            print(f"Started experiment: {exp.name}")
-            print(f"  ID: {exp.experiment_id}")
-            return 0
-
-        elif args.experiment_command == "log":
-            tracker.log(args.metric, args.value, step=args.step)
-            print(f"Logged {args.metric}={args.value}")
-            if args.step:
-                print(f"  Step: {args.step}")
-            return 0
-
-        elif args.experiment_command == "end":
-            status_map = {
-                "completed": ExperimentStatus.COMPLETED,
-                "failed": ExperimentStatus.FAILED,
-                "cancelled": ExperimentStatus.CANCELLED,
-            }
-            exp = tracker.end(
-                status=status_map[args.status],
-                commit_hash=args.commit,
-            )
-            print(f"Ended experiment: {exp.name}")
-            print(f"  Status: {exp.status.value}")
-            if exp.duration:
-                print(f"  Duration: {exp.duration:.1f}s")
-            return 0
-
-        elif args.experiment_command == "list":
-            status = ExperimentStatus(args.status) if args.status else None
-            experiments = tracker.list(status=status, limit=args.number)
-
-            if args.json:
-                print(json.dumps([e.to_dict() for e in experiments], indent=2))
-                return 0
-
-            if not experiments:
-                print("No experiments found")
-                return 0
-
-            print(f"{'ID':<18} {'Name':<25} {'Status':<12} {'Created'}")
-            print("-" * 75)
-            for exp in experiments:
-                print(
-                    f"{exp.experiment_id:<18} "
-                    f"{exp.name[:24]:<25} "
-                    f"{exp.status.value:<12} "
-                    f"{exp.created_at.strftime('%Y-%m-%d %H:%M')}"
-                )
-            return 0
-
-        elif args.experiment_command == "show":
-            exp = tracker.get(args.experiment_id)
-            if not exp:
-                print(f"Experiment not found: {args.experiment_id}", file=sys.stderr)
-                return 1
-
-            if args.json:
-                print(json.dumps(exp.to_dict(), indent=2))
-                return 0
-
-            print(f"Experiment: {exp.name}")
-            print(f"  ID: {exp.experiment_id}")
-            print(f"  Status: {exp.status.value}")
-            print(f"  Created: {exp.created_at}")
-            if exp.started_at:
-                print(f"  Started: {exp.started_at}")
-            if exp.ended_at:
-                print(f"  Ended: {exp.ended_at}")
-            if exp.duration:
-                print(f"  Duration: {exp.duration:.1f}s")
-            if exp.branch:
-                print(f"  Branch: {exp.branch}")
-            if exp.commit_hash:
-                print(f"  Commit: {exp.commit_hash}")
-            if exp.description:
-                print(f"\nDescription: {exp.description}")
-            if exp.params:
-                print("\nParameters:")
-                for k, v in exp.params.items():
-                    print(f"  {k}: {v}")
-            if exp.tags:
-                print(f"\nTags: {', '.join(exp.tags)}")
-            if exp.metrics:
-                print("\nMetrics:")
-                for metric_name in exp.metric_names:
-                    latest = exp.get_latest_metric(metric_name)
-                    best = exp.get_best_metric(metric_name)
-                    print(f"  {metric_name}:")
-                    print(f"    Latest: {latest.value:.4f}")
-                    print(f"    Best: {best.value:.4f}")
-            return 0
-
-        elif args.experiment_command == "compare":
-            comparison = tracker.compare(
-                args.experiments,
-                metrics=args.metric,
-            )
-
-            if args.json:
-                print(json.dumps(comparison, indent=2))
-                return 0
-
-            if not comparison["experiments"]:
-                print("No experiments found")
-                return 1
-
-            # Print comparison table
-            print("Experiment Comparison")
-            print("=" * 60)
-
-            # Header
-            exp_ids = [e["id"][:12] for e in comparison["experiments"]]
-            print(f"{'Metric':<20}", end="")
-            for exp_id in exp_ids:
-                print(f"{exp_id:<15}", end="")
-            print()
-            print("-" * 60)
-
-            # Metrics
-            for metric, values in comparison["metrics"].items():
-                print(f"{metric:<20}", end="")
-                for exp in comparison["experiments"]:
-                    val = values.get(exp["id"], {}).get("best")
-                    if val is not None:
-                        print(f"{val:<15.4f}", end="")
-                    else:
-                        print(f"{'N/A':<15}", end="")
-                print()
-            return 0
-
-        elif args.experiment_command == "best":
-            results = tracker.find_best(
-                metric=args.metric,
-                mode=args.mode,
-                limit=args.number,
-            )
-
-            if args.json:
-                print(json.dumps(results, indent=2))
-                return 0
-
-            if not results:
-                print(f"No experiments found with metric '{args.metric}'")
-                return 0
-
-            print(f"Best Experiments by {args.metric} ({args.mode})")
-            print("=" * 60)
-            print(f"{'Rank':<6} {'ID':<14} {'Name':<20} {'Value'}")
-            print("-" * 60)
-            for i, r in enumerate(results, 1):
-                print(
-                    f"{i:<6} "
-                    f"{r['experiment_id'][:12]:<14} "
-                    f"{r['name'][:18]:<20} "
-                    f"{r['best_value']:.4f}"
-                )
-            return 0
-
-        elif args.experiment_command == "delete":
-            if tracker.delete(args.experiment_id):
-                print(f"Deleted experiment: {args.experiment_id}")
-                return 0
-            else:
-                print(f"Experiment not found: {args.experiment_id}", file=sys.stderr)
-                return 1
-
-        return 0
 
     def _cmd_publish(self, args, repo_path: Path) -> int:
         """Publish model to registry."""

@@ -1,5 +1,27 @@
+# Experiment tracking bridges (always available, dependencies checked at runtime)
+from .experiment_bridge import ExperimentBridge  # noqa: F401
+
+__all__ = ["ExperimentBridge"]
+
+# MLflow bridge (optional)
 try:
-    from .pytorch import (
+    from .mlflow_bridge import MLflowBridge  # noqa: F401
+
+    __all__.append("MLflowBridge")
+except ImportError:
+    pass
+
+# W&B bridge (optional)
+try:
+    from .wandb_bridge import WandbBridge  # noqa: F401
+
+    __all__.append("WandbBridge")
+except ImportError:
+    pass
+
+# PyTorch integrations
+try:
+    from .pytorch import (  # noqa: F401
         CoralTrainer,
         PyTorchIntegration,
         StreamingWeightLoader,
@@ -14,7 +36,7 @@ try:
         stream_load_model,
     )
 
-    __all__ = [
+    __all__.extend([
         "PyTorchIntegration",
         "CoralTrainer",
         "load_into_model",
@@ -27,10 +49,10 @@ try:
         "load_model_from_coral",
         "StreamingWeightLoader",
         "stream_load_model",
-    ]
+    ])
 except ImportError:
     # PyTorch not installed
-    __all__ = []
+    pass
 
 import importlib.util
 
