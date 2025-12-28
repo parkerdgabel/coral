@@ -81,6 +81,11 @@ Empirical performance analysis with real benchmark results, optimization strateg
 
 Complete API reference for all public classes and methods, with type signatures, parameter descriptions, and usage examples.
 
+#### [Chapter 11: Configuration System](chapters/11-configuration.md)
+*Configuration Files • Environment Variables • CLI Commands • Python API • Validation • Best Practices*
+
+Comprehensive guide to Coral's configuration system, covering TOML configuration files, environment variable overrides, CLI commands for managing settings, and programmatic configuration through the Python API.
+
 ---
 
 ## Quick Start
@@ -183,6 +188,7 @@ coral-ml checkout experiment-lr-0.001
 - Training integration → Chapter 6
 - Performance tuning → Chapter 9
 - API lookup → Chapter 10
+- Configuration options → Chapter 11
 
 ---
 

@@ -557,6 +557,184 @@ Merged experiment-1 into main
 coral-ml merge feature-dropout -m "Integrate dropout improvements"
 ```
 
+## Configuration Commands
+
+### coral-ml config list
+
+List all configuration values.
+
+**Syntax:**
+```bash
+coral-ml config list
+```
+
+**Example:**
+```bash
+coral-ml config list
+
+# Output:
+Configuration:
+  user.name = "Alice Johnson"
+  user.email = "alice@example.com"
+  core.compression = "gzip"
+  core.compression_level = 6
+  core.similarity_threshold = 0.98
+  core.delta_encoding = true
+  core.delta_type = "compressed"
+  core.magnitude_tolerance = 0.1
+  core.strict_reconstruction = true
+  core.default_branch = "main"
+  delta.sparse_threshold = 0.001
+  delta.quantization_bits = 16
+  ...
+```
+
+### coral-ml config get
+
+Get a specific configuration value.
+
+**Syntax:**
+```bash
+coral-ml config get <key>
+```
+
+**Arguments:**
+- `key`: Configuration key in dot notation (e.g., `core.compression`)
+
+**Examples:**
+```bash
+# Get compression setting
+coral-ml config get core.compression
+# gzip
+
+# Get similarity threshold
+coral-ml config get core.similarity_threshold
+# 0.98
+
+# Get user name
+coral-ml config get user.name
+# Alice Johnson
+
+# Get delta quantization bits
+coral-ml config get delta.quantization_bits
+# 16
+```
+
+### coral-ml config set
+
+Set a configuration value in the repository config.
+
+**Syntax:**
+```bash
+coral-ml config set <key> <value>
+```
+
+**Arguments:**
+- `key`: Configuration key in dot notation
+- `value`: Value to set (automatically converted to appropriate type)
+
+**Examples:**
+```bash
+# Set compression level
+coral-ml config set core.compression_level 9
+# Set core.compression_level = 9
+
+# Set similarity threshold
+coral-ml config set core.similarity_threshold 0.995
+# Set core.similarity_threshold = 0.995
+
+# Set delta type
+coral-ml config set core.delta_type xor_float32
+# Set core.delta_type = xor_float32
+
+# Enable strict reconstruction
+coral-ml config set core.strict_reconstruction true
+# Set core.strict_reconstruction = true
+
+# Set user identity
+coral-ml config set user.name "Bob Smith"
+# Set user.name = Bob Smith
+```
+
+### coral-ml config show
+
+Show the current configuration file contents.
+
+**Syntax:**
+```bash
+coral-ml config show
+```
+
+**Example:**
+```bash
+coral-ml config show
+
+# Output:
+[user]
+name = "Alice Johnson"
+email = "alice@example.com"
+
+[core]
+compression = "gzip"
+compression_level = 9
+similarity_threshold = 0.995
+delta_type = "xor_float32"
+delta_encoding = true
+strict_reconstruction = true
+
+[checkpoint]
+save_every_n_epochs = 1
+keep_best_n_checkpoints = 3
+```
+
+### coral-ml config validate
+
+Validate the current configuration.
+
+**Syntax:**
+```bash
+coral-ml config validate
+```
+
+**Examples:**
+```bash
+# Valid configuration
+coral-ml config validate
+# Configuration is valid.
+
+# Invalid configuration
+coral-ml config validate
+# Configuration validation:
+#
+# Errors:
+#   core.compression_level: must be between 1 and 9 (got: 15)
+#
+# Warnings:
+#   core.similarity_threshold: low threshold may cause false positives (got: 0.85)
+```
+
+### coral-ml config migrate
+
+Migrate legacy config.json to TOML format.
+
+**Syntax:**
+```bash
+coral-ml config migrate
+```
+
+**Example:**
+```bash
+coral-ml config migrate
+
+# Output:
+Migrated legacy config to .coral/coral.toml
+```
+
+**Notes:**
+- Only runs if `.coral/config.json` exists
+- Creates `.coral/coral.toml` with migrated settings
+- Original JSON file is preserved
+
 ## Storage Commands
 
 ### coral-ml gc
@@ -1471,6 +1649,12 @@ coral-ml status                        # Repository status
 coral-ml log --oneline                 # Commit history
 coral-ml stats                         # Storage statistics
 
+# Configuration
+coral-ml config list                   # List all settings
+coral-ml config get <key>              # Get setting value
+coral-ml config set <key> <value>      # Set setting value
+coral-ml config validate               # Validate config
+
 # Experiments
 coral-ml experiment start "name"       # Start experiment
 coral-ml experiment log metric value   # Log metrics
@@ -1490,6 +1674,7 @@ coral-ml publish local ./export        # Export locally
 | **Weights** | add, show |
 | **Commits** | commit, log, diff, compare, tag |
 | **Branches** | branch, checkout, merge |
+| **Configuration** | config list/get/set/show/validate/migrate |
 | **Remote** | remote, push, pull, clone, sync, sync-status |
 | **Experiments** | experiment start/log/end/list/show/compare/best/delete |
 | **Publishing** | publish huggingface/mlflow/local, publish history |
