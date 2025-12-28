@@ -216,7 +216,7 @@ class Delta:
                 metadata_size = len(json.dumps(self.metadata).encode())
                 if not isinstance(metadata_size, int):
                     raise TypeError(
-                        f"metadata size calculation returned non-int: {type(metadata_size)}"
+                        f"metadata size returned non-int: {type(metadata_size)}"
                     )
                 # Cache for future access
                 self._cached_metadata_size = metadata_size
