@@ -136,10 +136,6 @@ coral/
 │   │   ├── __init__.py
 │   │   ├── checkpoint_manager.py # CheckpointConfig, CheckpointManager
 │   │   └── training_state.py    # TrainingState tracking
-│   ├── compression/             # Weight compression (EXPERIMENTAL)
-│   │   ├── __init__.py
-│   │   ├── quantization.py      # Quantization techniques
-│   │   └── pruning.py           # Weight pruning
 │   ├── remotes/                 # Remote repository management
 │   │   ├── __init__.py
 │   │   ├── remote.py            # Remote configuration
@@ -457,11 +453,8 @@ The test suite contains 38 test files with 467+ test functions:
 
 **CLI tests:**
 - `test_cli.py`: CLI command tests
-- `test_cli_commands_coverage.py`: CLI coverage boost
-- Multiple CLI coverage test files
 
 **Other tests:**
-- `test_compression.py`: Weight compression
 - `test_visualization.py`: Visualization utilities
 
 ## Key Implementation Details

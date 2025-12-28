@@ -1,6 +1,6 @@
 # Chapter 8: Advanced Features
 
-Coral's advanced features extend beyond basic version control to provide comprehensive experiment tracking, model publishing, compression, remote synchronization, and performance optimization. This chapter explores these powerful capabilities that make Coral suitable for production machine learning workflows.
+Coral's advanced features extend beyond basic version control to provide comprehensive experiment tracking, model publishing, remote synchronization, and performance optimization. This chapter explores these powerful capabilities that make Coral suitable for production machine learning workflows.
 
 ## 8.1 Experiment Tracking
 
@@ -430,128 +430,7 @@ latest = publisher.get_latest(
 )
 ```
 
-## 8.3 Compression Techniques
-
-Coral provides quantization and pruning for reducing model size while maintaining accuracy. These complement delta encoding for maximum storage efficiency.
-
-### Quantization
-
-The `Quantizer` class supports uniform quantization with multiple bit widths:
-
-```python
-from coral.compression.quantization import Quantizer
-from coral.core.weight_tensor import WeightTensor
-
-# Load a weight tensor
-weight = WeightTensor(data=np.random.randn(512, 512).astype(np.float32))
-
-# 8-bit symmetric quantization (most common)
-quantized, params = Quantizer.quantize_uniform(
-    weight,
-    bits=8,
-    symmetric=True
-)
-
-print(f"Original size: {weight.nbytes / 1024:.2f} KB")
-print(f"Quantized size: {quantized.nbytes / 1024:.2f} KB")
-print(f"Compression: {weight.nbytes / quantized.nbytes:.2f}x")
-print(f"Scale: {params['scale']}")
-
-# Dequantize for inference
-dequantized = Quantizer.dequantize(quantized, params)
-
-# Estimate quantization error before applying
-error = Quantizer.estimate_quantization_error(weight, bits=8)
-print(f"Estimated MSE: {error:.6f}")
-```
-
-Quantization options:
-
-**Symmetric Quantization** (zero-point = 0):
-```python
-quantized, params = Quantizer.quantize_uniform(
-    weight,
-    bits=8,
-    symmetric=True  # Range: [-max, max]
-)
-```
-
-**Asymmetric Quantization** (uses full range):
-```python
-quantized, params = Quantizer.quantize_uniform(
-    weight,
-    bits=8,
-    symmetric=False  # Range: [min, max]
-)
-```
-
-**Per-Channel Quantization** (better accuracy):
-```python
-quantized, params = Quantizer.quantize_per_channel(
-    weight,
-    bits=8,
-    axis=0  # Quantize along first axis
-)
-```
-
-Bit width comparison:
-- **8-bit**: 4x compression, minimal accuracy loss
-- **4-bit**: 8x compression, small accuracy loss
-- **2-bit**: 16x compression, significant accuracy loss
-
-### Pruning
-
-The `Pruner` class provides magnitude-based pruning:
-
-```python
-from coral.compression.pruning import Pruner
-
-# Unstructured pruning (element-wise)
-pruned, info = Pruner.prune_magnitude(
-    weight,
-    sparsity=0.5,  # Remove 50% of weights
-    structured=False
-)
-
-print(f"Target sparsity: {0.5:.1%}")
-print(f"Actual sparsity: {info['sparsity']:.1%}")
-print(f"Pruned elements: {info['pruned_elements']}")
-
-# Structured pruning (prune entire channels)
-pruned, info = Pruner.prune_magnitude(
-    weight,
-    sparsity=0.3,
-    structured=True,
-    axis=0  # Prune along first dimension
-)
-
-# Analyze sparsity pattern
-pattern = Pruner.get_sparsity_pattern(pruned)
-print(f"Total sparsity: {pattern['total_sparsity']:.2%}")
-print(f"Per-axis sparsity: {pattern['axis_sparsity']}")
-
-# Apply custom mask
-mask = np.random.rand(*weight.shape) > 0.5
-masked = Pruner.apply_mask(weight, mask)
-```
-
-### When to Use Compression vs Delta Encoding
-
-**Use Quantization/Pruning when:**
-- Deploying models to edge devices
-- Reducing inference memory footprint
-- Trading accuracy for size (controllable)
-
-**Use Delta Encoding when:**
-- Storing similar model versions
-- Perfect reconstruction required
-- Version history of fine-tuned models
-
-**Use Both when:**
-- Training quantized models with version control
-- Storing compressed checkpoints efficiently
-
-## 8.4 Remote Synchronization
+## 8.3 Remote Synchronization
 
 Coral's remote system provides git-like push/pull for synchronizing weights across storage backends including S3, GCS, Azure, and local filesystems.
 
@@ -810,7 +689,7 @@ while True:
     time.sleep(3600)
 ```
 
-## 8.5 Visualization Utilities
+## 8.4 Visualization Utilities
 
 Coral provides utilities for analyzing and visualizing weight differences, distributions, and deduplication statistics.
 
@@ -958,7 +837,7 @@ new_layers = diff['categories']['major_changes']
 print(f"Randomly initialized {len(new_layers)} new layers")
 ```
 
-## 8.6 Advanced Deduplication with SimHash
+## 8.5 Advanced Deduplication with SimHash
 
 SimHash provides O(1) similarity detection through locality-sensitive hashing, enabling extremely fast similarity checks for large repositories.
 
@@ -1129,7 +1008,7 @@ for config in configs:
 
 **Recommendation:** Use 64-bit for most applications (balances speed, memory, and collision resistance).
 
-## 8.7 LSH Index for O(1) Similarity Search
+## 8.6 LSH Index for O(1) Similarity Search
 
 Locality-Sensitive Hashing (LSH) provides fast approximate nearest neighbor search, reducing similarity detection from O(n) to O(1) average time.
 
@@ -1376,7 +1255,6 @@ Coral's advanced features provide enterprise-grade capabilities for production M
 
 - **Experiment Tracking**: MLflow-style experiment management with metric logging and commit linking
 - **Model Publishing**: Seamless integration with HuggingFace Hub, MLflow, and local registries
-- **Compression**: Quantization and pruning for efficient model deployment
 - **Remote Sync**: Git-like push/pull for distributed weight management
 - **Visualization**: Comprehensive tools for analyzing model differences and deduplication
 - **SimHash**: O(1) similarity detection through locality-sensitive hashing
