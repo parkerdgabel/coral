@@ -42,7 +42,6 @@ from .schema import (
     CoralConfig,
     CoreConfig,
     DeltaEncodingConfig,
-    DeltaTypeEnum,
     HuggingFaceConfig,
     LoggingConfig,
     LogLevel,
@@ -77,7 +76,6 @@ __all__ = [
     "RemoteConfig",
     # Enums
     "CompressionType",
-    "DeltaTypeEnum",
     "LogLevel",
     # Loader
     "ConfigLoader",

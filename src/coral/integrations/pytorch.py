@@ -3,30 +3,29 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
-from typing import Any, Callable, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, Union
 
-try:
+if TYPE_CHECKING:
     import torch
     import torch.nn as nn
     from torch.optim import Optimizer
     from torch.optim.lr_scheduler import _LRScheduler
+else:
+    try:
+        import torch
+        import torch.nn as nn
+        from torch.optim import Optimizer
+        from torch.optim.lr_scheduler import _LRScheduler
 
-    TORCH_AVAILABLE = True
-except ImportError:
-    torch = None  # type: ignore[assignment]  # Define for mock.patch compatibility
-    TORCH_AVAILABLE = False
-
-    # Create dummy classes for type hints
-    class nn:  # type: ignore[no-redef]
-        class Module:
-            pass
-
-    class Optimizer:  # type: ignore[no-redef]
-        pass
-
-    class _LRScheduler:
-        pass
+        TORCH_AVAILABLE = True
+    except ImportError:
+        torch = None  # type: ignore[assignment]
+        nn = None  # type: ignore[assignment]
+        Optimizer = None  # type: ignore[assignment]
+        _LRScheduler = None  # type: ignore[assignment]
+        TORCH_AVAILABLE = False
 
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
@@ -246,8 +245,17 @@ class CoralTrainer:
         """Set the learning rate scheduler."""
         self.scheduler = scheduler
 
-    def add_callback(self, event: str, callback: Callable) -> None:
-        """Add a callback for training events."""
+    def add_callback(
+        self,
+        event: Literal["epoch_end", "step_end", "checkpoint_save"],
+        callback: Callable,
+    ) -> None:
+        """Add a callback for training events.
+
+        Args:
+            event: Event type - one of "epoch_end", "step_end", or "checkpoint_save"
+            callback: Callback function to invoke on event
+        """
         if event == "epoch_end":
             self.on_epoch_end_callbacks.append(callback)
         elif event == "step_end":
@@ -835,7 +843,16 @@ def save_model_to_coral(
     model_name: Optional[str] = None,
     **metadata,
 ) -> str:
-    """Save a PyTorch model to Coral repository."""
+    """Save a PyTorch model to Coral repository.
+
+    .. deprecated::
+        Use :func:`save` instead.
+    """
+    warnings.warn(
+        "save_model_to_coral is deprecated, use save() instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if not TORCH_AVAILABLE:
         raise ImportError("PyTorch is not installed")
 
@@ -858,8 +875,28 @@ def save_model_to_coral(
 
 def load_model_from_coral(
     model: nn.Module, repository: Repository, commit_ref: Optional[str] = None
-) -> bool:
-    """Load a PyTorch model from Coral repository."""
+) -> dict[str, WeightTensor]:
+    """Load a PyTorch model from Coral repository.
+
+    .. deprecated::
+        Use :func:`load` instead.
+
+    Args:
+        model: PyTorch model to load weights into
+        repository: Coral repository to load from
+        commit_ref: Optional commit reference to load from
+
+    Returns:
+        Dictionary of loaded WeightTensor objects
+
+    Raises:
+        ValueError: If no weights found in repository
+    """
+    warnings.warn(
+        "load_model_from_coral is deprecated, use load() instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if not TORCH_AVAILABLE:
         raise ImportError("PyTorch is not installed")
 
@@ -867,12 +904,12 @@ def load_model_from_coral(
     weights = repository.get_all_weights(commit_ref)
 
     if not weights:
-        return False
+        raise ValueError("No weights found in repository")
 
     # Load into model
     PyTorchIntegration.weights_to_model(weights, model)
 
-    return True
+    return weights
 
 
 # ==================== Direct Model Loading API ====================
@@ -984,6 +1021,9 @@ def load_from_repo(
     """
     Load weights from a Coral repository into a PyTorch model.
 
+    .. deprecated::
+        Use :func:`load` instead.
+
     Args:
         model: PyTorch model to load weights into
         repo_path: Path to Coral repository
@@ -1000,6 +1040,11 @@ def load_from_repo(
         >>> from coral.integrations.pytorch import load_from_repo
         >>> stats = load_from_repo(model, "./my-model", branch="main")
     """
+    warnings.warn(
+        "load_from_repo is deprecated, use load() instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     from pathlib import Path
 
     if not TORCH_AVAILABLE:
@@ -1044,6 +1089,9 @@ def load_from_remote(
     This function first pulls weights from the remote, then loads them
     into the model.
 
+    .. deprecated::
+        Use :func:`load` instead.
+
     Args:
         model: PyTorch model to load weights into
         repo_path: Path to local Coral repository
@@ -1059,6 +1107,11 @@ def load_from_remote(
     Example:
         >>> stats = load_from_remote(model, "./my-model", remote_name="origin")
     """
+    warnings.warn(
+        "load_from_remote is deprecated, use load() instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     from pathlib import Path
 
     if not TORCH_AVAILABLE:
@@ -1103,6 +1156,9 @@ def save_model(
     This is a convenience function for saving models with optional
     branching and remote push.
 
+    .. deprecated::
+        Use :func:`save` instead.
+
     Args:
         model: PyTorch model to save
         repo_path: Path to Coral repository
@@ -1122,6 +1178,11 @@ def save_model(
         >>> save_model(model, "./my-model", "Add fine-tuned weights",
         ...            branch="experiment-1", push_to="origin")
     """
+    warnings.warn(
+        "save_model is deprecated, use save() instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     from pathlib import Path
 
     if not TORCH_AVAILABLE:

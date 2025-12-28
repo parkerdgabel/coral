@@ -17,6 +17,9 @@ class WeightStore(ABC):
     - Metadata storage and retrieval
     - Batch operations for efficiency
     - Optional compression support
+
+    Note:
+    - Implementations should accept both str and Path-like objects for path parameters
     """
 
     @abstractmethod

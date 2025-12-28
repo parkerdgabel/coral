@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from .schema import CoralConfig, DeltaTypeEnum
+from .schema import CoralConfig
 
 
 @dataclass
@@ -83,6 +83,9 @@ def _validate_core(
     warnings: list[ValidationError],
 ) -> None:
     """Validate core configuration."""
+    # Import at runtime to avoid circular imports
+    from ..delta.delta_encoder import DeltaType
+
     core = config.core
 
     # Compression type
@@ -135,24 +138,34 @@ def _validate_core(
         )
 
     # Delta type
-    valid_delta_types = {e.value for e in DeltaTypeEnum}
-    if core.delta_type not in valid_delta_types:
+    valid_delta_types = {e.value for e in DeltaType}
+    delta_type_value = None
+
+    # Handle both DeltaType enum and string values
+    if isinstance(core.delta_type, DeltaType):
+        delta_type_value = core.delta_type.value
+    elif isinstance(core.delta_type, str):
+        delta_type_value = core.delta_type
+    else:
+        delta_type_value = str(core.delta_type)
+
+    if delta_type_value not in valid_delta_types:
         errors.append(
             ValidationError(
                 "core.delta_type",
                 f"must be one of {sorted(valid_delta_types)}",
-                core.delta_type,
+                delta_type_value,
             )
         )
 
     # Lossy delta type warning
     lossy_types = {"int8_quantized", "int16_quantized", "sparse", "per_axis_scaled"}
-    if core.delta_type in lossy_types and not core.strict_reconstruction:
+    if delta_type_value in lossy_types and not core.strict_reconstruction:
         warnings.append(
             ValidationError(
                 "core.delta_type",
-                f"'{core.delta_type}' is lossy; enable strict_reconstruction",
-                core.delta_type,
+                f"'{delta_type_value}' is lossy; enable strict_reconstruction",
+                delta_type_value,
             )
         )
 

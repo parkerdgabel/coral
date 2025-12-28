@@ -29,6 +29,7 @@ from coral.config import (
     validate_config,
     validate_value,
 )
+from coral.delta.delta_encoder import DeltaType
 
 
 class TestUserConfig:
@@ -72,7 +73,7 @@ class TestCoreConfig:
         assert config.magnitude_tolerance == 0.1
         assert config.enable_lsh is False
         assert config.delta_encoding is True
-        assert config.delta_type == "compressed"
+        assert config.delta_type == DeltaType.COMPRESSED
         assert config.strict_reconstruction is False
 
     def test_validation_similarity_threshold(self):
@@ -103,7 +104,7 @@ class TestCoreConfig:
         data = {"similarity_threshold": 0.90, "delta_type": "xor_float32"}
         config = CoreConfig.from_dict(data)
         assert config.similarity_threshold == 0.90
-        assert config.delta_type == "xor_float32"
+        assert config.delta_type == DeltaType.XOR_FLOAT32
 
 
 class TestDeltaEncodingConfig:

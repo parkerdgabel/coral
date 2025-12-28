@@ -3,9 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 from ..core.deduplicator import Deduplicator
 from ..core.weight_tensor import WeightTensor
@@ -69,7 +70,7 @@ class Repository:
     """Main repository class for version control operations.
 
     Args:
-        path: Path to the repository root directory
+        path: Path to the repository root directory (str or Path-like object)
         init: If True, initialize a new repository
         config: Optional CoralConfig instance. If not provided, configuration
             will be loaded from files and environment variables.
@@ -77,7 +78,7 @@ class Repository:
 
     def __init__(
         self,
-        path: Path,
+        path: Union[str, os.PathLike],
         init: bool = False,
         config: Optional[CoralConfig] = None,
     ):
@@ -100,11 +101,9 @@ class Repository:
         self.version_graph = VersionGraph()
 
         # Configure delta encoding based on repository settings
-        from ..delta.delta_encoder import DeltaType
-
         delta_config = DeltaConfig()
         if self._coral_config.core.delta_encoding:
-            delta_config.delta_type = DeltaType(self._coral_config.core.delta_type)
+            delta_config.delta_type = self._coral_config.core.delta_type
 
         self.deduplicator = Deduplicator(
             similarity_threshold=self._coral_config.core.similarity_threshold,
@@ -183,7 +182,7 @@ class Repository:
                 "compression": config.core.compression,
                 "similarity_threshold": config.core.similarity_threshold,
                 "delta_encoding": config.core.delta_encoding,
-                "delta_type": config.core.delta_type,
+                "delta_type": config.core.delta_type.value,
             },
         }
         with open(self.coral_dir / "config.json", "w") as f:
