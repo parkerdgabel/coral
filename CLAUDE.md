@@ -8,7 +8,8 @@ Coral is a production-ready neural network weight versioning system that provide
 
 **Version**: 1.0.0
 **Package Name**: `coral-ml`
-**Python Support**: 3.9+
+**Python Support**: 3.9, 3.10, 3.11, 3.12
+**Repository**: https://github.com/parkerdgabel/coral
 
 ## Development Workflow
 
@@ -73,13 +74,15 @@ uv run ruff check src/ tests/ examples/
 # Fix auto-fixable linting issues
 uv run ruff check --fix src/ tests/ examples/
 
-# Type checking
+# Type checking (informational, non-blocking in CI)
 uv run mypy src/
 
 # Run examples
 uv run python examples/basic_usage.py
 uv run python examples/pytorch_training_example.py
 uv run python examples/delta_encoding_demo.py
+uv run python examples/checkpoint_callbacks_demo.py
+uv run python examples/large_model_efficiency_demo.py
 
 # Run benchmarks to measure space savings
 uv run python benchmark.py
@@ -91,61 +94,98 @@ uv run python benchmark_delta_strategies.py
 ### Directory Structure
 
 ```
-src/coral/
-├── __init__.py              # Package exports
-├── cli/                     # Command-line interface
-│   ├── __init__.py
-│   └── main.py              # CLI entry point and commands
-├── core/                    # Core data structures and algorithms
-│   ├── __init__.py
-│   ├── weight_tensor.py     # WeightTensor class
-│   ├── deduplicator.py      # Deduplication engine
-│   ├── simhash.py           # SimHash fingerprinting for O(1) similarity
-│   └── lsh_index.py         # LSH index for efficient similarity search
-├── delta/                   # Delta encoding system
-│   ├── __init__.py
-│   ├── delta_encoder.py     # Main encoder with multiple strategies
-│   └── compression.py       # Compression utilities
-├── storage/                 # Storage backends
-│   ├── __init__.py
-│   ├── weight_store.py      # Abstract storage interface
-│   ├── hdf5_store.py        # HDF5 local storage backend
-│   └── s3_store.py          # S3-compatible cloud storage
-├── version_control/         # Git-like versioning
-│   ├── __init__.py
-│   ├── repository.py        # Main Repository class
-│   ├── branch.py            # Branch management
-│   ├── commit.py            # Commit objects
-│   └── version.py           # Version graph
-├── integrations/            # Framework integrations
-│   ├── __init__.py
-│   ├── pytorch.py           # PyTorch integration (CoralTrainer)
-│   ├── lightning.py         # PyTorch Lightning callback
-│   ├── huggingface.py       # HF Hub delta-efficient downloads
-│   └── hf_trainer.py        # HF Trainer callback
-├── training/                # Training management
-│   ├── __init__.py
-│   ├── checkpoint_manager.py # Checkpoint policies
-│   └── training_state.py    # Training state tracking
-├── compression/             # Weight compression (EXPERIMENTAL)
-│   ├── __init__.py
-│   ├── quantization.py      # Quantization techniques
-│   └── pruning.py           # Weight pruning
-├── remotes/                 # Remote repository management
-│   ├── __init__.py
-│   ├── remote.py            # Remote configuration
-│   └── sync.py              # Sync operations
-├── registry/                # Model publishing
-│   ├── __init__.py
-│   └── registry.py          # HF Hub, MLflow publishing
-├── experiments/             # Experiment tracking
-│   ├── __init__.py
-│   └── experiment.py        # Experiment/run tracking
-└── utils/                   # Utilities
-    ├── __init__.py
-    ├── visualization.py     # Visualization utilities
-    ├── json_utils.py        # JSON serialization
-    └── similarity.py        # Similarity calculations
+coral/
+├── src/coral/
+│   ├── __init__.py              # Package exports
+│   ├── cli/                     # Command-line interface
+│   │   ├── __init__.py
+│   │   └── main.py              # CLI entry point (CoralCLI class)
+│   ├── core/                    # Core data structures and algorithms
+│   │   ├── __init__.py
+│   │   ├── weight_tensor.py     # WeightTensor, WeightMetadata classes
+│   │   ├── deduplicator.py      # Deduplication engine
+│   │   ├── simhash.py           # SimHash fingerprinting for O(1) similarity
+│   │   └── lsh_index.py         # LSH index for efficient similarity search
+│   ├── delta/                   # Delta encoding system
+│   │   ├── __init__.py
+│   │   ├── delta_encoder.py     # DeltaEncoder, DeltaConfig, DeltaType
+│   │   └── compression.py       # Compression utilities
+│   ├── storage/                 # Storage backends
+│   │   ├── __init__.py
+│   │   ├── weight_store.py      # Abstract WeightStore interface
+│   │   ├── hdf5_store.py        # HDF5 local storage backend
+│   │   └── s3_store.py          # S3-compatible cloud storage
+│   ├── version_control/         # Git-like versioning
+│   │   ├── __init__.py
+│   │   ├── repository.py        # Main Repository class
+│   │   ├── branch.py            # Branch management
+│   │   ├── commit.py            # Commit objects
+│   │   └── version.py           # Version graph (DAG)
+│   ├── integrations/            # Framework integrations
+│   │   ├── __init__.py
+│   │   ├── pytorch.py           # CoralTrainer for PyTorch
+│   │   ├── lightning.py         # CoralCallback for PyTorch Lightning
+│   │   ├── huggingface.py       # CoralHubClient for HF Hub
+│   │   └── hf_trainer.py        # HFTrainerCallback
+│   ├── training/                # Training management
+│   │   ├── __init__.py
+│   │   ├── checkpoint_manager.py # CheckpointConfig, CheckpointManager
+│   │   └── training_state.py    # TrainingState tracking
+│   ├── compression/             # Weight compression (EXPERIMENTAL)
+│   │   ├── __init__.py
+│   │   ├── quantization.py      # Quantization techniques
+│   │   └── pruning.py           # Weight pruning
+│   ├── remotes/                 # Remote repository management
+│   │   ├── __init__.py
+│   │   ├── remote.py            # Remote configuration
+│   │   └── sync.py              # Sync operations
+│   ├── registry/                # Model publishing
+│   │   ├── __init__.py
+│   │   └── registry.py          # ModelPublisher (HF Hub, MLflow)
+│   ├── experiments/             # Experiment tracking
+│   │   ├── __init__.py
+│   │   └── experiment.py        # ExperimentTracker
+│   └── utils/                   # Utilities
+│       ├── __init__.py
+│       ├── visualization.py     # Visualization utilities
+│       ├── json_utils.py        # JSON serialization
+│       └── similarity.py        # Similarity calculations
+├── tests/                       # Test suite (38 files, 467+ tests)
+├── examples/                    # Usage examples (5 demos)
+├── docs/
+│   ├── book/                    # Complete documentation book
+│   │   └── chapters/            # 10 chapters covering all features
+│   └── research/                # Research notes
+├── .github/
+│   └── workflows/
+│       ├── ci.yml               # CI pipeline (lint, test, build)
+│       └── release.yml          # Release to PyPI
+├── benchmark.py                 # Performance benchmark
+├── benchmark_delta_strategies.py # Delta strategy comparison
+├── pyproject.toml               # Package configuration
+├── CHANGELOG.md                 # Version history
+└── README.md                    # Project documentation
+```
+
+### Public API Exports
+
+The main package exports these classes (from `coral/__init__.py`):
+
+```python
+from coral import (
+    WeightTensor,          # Core weight container
+    WeightMetadata,        # Weight metadata
+    Deduplicator,          # Deduplication engine
+    WeightStore,           # Abstract storage interface
+    HDF5Store,             # HDF5 storage backend
+    Repository,            # Version control repository
+    MergeStrategy,         # Merge strategy enum
+    MergeConflictError,    # Merge conflict exception
+    DeltaEncoder,          # Delta encoding engine
+    DeltaConfig,           # Delta configuration
+    DeltaReconstructionError,  # Reconstruction error
+    DeltaType,             # Delta encoding type enum
+)
 ```
 
 ### Core Components
@@ -220,7 +260,7 @@ src/coral/
 
 ## CLI Commands
 
-The CLI is accessible via `coral-ml` (defined in pyproject.toml):
+The CLI is accessible via `coral-ml` (defined in pyproject.toml `[project.scripts]`):
 
 ```bash
 # Repository initialization
@@ -264,6 +304,37 @@ coral-ml stats [--json]            # Show repository statistics
 coral-ml experiment                # Manage experiments
 ```
 
+## CI/CD Pipeline
+
+### Continuous Integration (`.github/workflows/ci.yml`)
+
+Runs on push/PR to `main` and `develop` branches:
+
+1. **Lint & Format**: `ruff format --check` and `ruff check`
+2. **Type Check**: `mypy src/` (informational, non-blocking)
+3. **Test**: pytest across Python 3.9, 3.10, 3.11, 3.12 with coverage
+4. **Test Minimal**: Core tests with minimal dependencies only
+5. **Build**: Build package and verify wheel
+
+### Release Process (`.github/workflows/release.yml`)
+
+Triggered by pushing version tags (`v*.*.*`):
+
+1. **Validate**: Check version consistency across `pyproject.toml`, `__init__.py`, and tag
+2. **Test**: Full test suite with 80% coverage requirement
+3. **Build**: Build source and wheel distributions
+4. **Publish TestPyPI**: Publish to test.pypi.org
+5. **Publish PyPI**: Publish to pypi.org
+6. **GitHub Release**: Create release with changelog notes
+
+To create a release:
+```bash
+# Update version in pyproject.toml and src/coral/__init__.py
+# Update CHANGELOG.md with release notes
+git tag v1.0.1
+git push origin v1.0.1
+```
+
 ## Test-Driven Development
 
 Follow TDD practices:
@@ -276,7 +347,7 @@ Follow TDD practices:
 
 ### Code Coverage Requirements
 
-- **Minimum Coverage**: 80% for all new code
+- **Minimum Coverage**: 80% for all new code (enforced in CI)
 - **Target Coverage**: 90%+ for core modules
 - **Current Coverage**: 84%
 
@@ -299,18 +370,43 @@ uv run pytest --cov=coral --cov-fail-under=80
 
 ### Test Structure
 
+The test suite contains 38 test files with 467+ test functions:
+
+**Core tests:**
 - `test_weight_tensor.py`: Core WeightTensor functionality
 - `test_deduplicator.py`: Deduplication logic and similarity detection
+- `test_simhash.py`: SimHash fingerprinting
+
+**Delta encoding tests:**
 - `test_delta_encoding.py`: Delta encoding and lossless reconstruction
 - `test_advanced_delta_encoding.py`: Advanced delta strategies (XOR, exponent-mantissa)
-- `test_simhash.py`: SimHash fingerprinting
+- `test_delta_compression.py`: Compression utilities
+- `test_delta_reconstruction_consistency.py`: Reconstruction verification
+
+**Storage tests:**
+- `test_weight_store.py`: Abstract storage interface
+- `test_hdf5_store.py`: HDF5 storage backend
+
+**Version control tests:**
 - `test_version_control.py`: Git-like version control features
+- `test_repository_coverage.py`: Repository class coverage
+- `test_repository_extended.py`: Extended repository tests
+
+**Integration tests:**
 - `test_training.py`: Training integration and checkpoint management
 - `test_pytorch_integration.py`: PyTorch-specific integration tests
-- `test_hdf5_store.py`: HDF5 storage backend
-- `test_cli.py`: CLI command tests
 - `test_experiments.py`: Experiment tracking
 - `test_registry.py`: Model publishing
+- `test_remotes.py`: Remote operations
+
+**CLI tests:**
+- `test_cli.py`: CLI command tests
+- `test_cli_commands_coverage.py`: CLI coverage boost
+- Multiple CLI coverage test files
+
+**Other tests:**
+- `test_compression.py`: Weight compression
+- `test_visualization.py`: Visualization utilities
 
 ## Key Implementation Details
 
@@ -359,12 +455,14 @@ uv run pytest --cov=coral --cov-fail-under=80
 
 Install with `pip install coral-ml[extra]` or `uv sync --extra <extra>`:
 
-- **dev**: pytest, pytest-cov, ruff, mypy
-- **torch**: PyTorch integration
-- **tensorflow**: TensorFlow integration (future)
-- **s3**: boto3 for S3/MinIO storage
-- **huggingface**: huggingface-hub, safetensors for HF Hub integration
-- **all**: All optional dependencies
+- **dev**: pytest, pytest-cov, ruff, mypy (development tools)
+- **torch**: PyTorch integration (`torch>=1.10.0`)
+- **tensorflow**: TensorFlow integration (`tensorflow>=2.8.0`) - future
+- **s3**: S3/MinIO storage (`boto3>=1.26.0`)
+- **huggingface**: HF Hub integration (`huggingface-hub>=0.19.0`, `safetensors>=0.4.0`)
+- **lightning**: PyTorch Lightning (`pytorch-lightning>=2.0.0`)
+- **mlflow**: MLflow integration (`mlflow>=2.0.0`)
+- **all**: All optional dependencies (except dev)
 
 ## Usage Examples
 
@@ -444,6 +542,7 @@ uv run python benchmark_delta_strategies.py
 - **Compression Ratio**: 1.91x
 - **Test Scale**: 18 models, 5.3M parameters, 126 weight tensors
 - **Test Coverage**: 84%
+- **Test Suite**: 38 files, 467+ test functions
 
 ### Performance Goals
 
@@ -465,15 +564,45 @@ uv run python benchmark_delta_strategies.py
 Comprehensive documentation is available in `docs/`:
 
 - `docs/book/` - Complete system book with chapters on:
-  - Introduction and getting started
-  - Core architecture
-  - Delta encoding deep-dive
-  - Storage system
-  - Version control
-  - Training integration
-  - CLI interface
-  - Advanced features
-  - Performance benchmarks
-  - API reference
+  - Chapter 1: Introduction and getting started
+  - Chapter 2: Core architecture
+  - Chapter 3: Delta encoding deep-dive
+  - Chapter 4: Storage system
+  - Chapter 5: Version control
+  - Chapter 6: Training integration
+  - Chapter 7: CLI interface
+  - Chapter 8: Advanced features
+  - Chapter 9: Performance benchmarks
+  - Chapter 10: API reference
 
 - `docs/research/` - Research notes on weight deduplication methods
+
+## Code Style & Conventions
+
+### Ruff Configuration
+
+The project uses Ruff for linting and formatting with these settings:
+- **Target**: Python 3.9+
+- **Line length**: 88 characters
+- **Enabled rules**: pycodestyle (E/W), pyflakes (F), isort (I), flake8-bugbear (B), flake8-comprehensions (C4), pyupgrade (UP)
+- **Quote style**: Double quotes
+- **Indent style**: Spaces
+
+### Type Annotations
+
+- Type hints are used throughout the codebase
+- mypy is run in CI but is informational/non-blocking
+- `strict_optional = false` to relax Optional type checking
+
+### Import Order
+
+Imports are organized by isort:
+1. Standard library imports
+2. Third-party imports
+3. Local application imports
+
+### Error Handling
+
+- Use specific exception types from the package (`MergeConflictError`, `DeltaReconstructionError`)
+- Provide clear error messages with context
+- Handle optional dependencies gracefully with try/except imports
