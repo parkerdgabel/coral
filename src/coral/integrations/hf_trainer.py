@@ -1,12 +1,18 @@
 """HuggingFace Transformers Trainer integration for Coral.
 
 This module provides a callback for the HuggingFace Trainer that automatically
-saves model checkpoints to a Coral repository.
+saves model checkpoints to a Coral repository, with optional integration
+to experiment tracking systems (MLflow, Weights & Biases, etc.).
 """
+
+from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
+
+if TYPE_CHECKING:
+    from coral.integrations.experiment_bridge import ExperimentBridge
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +33,8 @@ class CoralTrainerCallback(TrainerCallback):
     """HuggingFace Trainer callback for automatic Coral checkpointing.
 
     This callback automatically saves model weights to a Coral repository
-    at specified intervals or when metrics improve.
+    at specified intervals or when metrics improve. Optionally integrates
+    with experiment tracking systems via ExperimentBridge.
 
     Example:
         >>> from coral.integrations.hf_trainer import CoralTrainerCallback
@@ -45,6 +52,16 @@ class CoralTrainerCallback(TrainerCallback):
         ... )
         >>> trainer.train()
 
+    Example with W&B tracking:
+        >>> from coral.integrations.wandb_bridge import WandbBridge
+        >>> from coral import Repository
+        >>> repo = Repository("./weights", init=True)
+        >>> bridge = WandbBridge(repo, project="my-project")
+        >>> callback = CoralTrainerCallback(
+        ...     repo_path="./weights",
+        ...     experiment_bridge=bridge,
+        ... )
+
     Args:
         repo_path: Path to Coral repository (will be created if init=True)
         init: If True, initialize the repository if it doesn't exist
@@ -55,6 +72,7 @@ class CoralTrainerCallback(TrainerCallback):
         branch: Branch to commit to (None for current branch)
         push_to: Remote name to push to after each save (None to disable)
         save_on_train_end: Whether to save at end of training
+        experiment_bridge: Optional bridge to external experiment tracker
     """
 
     def __init__(
@@ -68,6 +86,7 @@ class CoralTrainerCallback(TrainerCallback):
         branch: Optional[str] = None,
         push_to: Optional[str] = None,
         save_on_train_end: bool = True,
+        experiment_bridge: Optional[ExperimentBridge] = None,
     ):
         if not HAS_TRANSFORMERS:
             raise ImportError(
@@ -97,6 +116,9 @@ class CoralTrainerCallback(TrainerCallback):
 
         # Repository will be initialized lazily
         self._repo = None
+
+        # Optional experiment tracking
+        self.experiment_bridge = experiment_bridge
 
     @property
     def repo(self):
@@ -170,6 +192,12 @@ class CoralTrainerCallback(TrainerCallback):
 
         logger.info(f"Coral: Saved checkpoint [{commit.commit_hash[:8]}] {message}")
 
+        # Log to experiment tracker if configured
+        if self.experiment_bridge and self.experiment_bridge.is_run_active:
+            self.experiment_bridge.log_coral_commit(commit.commit_hash, message)
+            if metrics:
+                self.experiment_bridge.log_metrics(metrics, step=step)
+
         # Push if configured
         if self.push_to:
             try:
@@ -179,11 +207,40 @@ class CoralTrainerCallback(TrainerCallback):
             except Exception as e:
                 logger.warning(f"Coral: Failed to push to {self.push_to}: {e}")
 
+    def on_train_begin(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        model: Any = None,
+        **kwargs,
+    ):
+        """Called at the beginning of training."""
+        # Start experiment run if bridge is configured
+        if self.experiment_bridge and not self.experiment_bridge.is_run_active:
+            # Extract hyperparameters from training args
+            params = {
+                "learning_rate": args.learning_rate,
+                "num_train_epochs": args.num_train_epochs,
+                "per_device_train_batch_size": args.per_device_train_batch_size,
+                "weight_decay": args.weight_decay,
+                "warmup_steps": args.warmup_steps,
+            }
+            if model is not None and hasattr(model, "config"):
+                params["model_type"] = getattr(model.config, "model_type", "unknown")
+
+            self.experiment_bridge.start_run(
+                name=f"hf-training-{state.global_step}",
+                params=params,
+            )
+
+        return control
+
     def on_step_end(
         self,
-        args: "TrainingArguments",
-        state: "TrainerState",
-        control: "TrainerControl",
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
         model: Any = None,
         **kwargs,
     ):
@@ -203,9 +260,9 @@ class CoralTrainerCallback(TrainerCallback):
 
     def on_epoch_end(
         self,
-        args: "TrainingArguments",
-        state: "TrainerState",
-        control: "TrainerControl",
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
         model: Any = None,
         **kwargs,
     ):
@@ -223,11 +280,32 @@ class CoralTrainerCallback(TrainerCallback):
 
         return control
 
+    def on_log(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        logs: Optional[dict[str, float]] = None,
+        **kwargs,
+    ):
+        """Called when logs are available."""
+        # Log metrics to experiment tracker
+        if self.experiment_bridge and self.experiment_bridge.is_run_active and logs:
+            # Filter to numeric values only
+            numeric_logs = {
+                k: float(v) for k, v in logs.items()
+                if isinstance(v, (int, float))
+            }
+            if numeric_logs:
+                self.experiment_bridge.log_metrics(numeric_logs, step=state.global_step)
+
+        return control
+
     def on_evaluate(
         self,
-        args: "TrainingArguments",
-        state: "TrainerState",
-        control: "TrainerControl",
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
         model: Any = None,
         metrics: Optional[dict[str, float]] = None,
         **kwargs,
@@ -250,9 +328,9 @@ class CoralTrainerCallback(TrainerCallback):
 
     def on_train_end(
         self,
-        args: "TrainingArguments",
-        state: "TrainerState",
-        control: "TrainerControl",
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
         model: Any = None,
         **kwargs,
     ):
@@ -271,6 +349,10 @@ class CoralTrainerCallback(TrainerCallback):
                     f"Coral: Best {self.save_on_best}: {self.best_metric:.6f} "
                     f"at step {self.best_step}"
                 )
+
+        # End experiment run if bridge is configured
+        if self.experiment_bridge and self.experiment_bridge.is_run_active:
+            self.experiment_bridge.end_run("completed")
 
         return control
 

@@ -33,6 +33,15 @@ from coral.training.checkpoint_manager import CheckpointConfig, CheckpointManage
 from coral.training.training_state import TrainingState
 from coral.version_control.repository import Repository
 
+# Import ExperimentBridge for type hints (optional dependency)
+try:
+    from coral.integrations.experiment_bridge import ExperimentBridge
+
+    HAS_BRIDGE = True
+except ImportError:
+    ExperimentBridge = None  # type: ignore
+    HAS_BRIDGE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -157,7 +166,20 @@ class PyTorchIntegration:
 
 
 class CoralTrainer:
-    """PyTorch trainer with Coral version control integration."""
+    """PyTorch trainer with Coral version control integration.
+
+    Supports optional integration with experiment tracking systems via
+    ExperimentBridge (MLflow, Weights & Biases, etc.).
+
+    Example with MLflow:
+        >>> from coral.integrations.mlflow_bridge import MLflowBridge
+        >>> bridge = MLflowBridge(repo, experiment_name="my-experiment")
+        >>> trainer = CoralTrainer(
+        ...     model, repo, "training-run",
+        ...     experiment_bridge=bridge
+        ... )
+        >>> trainer.fit(train_loader, val_loader, epochs=10)
+    """
 
     def __init__(
         self,
@@ -165,13 +187,25 @@ class CoralTrainer:
         repository: Repository,
         experiment_name: str,
         checkpoint_config: Optional[CheckpointConfig] = None,
+        experiment_bridge: Optional[ExperimentBridge] = None,
     ):
+        """Initialize the trainer.
+
+        Args:
+            model: PyTorch model to train
+            repository: Coral repository for weight versioning
+            experiment_name: Name of this training experiment
+            checkpoint_config: Configuration for checkpoint saving
+            experiment_bridge: Optional bridge to external experiment tracker
+                (e.g., MLflowBridge or WandbBridge)
+        """
         if not TORCH_AVAILABLE:
             raise ImportError("PyTorch is not installed")
 
         self.model = model
         self.repository = repository
         self.experiment_name = experiment_name
+        self.experiment_bridge = experiment_bridge
 
         # Initialize checkpoint manager
         config = checkpoint_config or CheckpointConfig(
@@ -223,8 +257,20 @@ class CoralTrainer:
             raise ValueError(f"Unknown event: {event}")
 
     def update_metrics(self, **metrics) -> None:
-        """Update training metrics."""
+        """Update training metrics.
+
+        If an experiment bridge is configured, metrics are also logged
+        to the external tracker.
+        """
         self.training_metrics.update(metrics)
+
+        # Log to experiment tracker if configured
+        if self.experiment_bridge and self.experiment_bridge.is_run_active:
+            numeric_metrics = {
+                k: float(v) for k, v in metrics.items()
+                if isinstance(v, (int, float))
+            }
+            self.experiment_bridge.log_metrics(numeric_metrics, step=self.global_step)
 
     def step(self, loss: float, **metrics) -> None:
         """Record a training step."""
@@ -286,6 +332,11 @@ class CoralTrainer:
 
         if commit_hash:
             logger.info(f"Saved checkpoint: {commit_hash}")
+
+            # Log commit to experiment tracker if configured
+            if self.experiment_bridge and self.experiment_bridge.is_run_active:
+                message = f"Epoch {self.current_epoch}, Step {self.global_step}"
+                self.experiment_bridge.log_coral_commit(commit_hash, message)
 
             # Call checkpoint callbacks
             for callback in self.on_checkpoint_save_callbacks:
@@ -358,6 +409,47 @@ class CoralTrainer:
                 p.numel() for p in self.model.parameters() if p.requires_grad
             ),
         }
+
+    def start_experiment(
+        self,
+        params: Optional[dict[str, Any]] = None,
+        tags: Optional[list[str]] = None,
+    ) -> Optional[str]:
+        """Start an experiment run in the configured experiment tracker.
+
+        Call this at the beginning of training to initialize experiment
+        tracking. Metrics and commits will be logged automatically.
+
+        Args:
+            params: Hyperparameters to log (learning rate, batch size, etc.)
+            tags: Tags to associate with the run
+
+        Returns:
+            Run ID from the experiment tracker, or None if no bridge configured
+        """
+        if self.experiment_bridge is None:
+            logger.debug("No experiment bridge configured")
+            return None
+
+        return self.experiment_bridge.start_run(
+            name=self.experiment_name,
+            params=params,
+            tags=tags,
+        )
+
+    def end_experiment(self, status: str = "completed") -> None:
+        """End the current experiment run.
+
+        Call this at the end of training to finalize experiment tracking.
+
+        Args:
+            status: Final status ("completed", "failed", "cancelled")
+        """
+        if self.experiment_bridge is None:
+            return
+
+        if self.experiment_bridge.is_run_active:
+            self.experiment_bridge.end_run(status=status)
 
     def _should_save_checkpoint(self) -> bool:
         """Check if a checkpoint should be saved."""
