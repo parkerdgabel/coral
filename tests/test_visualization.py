@@ -144,3 +144,328 @@ class TestVisualization:
         assert viz_data["weight_counts"]["similar"] == 0
         assert viz_data["compression"]["bytes_saved"] == 0
         assert viz_data["compression"]["compression_ratio"] == 1.0
+
+
+class TestModelComparison:
+    """Tests for model comparison visualization functions."""
+
+    def test_compare_models_identical(self):
+        """Test comparing identical models."""
+        from coral.utils.visualization import compare_models
+
+        # Create identical weights
+        weights_a = {
+            "layer1.weight": WeightTensor(
+                data=np.ones((10, 5), dtype=np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=(10, 5), dtype=np.float32
+                ),
+            ),
+            "layer1.bias": WeightTensor(
+                data=np.zeros(10, dtype=np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.bias", shape=(10,), dtype=np.float32
+                ),
+            ),
+        }
+        weights_b = {
+            "layer1.weight": WeightTensor(
+                data=np.ones((10, 5), dtype=np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=(10, 5), dtype=np.float32
+                ),
+            ),
+            "layer1.bias": WeightTensor(
+                data=np.zeros(10, dtype=np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.bias", shape=(10,), dtype=np.float32
+                ),
+            ),
+        }
+
+        diff = compare_models(weights_a, weights_b, "Model A", "Model B")
+
+        assert "summary" in diff
+        assert "layer_comparisons" in diff
+        assert diff["summary"]["overall_similarity"] == 1.0
+        assert diff["summary"]["common_layers"] == 2
+        assert len(diff["summary"]["only_in_a"]) == 0
+        assert len(diff["summary"]["only_in_b"]) == 0
+
+    def test_compare_models_different(self):
+        """Test comparing different models."""
+        from coral.utils.visualization import compare_models
+
+        np.random.seed(42)
+
+        weights_a = {
+            "layer1.weight": WeightTensor(
+                data=np.random.randn(10, 5).astype(np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=(10, 5), dtype=np.float32
+                ),
+            ),
+        }
+        weights_b = {
+            "layer1.weight": WeightTensor(
+                data=np.random.randn(10, 5).astype(np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=(10, 5), dtype=np.float32
+                ),
+            ),
+        }
+
+        diff = compare_models(weights_a, weights_b, "Model A", "Model B")
+
+        assert diff["summary"]["overall_similarity"] < 1.0
+        assert diff["summary"]["common_layers"] == 1
+
+        # Check layer comparison has similarity metrics
+        layer_comp = diff["layer_comparisons"][0]
+        assert "cosine_similarity" in layer_comp
+        assert "magnitude_similarity" in layer_comp
+        assert "combined_similarity" in layer_comp
+        assert "diff_stats" in layer_comp
+
+    def test_compare_models_missing_layers(self):
+        """Test comparing models with different layers."""
+        from coral.utils.visualization import compare_models
+
+        weights_a = {
+            "layer1.weight": WeightTensor(
+                data=np.ones((10, 5), dtype=np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=(10, 5), dtype=np.float32
+                ),
+            ),
+            "layer2.weight": WeightTensor(
+                data=np.ones((5, 3), dtype=np.float32),
+                metadata=WeightMetadata(
+                    name="layer2.weight", shape=(5, 3), dtype=np.float32
+                ),
+            ),
+        }
+        weights_b = {
+            "layer1.weight": WeightTensor(
+                data=np.ones((10, 5), dtype=np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=(10, 5), dtype=np.float32
+                ),
+            ),
+            "layer3.weight": WeightTensor(
+                data=np.ones((3, 3), dtype=np.float32),
+                metadata=WeightMetadata(
+                    name="layer3.weight", shape=(3, 3), dtype=np.float32
+                ),
+            ),
+        }
+
+        diff = compare_models(weights_a, weights_b, "Model A", "Model B")
+
+        assert diff["summary"]["common_layers"] == 1
+        assert "layer2.weight" in diff["summary"]["only_in_a"]
+        assert "layer3.weight" in diff["summary"]["only_in_b"]
+
+    def test_compare_models_shape_mismatch(self):
+        """Test comparing models with shape mismatches."""
+        from coral.utils.visualization import compare_models
+
+        weights_a = {
+            "layer1.weight": WeightTensor(
+                data=np.ones((10, 5), dtype=np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=(10, 5), dtype=np.float32
+                ),
+            ),
+        }
+        weights_b = {
+            "layer1.weight": WeightTensor(
+                data=np.ones((5, 10), dtype=np.float32),  # Different shape
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=(5, 10), dtype=np.float32
+                ),
+            ),
+        }
+
+        diff = compare_models(weights_a, weights_b, "Model A", "Model B")
+
+        layer_comp = diff["layer_comparisons"][0]
+        assert layer_comp["shape_mismatch"] is True
+        assert layer_comp["combined_similarity"] == 0.0
+
+    def test_compare_models_empty(self):
+        """Test comparing empty models."""
+        from coral.utils.visualization import compare_models
+
+        diff = compare_models({}, {}, "Empty A", "Empty B")
+
+        assert diff["summary"]["common_layers"] == 0
+        assert diff["summary"]["total_layers_a"] == 0
+        assert diff["summary"]["total_layers_b"] == 0
+        assert diff["summary"]["overall_similarity"] == 0.0
+
+    def test_compare_models_categories(self):
+        """Test that models are categorized correctly."""
+        from coral.utils.visualization import compare_models
+
+        # Create weights with known similarity
+        base = np.random.randn(10, 10).astype(np.float32)
+
+        weights_a = {
+            "identical": WeightTensor(
+                data=base.copy(),
+                metadata=WeightMetadata(
+                    name="identical", shape=(10, 10), dtype=np.float32
+                ),
+            ),
+            "minor": WeightTensor(
+                data=base + np.random.randn(10, 10).astype(np.float32) * 0.001,
+                metadata=WeightMetadata(
+                    name="minor", shape=(10, 10), dtype=np.float32
+                ),
+            ),
+        }
+        weights_b = {
+            "identical": WeightTensor(
+                data=base.copy(),
+                metadata=WeightMetadata(
+                    name="identical", shape=(10, 10), dtype=np.float32
+                ),
+            ),
+            "minor": WeightTensor(
+                data=base,  # Original
+                metadata=WeightMetadata(
+                    name="minor", shape=(10, 10), dtype=np.float32
+                ),
+            ),
+        }
+
+        diff = compare_models(weights_a, weights_b, "Model A", "Model B")
+
+        assert "categories" in diff
+        assert "category_counts" in diff
+        # identical layer should be in identical category
+        assert "identical" in diff["categories"]["identical"]
+
+
+class TestFormatModelDiff:
+    """Tests for format_model_diff function."""
+
+    def test_format_model_diff_basic(self):
+        """Test basic model diff formatting."""
+        from coral.utils.visualization import compare_models, format_model_diff
+
+        weights_a = {
+            "layer1.weight": WeightTensor(
+                data=np.ones((10, 5), dtype=np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=(10, 5), dtype=np.float32
+                ),
+            ),
+        }
+        weights_b = {
+            "layer1.weight": WeightTensor(
+                data=np.ones((10, 5), dtype=np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=(10, 5), dtype=np.float32
+                ),
+            ),
+        }
+
+        diff = compare_models(weights_a, weights_b, "Model A", "Model B")
+        output = format_model_diff(diff)
+
+        assert "Model Comparison: Model A vs Model B" in output
+        assert "Summary:" in output
+        assert "Overall Similarity:" in output
+        assert "Common Layers:" in output
+        assert "Change Categories:" in output
+
+    def test_format_model_diff_verbose(self):
+        """Test verbose model diff formatting."""
+        from coral.utils.visualization import compare_models, format_model_diff
+
+        weights_a = {
+            "layer1.weight": WeightTensor(
+                data=np.random.randn(10, 5).astype(np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=(10, 5), dtype=np.float32
+                ),
+            ),
+        }
+        weights_b = {
+            "layer1.weight": WeightTensor(
+                data=np.random.randn(10, 5).astype(np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=(10, 5), dtype=np.float32
+                ),
+            ),
+        }
+
+        diff = compare_models(weights_a, weights_b, "Model A", "Model B")
+        output = format_model_diff(diff, verbose=True)
+
+        assert "Per-Layer Details:" in output
+        assert "layer1.weight:" in output
+        assert "Cosine Similarity:" in output
+        assert "Magnitude Similarity:" in output
+
+    def test_format_model_diff_with_missing_layers(self):
+        """Test formatting when layers are missing."""
+        from coral.utils.visualization import compare_models, format_model_diff
+
+        weights_a = {
+            "layer1.weight": WeightTensor(
+                data=np.ones((10, 5), dtype=np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=(10, 5), dtype=np.float32
+                ),
+            ),
+            "layer2.weight": WeightTensor(
+                data=np.ones((5, 3), dtype=np.float32),
+                metadata=WeightMetadata(
+                    name="layer2.weight", shape=(5, 3), dtype=np.float32
+                ),
+            ),
+        }
+        weights_b = {
+            "layer1.weight": WeightTensor(
+                data=np.ones((10, 5), dtype=np.float32),
+                metadata=WeightMetadata(
+                    name="layer1.weight", shape=(10, 5), dtype=np.float32
+                ),
+            ),
+        }
+
+        diff = compare_models(weights_a, weights_b, "Model A", "Model B")
+        output = format_model_diff(diff)
+
+        assert "Layers only in Model A:" in output
+        assert "layer2.weight" in output
+
+    def test_format_model_diff_most_changed(self):
+        """Test that most changed layers are shown."""
+        from coral.utils.visualization import compare_models, format_model_diff
+
+        np.random.seed(42)
+        weights_a = {}
+        weights_b = {}
+
+        for i in range(10):
+            weights_a[f"layer{i}.weight"] = WeightTensor(
+                data=np.random.randn(10, 10).astype(np.float32),
+                metadata=WeightMetadata(
+                    name=f"layer{i}.weight", shape=(10, 10), dtype=np.float32
+                ),
+            )
+            weights_b[f"layer{i}.weight"] = WeightTensor(
+                data=np.random.randn(10, 10).astype(np.float32),
+                metadata=WeightMetadata(
+                    name=f"layer{i}.weight", shape=(10, 10), dtype=np.float32
+                ),
+            )
+
+        diff = compare_models(weights_a, weights_b, "Model A", "Model B")
+        output = format_model_diff(diff)
+
+        assert "Most Changed Layers:" in output
