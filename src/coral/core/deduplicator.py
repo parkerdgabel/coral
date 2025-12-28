@@ -10,6 +10,10 @@ from typing import Any, Optional
 import numpy as np
 
 from coral.core.lsh_index import LSHConfig, MultiDimLSHIndex
+from coral.core.similarity_index import (
+    MultiDimSimilarityIndex,
+    SimilarityIndexConfig,
+)
 from coral.core.weight_tensor import WeightTensor
 from coral.delta.delta_encoder import Delta, DeltaConfig, DeltaEncoder
 
@@ -79,9 +83,10 @@ class Deduplicator:
     Supports:
     - Exact deduplication through content hashing
     - Similarity-based deduplication with lossless delta encoding
-    - LSH-based O(1) similarity search (optional, for large-scale deployments)
+    - Unified similarity index for O(1) similarity search
     - Reference counting
     - Deduplication statistics
+    - Lazy weight loading for memory efficiency
     """
 
     def __init__(
@@ -92,6 +97,9 @@ class Deduplicator:
         enable_lsh: bool = False,
         lsh_config: Optional[LSHConfig] = None,
         magnitude_tolerance: float = 0.1,
+        similarity_index_config: Optional[SimilarityIndexConfig] = None,
+        use_unified_index: bool = True,
+        enable_lazy_loading: bool = False,
     ):
         """
         Initialize the deduplicator.
@@ -102,26 +110,57 @@ class Deduplicator:
             enable_delta_encoding: Whether to use delta encoding for similar weights
             enable_lsh: Whether to use LSH for O(1) similarity lookup.
                 Enable for large-scale deployments (>10k weights).
-            lsh_config: Configuration for LSH index
-            magnitude_tolerance: Maximum relative magnitude difference for similarity.
-                E.g., 0.1 means magnitudes must be within 10% of each other.
+                Deprecated: use use_unified_index=True instead.
+            lsh_config: Configuration for LSH index.
+                Deprecated: use similarity_index_config instead.
+            magnitude_tolerance: Max relative magnitude difference.
+                E.g., 0.1 means magnitudes must be within 10%.
+            similarity_index_config: Config for unified similarity index.
+            use_unified_index: Use the unified similarity index (default).
+                Combines SimHash fingerprinting with LSH bucketing.
+            enable_lazy_loading: Enable lazy weight loading.
+                When enabled, only weight metadata is kept in memory.
         """
         self.similarity_threshold = similarity_threshold
         self.magnitude_tolerance = magnitude_tolerance
         self.enable_delta_encoding = enable_delta_encoding
+        self.enable_lazy_loading = enable_lazy_loading
         self.delta_encoder = (
             DeltaEncoder(delta_config or DeltaConfig())
             if enable_delta_encoding
             else None
         )
 
-        # LSH index for fast similarity search
+        # Unified similarity index (new, recommended)
+        self.use_unified_index = use_unified_index
+        self.similarity_index: Optional[MultiDimSimilarityIndex] = None
+
+        # Legacy LSH index for backward compatibility
         self.enable_lsh = enable_lsh
         self.lsh_index: Optional[MultiDimLSHIndex] = None
-        if enable_lsh:
+
+        if use_unified_index:
+            # Use unified index (combines SimHash + LSH)
+            if similarity_index_config is None:
+                # Convert similarity threshold to hamming threshold
+                # Higher similarity -> lower hamming threshold
+                hamming_thresh = 1.0 - similarity_threshold
+                similarity_index_config = SimilarityIndexConfig(
+                    hamming_threshold=max(0.05, hamming_thresh),
+                    num_bits=64,
+                    num_tables=4,
+                )
+            self.similarity_index = MultiDimSimilarityIndex(similarity_index_config)
+        elif enable_lsh:
+            # Legacy mode: use old LSH index
             self.lsh_index = MultiDimLSHIndex(lsh_config or LSHConfig())
 
+        # Weight storage - can use lazy loading
         self.weight_index: dict[str, WeightTensor] = {}  # hash -> weight
+        self._weight_metadata: dict[
+            str, dict
+        ] = {}  # hash -> metadata dict (for lazy mode)
+
         self.weight_groups: dict[str, WeightGroup] = {}  # reference_hash -> group
         self.name_to_hash: dict[str, str] = {}  # weight name -> hash
         self.name_to_delta: dict[
@@ -132,6 +171,9 @@ class Deduplicator:
 
         # Thread safety lock for concurrent access
         self._lock = threading.RLock()
+
+        # Optional store reference for lazy loading
+        self._store = None
 
     def add_weight(self, weight: WeightTensor, name: Optional[str] = None) -> str:
         """
@@ -234,8 +276,19 @@ class Deduplicator:
         self.weight_index[weight_hash] = weight
         self.name_to_hash[name] = weight_hash
 
-        # Add to LSH index for fast similarity lookup
-        if self.lsh_index is not None:
+        # Store metadata for lazy loading mode
+        if self.enable_lazy_loading:
+            self._weight_metadata[weight_hash] = {
+                "shape": weight.shape,
+                "dtype": weight.dtype,
+                "name": weight.metadata.name,
+            }
+
+        # Add to unified similarity index (preferred)
+        if self.similarity_index is not None:
+            self.similarity_index.insert(weight.data, weight_hash)
+        # Fall back to legacy LSH index
+        elif self.lsh_index is not None:
             self.lsh_index.insert(weight.data, weight_hash)
 
         self.stats.unique_weights += 1
@@ -245,15 +298,33 @@ class Deduplicator:
         """
         Find a similar weight in the index.
 
-        Uses LSH for O(1) lookup if enabled, otherwise falls back to O(n) scan.
+        Uses the unified similarity index for O(1) lookup if enabled,
+        falls back to legacy LSH, then to O(n) scan.
 
         Returns hash of similar weight or None.
         """
         # Import here to avoid circular dependency with utils
         from coral.utils.similarity import are_similar
 
-        # Get candidates - either from LSH or full scan
-        if self.lsh_index is not None:
+        candidates: list[tuple[str, WeightTensor]] = []
+
+        # Try unified similarity index first (preferred)
+        if self.similarity_index is not None:
+            # O(1) average case: get candidates with estimated similarity
+            results = self.similarity_index.query(weight.data)
+
+            # Filter by estimated similarity and get actual weights
+            for result in results:
+                if result.estimated_similarity >= self.similarity_threshold * 0.9:
+                    # Allow slightly lower threshold for candidates since
+                    # Hamming distance is an approximation
+                    if result.vector_id in self.weight_index:
+                        w = self.weight_index[result.vector_id]
+                        if w.shape == weight.shape and w.dtype == weight.dtype:
+                            candidates.append((result.vector_id, w))
+
+        # Fall back to legacy LSH index
+        elif self.lsh_index is not None:
             # O(1) average case: get candidate hashes from LSH
             candidate_hashes = self.lsh_index.query(weight.data)
             candidates = [
@@ -263,6 +334,7 @@ class Deduplicator:
                 and self.weight_index[h].shape == weight.shape
                 and self.weight_index[h].dtype == weight.dtype
             ]
+
         else:
             # O(n) fallback: scan all weights with matching shape/dtype
             candidates = [
@@ -419,15 +491,72 @@ class Deduplicator:
         """
         with self._lock:
             self.weight_index.clear()
+            self._weight_metadata.clear()
             self.weight_groups.clear()
             self.name_to_hash.clear()
             self.name_to_delta.clear()
             self.delta_index.clear()
             self.stats = DeduplicationStats()
 
-            # Clear LSH index if enabled
+            # Clear unified similarity index if enabled
+            if self.similarity_index is not None:
+                self.similarity_index.clear()
+
+            # Clear legacy LSH index if enabled
             if self.lsh_index is not None:
                 self.lsh_index.clear()
+
+    def set_store(self, store) -> None:
+        """Set the weight store for lazy loading.
+
+        Args:
+            store: WeightStore instance for loading weights on demand
+        """
+        self._store = store
+
+    def get_fingerprint(self, weight_hash: str):
+        """Get the similarity fingerprint for a weight.
+
+        Args:
+            weight_hash: Hash of the weight
+
+        Returns:
+            Fingerprint object or None if not using unified index
+        """
+        if self.similarity_index is not None:
+            return self.similarity_index.get_fingerprint(weight_hash)
+        return None
+
+    def get_similar_weights(
+        self, weight: WeightTensor, max_results: int = 10
+    ) -> list[tuple[str, float]]:
+        """Find weights similar to the given weight.
+
+        Args:
+            weight: Weight to find similar weights for
+            max_results: Maximum number of results
+
+        Returns:
+            List of (hash, estimated_similarity) tuples
+        """
+        if self.similarity_index is not None:
+            results = self.similarity_index.query(
+                weight.data, max_candidates=max_results
+            )
+            return [(r.vector_id, r.estimated_similarity) for r in results]
+        return []
+
+    def get_similarity_index_stats(self) -> dict[str, Any]:
+        """Get statistics about the similarity index.
+
+        Returns:
+            Dictionary with index statistics
+        """
+        if self.similarity_index is not None:
+            return self.similarity_index.get_stats()
+        elif self.lsh_index is not None:
+            return self.lsh_index.get_stats()
+        return {"enabled": False}
 
     def _compute_delta_hash(self, delta: Delta) -> str:
         """Compute hash for a delta object."""
