@@ -456,7 +456,7 @@ class TestUnifiedLoadSave:
         """Test unified load function."""
         # First save some weights
         temp_repo.stage_weights(sample_weights)
-        commit = temp_repo.commit("Initial weights")
+        temp_repo.commit("Initial weights")
 
         torch = Mock()
         torch.nn.Module = Mock

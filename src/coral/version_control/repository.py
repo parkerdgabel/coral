@@ -5,7 +5,7 @@ import json
 import logging
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from ..core.deduplicator import Deduplicator
 from ..core.weight_tensor import WeightTensor
@@ -58,7 +58,7 @@ class Repository:
         self,
         path: Path,
         init: bool = False,
-        config: Optional["CoralConfig"] = None,
+        config: Optional[CoralConfig] = None,
     ):
         self.path = Path(path)
         self.coral_dir = self.path / ".coral"
@@ -108,11 +108,11 @@ class Repository:
         self._load_commits()
 
     @property
-    def coral_config(self) -> "CoralConfig":
+    def coral_config(self) -> CoralConfig:
         """Get the typed configuration object."""
         return self._coral_config
 
-    def _load_coral_config(self) -> "CoralConfig":
+    def _load_coral_config(self) -> CoralConfig:
         """Load configuration using the new config system."""
         from ..config import load_config
 
@@ -125,7 +125,7 @@ class Repository:
             "core": self._coral_config.core.to_dict(),
         }
 
-    def _initialize_repository(self, config: Optional["CoralConfig"] = None) -> None:
+    def _initialize_repository(self, config: Optional[CoralConfig] = None) -> None:
         """Initialize a new repository.
 
         Args:
@@ -183,7 +183,7 @@ class Repository:
         with open(main_branch_file, "w") as f:
             json.dump(initial_branch_data, f, indent=2)
 
-    def _save_config_toml(self, config: "CoralConfig") -> None:
+    def _save_config_toml(self, config: CoralConfig) -> None:
         """Save configuration to TOML format.
 
         Args:
