@@ -85,8 +85,7 @@ class MLflowBridge(ExperimentBridge):
         """
         if not HAS_MLFLOW:
             raise ImportError(
-                "MLflow is required for MLflowBridge. "
-                "Install with: pip install mlflow"
+                "MLflow is required for MLflowBridge. Install with: pip install mlflow"
             )
 
         super().__init__(repo)

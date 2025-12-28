@@ -317,8 +317,7 @@ class CoralTrainerCallback(TrainerCallback):
         if self.experiment_bridge and self.experiment_bridge.is_run_active and logs:
             # Filter to numeric values only
             numeric_logs = {
-                k: float(v) for k, v in logs.items()
-                if isinstance(v, (int, float))
+                k: float(v) for k, v in logs.items() if isinstance(v, (int, float))
             }
             if numeric_logs:
                 self.experiment_bridge.log_metrics(numeric_logs, step=state.global_step)

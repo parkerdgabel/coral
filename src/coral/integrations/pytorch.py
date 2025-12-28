@@ -471,7 +471,6 @@ class CoralTrainer:
         return 0.0
 
 
-
 class Checkpointer:
     """Streamlined checkpoint coordinator for PyTorch training.
 
@@ -597,8 +596,7 @@ class Checkpointer:
         # Log to tracker if configured
         if self._tracker and self._tracker.is_run_active:
             numeric_metrics = {
-                k: float(v) for k, v in metrics.items()
-                if isinstance(v, (int, float))
+                k: float(v) for k, v in metrics.items() if isinstance(v, (int, float))
             }
             self._tracker.log_metrics(numeric_metrics, step=self._global_step)
 
@@ -812,6 +810,7 @@ class Checkpointer:
         if self.optimizer:
             return self.optimizer.param_groups[0]["lr"]
         return 0.0
+
 
 def _get_layer_type(model: nn.Module, param_name: str) -> Optional[str]:
     """Get the layer type for a parameter."""

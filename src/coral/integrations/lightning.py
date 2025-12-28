@@ -321,9 +321,7 @@ class CoralCallback(Callback):
                     message=f"Step {step} checkpoint",
                 )
 
-    def on_train_end(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule
-    ) -> None:
+    def on_train_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         """Called at the end of training."""
         self._save_checkpoint(
             trainer,

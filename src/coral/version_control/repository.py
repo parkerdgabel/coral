@@ -125,9 +125,7 @@ class Repository:
             "core": self._coral_config.core.to_dict(),
         }
 
-    def _initialize_repository(
-        self, config: Optional["CoralConfig"] = None
-    ) -> None:
+    def _initialize_repository(self, config: Optional["CoralConfig"] = None) -> None:
         """Initialize a new repository.
 
         Args:
