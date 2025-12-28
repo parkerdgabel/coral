@@ -206,8 +206,11 @@ class TestTensorFlowSaveLoad:
 
             # Create branch and save
             result = save(
-                model, repo, "Branch checkpoint",
-                branch="experiment", create_branch=True
+                model,
+                repo,
+                "Branch checkpoint",
+                branch="experiment",
+                create_branch=True,
             )
 
         assert result["branch"] == "experiment"

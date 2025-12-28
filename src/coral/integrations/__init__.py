@@ -83,15 +83,17 @@ if importlib.util.find_spec("tensorflow") is not None:
             save_model as tf_save_model,
         )
 
-        __all__.extend([
-            "TensorFlowIntegration",
-            "tf_save",
-            "tf_load",
-            "tf_save_model",
-            "tf_load_model_from_coral",
-            "tf_load_into_model",
-            "tf_compare_model_weights",
-        ])
+        __all__.extend(
+            [
+                "TensorFlowIntegration",
+                "tf_save",
+                "tf_load",
+                "tf_save_model",
+                "tf_load_model_from_coral",
+                "tf_load_into_model",
+                "tf_compare_model_weights",
+            ]
+        )
     except ImportError:
         # TensorFlow available but import failed
         pass

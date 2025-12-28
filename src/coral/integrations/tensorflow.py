@@ -40,8 +40,7 @@ def _require_tensorflow() -> None:
     """Raise ImportError if TensorFlow is not available."""
     if not TF_AVAILABLE:
         raise ImportError(
-            "TensorFlow is not installed. "
-            "Install with: pip install tensorflow>=2.8.0"
+            "TensorFlow is not installed. Install with: pip install tensorflow>=2.8.0"
         )
 
 
@@ -586,22 +585,26 @@ def compare_model_weights(
         w2 = weights2[name].data
 
         if w1.shape != w2.shape:
-            different.append({
-                "name": name,
-                "reason": "shape_mismatch",
-                "shape1": w1.shape,
-                "shape2": w2.shape,
-            })
+            different.append(
+                {
+                    "name": name,
+                    "reason": "shape_mismatch",
+                    "shape1": w1.shape,
+                    "shape2": w2.shape,
+                }
+            )
         else:
             max_diff = float(np.max(np.abs(w1 - w2)))
             if max_diff <= tolerance:
                 identical.append(name)
             else:
-                different.append({
-                    "name": name,
-                    "reason": "value_difference",
-                    "max_diff": max_diff,
-                })
+                different.append(
+                    {
+                        "name": name,
+                        "reason": "value_difference",
+                        "max_diff": max_diff,
+                    }
+                )
 
     return {
         "identical": identical,
