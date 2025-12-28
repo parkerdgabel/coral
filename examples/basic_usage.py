@@ -11,7 +11,6 @@ import numpy as np
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from coral import Deduplicator, HDF5Store, WeightTensor
-from coral.compression import Pruner, Quantizer
 from coral.core.weight_tensor import WeightMetadata
 
 
@@ -144,50 +143,8 @@ def demonstrate_storage():
             print(f"Loaded: {loaded}")
 
 
-def demonstrate_compression():
-    """Demonstrate weight compression techniques"""
-    print("\n=== Weight Compression Demo ===\n")
-
-    # Create a sample weight
-    weight = WeightTensor(
-        data=np.random.randn(256, 256).astype(np.float32),
-        metadata=WeightMetadata(
-            name="layer.weight", shape=(256, 256), dtype=np.float32, layer_type="Linear"
-        ),
-    )
-
-    print(f"Original weight: {weight}")
-    print(f"Original size: {weight.nbytes} bytes")
-
-    # Quantization
-    print("\n1. Quantization (8-bit):")
-    quantized, quant_params = Quantizer.quantize_uniform(weight, bits=8)
-    print(f"Quantized size: {quantized.nbytes} bytes")
-    print(f"Compression ratio: {weight.nbytes / quantized.nbytes:.2f}x")
-
-    # Estimate quantization error
-    error = Quantizer.estimate_quantization_error(weight, bits=8)
-    print(f"Quantization MSE: {error:.6f}")
-
-    # Pruning
-    print("\n2. Magnitude Pruning (50% sparsity):")
-    pruned, prune_info = Pruner.prune_magnitude(weight, sparsity=0.5)
-    print(f"Pruned elements: {prune_info['pruned_elements']}")
-    print(f"Actual sparsity: {prune_info['sparsity']:.2%}")
-
-    # Combined compression
-    print("\n3. Combined (Pruning + Quantization):")
-    pruned_weight, _ = Pruner.prune_magnitude(weight, sparsity=0.5)
-    pruned_quantized, _ = Quantizer.quantize_uniform(pruned_weight, bits=8)
-
-    # In practice, sparse formats would save more space
-    theoretical_sparse_size = pruned_quantized.nbytes * (1 - prune_info["sparsity"])
-    print(f"Theoretical sparse size: {theoretical_sparse_size:.0f} bytes")
-    print(f"Combined compression ratio: {weight.nbytes / theoretical_sparse_size:.2f}x")
-
-
 def demonstrate_integration():
-    """Demonstrate integrated workflow"""
+    """Demonstrate integrated workflow with deduplication"""
     print("\n=== Integrated Workflow Demo ===\n")
 
     # Create weights
@@ -206,11 +163,8 @@ def demonstrate_integration():
 
             # 2. Only store if unique
             if dedup.stats.unique_weights > 0 and ref_hash == weight.compute_hash():
-                # This is a unique weight, apply compression
-                compressed, _ = Quantizer.quantize_uniform(weight, bits=8)
-
-                # Store compressed weight
-                store.store(compressed)
+                # Store unique weight
+                store.store(weight)
                 print(f"Stored unique weight: {weight.metadata.name}")
             else:
                 print(f"Skipped duplicate/similar: {weight.metadata.name}")
@@ -230,7 +184,6 @@ if __name__ == "__main__":
     # Run all demonstrations
     demonstrate_deduplication()
     demonstrate_storage()
-    demonstrate_compression()
     demonstrate_integration()
 
     print("\n=== Demo Complete ===")
