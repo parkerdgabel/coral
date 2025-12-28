@@ -13,14 +13,15 @@ try:
 
     TORCH_AVAILABLE = True
 except ImportError:
+    torch = None  # type: ignore[assignment]  # Define for mock.patch compatibility
     TORCH_AVAILABLE = False
 
     # Create dummy classes for type hints
-    class nn:
+    class nn:  # type: ignore[no-redef]
         class Module:
             pass
 
-    class Optimizer:
+    class Optimizer:  # type: ignore[no-redef]
         pass
 
     class _LRScheduler:

@@ -164,35 +164,36 @@ class TestTargetedCoverage80:
 
     def test_pytorch_integration_model_operations(self):
         """Test PyTorchIntegration model operations."""
-        # Mock torch
+        # Mock torch and TORCH_AVAILABLE
         with patch("coral.integrations.pytorch.torch") as _mock_torch:
-            # Setup mock model
-            mock_model = Mock()
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                # Setup mock model
+                mock_model = Mock()
 
-            # Create mock parameters
-            mock_param1 = Mock()
-            mock_param1.detach.return_value.cpu.return_value.numpy.return_value = (
-                np.ones((10, 5), dtype=np.float32)
-            )
+                # Create mock parameters
+                mock_param1 = Mock()
+                mock_param1.detach.return_value.cpu.return_value.numpy.return_value = (
+                    np.ones((10, 5), dtype=np.float32)
+                )
 
-            mock_param2 = Mock()
-            mock_param2.detach.return_value.cpu.return_value.numpy.return_value = (
-                np.zeros(10, dtype=np.float32)
-            )
+                mock_param2 = Mock()
+                mock_param2.detach.return_value.cpu.return_value.numpy.return_value = (
+                    np.zeros(10, dtype=np.float32)
+                )
 
-            # Make named_parameters iterable
-            mock_model.named_parameters.return_value = [
-                ("layer1.weight", mock_param1),
-                ("layer1.bias", mock_param2),
-            ]
+                # Make named_parameters iterable
+                mock_model.named_parameters.return_value = [
+                    ("layer1.weight", mock_param1),
+                    ("layer1.bias", mock_param2),
+                ]
 
-            # Test model to weights
-            integration = PyTorchIntegration()
-            weights = integration.model_to_weights(mock_model)
+                # Test model to weights
+                integration = PyTorchIntegration()
+                weights = integration.model_to_weights(mock_model)
 
-            assert len(weights) == 2
-            assert "layer1.weight" in weights
-            assert "layer1.bias" in weights
+                assert len(weights) == 2
+                assert "layer1.weight" in weights
+                assert "layer1.bias" in weights
 
     def test_weight_store_abstract_methods(self):
         """Test WeightStore abstract base class."""
