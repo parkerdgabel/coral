@@ -153,6 +153,43 @@ config = CheckpointConfig(
 
 When `auto_commit=True`, each checkpoint becomes a version-controlled commit with full history and metadata. Tags make best models easy to find and load later.
 
+### Early Stopping
+
+Configure early stopping to halt training when metrics stop improving:
+
+```python
+config = CheckpointConfig(
+    save_on_best_metric="val_loss",
+    minimize_metric=True,
+
+    # Stop training after 5 epochs without improvement
+    early_stopping_patience=5,
+
+    # Require at least 0.001 improvement to count as progress
+    early_stopping_threshold=0.001,
+)
+```
+
+**Parameters**:
+- `early_stopping_patience`: Number of checkpoints without improvement before stopping (None to disable)
+- `early_stopping_threshold`: Minimum improvement required to reset patience counter
+
+Early stopping works with the `CheckpointManager`:
+
+```python
+manager = CheckpointManager(repo, config, model_name="MyModel")
+
+for epoch in range(num_epochs):
+    # ... training ...
+    manager.save_checkpoint(weights, state)
+
+    # Check if training should stop
+    if manager.should_stop_early:
+        print(f"Early stopping at epoch {epoch}")
+        print(f"No improvement for {manager.no_improvement_count} checkpoints")
+        break
+```
+
 ### Example Configurations
 
 **Aggressive Checkpointing** (research/debugging):
@@ -431,6 +468,42 @@ info = manager.get_checkpoint_info(commit_hash)
 ```
 
 History is persisted to `.coral/checkpoints/{experiment_name}.json` and survives process restarts.
+
+### diff_checkpoints() for Comparison
+
+Compare two checkpoints to understand what changed:
+
+```python
+# Compare two checkpoints
+diff = manager.diff_checkpoints("a7f3c2d1", "b8e4f5a2")
+
+print(f"Checkpoints identical: {diff['identical']}")
+print(f"Changed weights: {diff['changed']}")
+print(f"Added weights: {diff['added']}")
+print(f"Removed weights: {diff['removed']}")
+
+# Similarity scores for changed weights
+for name, similarity in diff['similarity'].items():
+    print(f"  {name}: {similarity:.4f} cosine similarity")
+```
+
+**Return Value**:
+```python
+{
+    "identical": False,           # True if all weights match exactly
+    "changed": ["layer1.weight"], # Weights with different values
+    "added": ["layer3.weight"],   # Weights only in second checkpoint
+    "removed": ["old_layer"],     # Weights only in first checkpoint
+    "similarity": {               # Cosine similarity for changed weights
+        "layer1.weight": 0.9823
+    }
+}
+```
+
+This is useful for:
+- Understanding what changed between training runs
+- Debugging unexpected model behavior
+- Identifying which layers were most affected by fine-tuning
 
 ## 6.4 TrainingState - State Encapsulation
 
@@ -946,7 +1019,156 @@ trainer.load_checkpoint(load_best=True)
 print("Loaded best checkpoint for inference")
 ```
 
-## 6.7 Framework Integration Examples
+## 6.7 Checkpointer - Simplified PyTorch API
+
+The `Checkpointer` class provides a streamlined, Pythonic API for PyTorch checkpointing with context manager support, automatic resume, and experiment tracking integration.
+
+### Basic Usage
+
+```python
+from coral.integrations.pytorch import Checkpointer
+
+# Create checkpointer with simple parameters
+ckpt = Checkpointer(
+    model,
+    "./checkpoints",          # Repository path (or Repository object)
+    "my-experiment",          # Experiment name
+    every_n_epochs=1,         # Save every epoch
+    on_best="val_loss",       # Save when val_loss improves
+    minimize=True,            # Lower is better
+    keep_last=5,              # Keep 5 most recent
+    keep_best=3,              # Keep 3 best
+)
+```
+
+### Context Manager Pattern
+
+Use as a context manager for clean experiment tracking:
+
+```python
+from coral.integrations.pytorch import Checkpointer
+
+with Checkpointer(model, repo, "experiment-1") as ckpt:
+    for epoch in range(num_epochs):
+        train_loss = train_epoch(model, train_loader)
+        val_loss = validate(model, val_loader)
+
+        # Log metrics and save if needed
+        ckpt.log(epoch, step, loss=train_loss, val_loss=val_loss)
+```
+
+The context manager automatically:
+- Starts an experiment tracking run (if tracker provided)
+- Ends the run with status "completed" or "failed"
+- Handles exceptions gracefully
+
+### Automatic Resume
+
+Resume training from the latest or best checkpoint:
+
+```python
+# Resume from latest checkpoint if available
+ckpt = Checkpointer(
+    model,
+    repo,
+    "experiment-1",
+    resume=True,  # Auto-resume from latest
+)
+
+# Resume from best checkpoint
+ckpt = Checkpointer(
+    model,
+    repo,
+    "experiment-1",
+    resume="best",  # Resume from best metric
+)
+
+# Check resume status
+print(f"Resumed from epoch: {ckpt.epoch}")
+print(f"Starting step: {ckpt.global_step}")
+```
+
+### Experiment Tracking Integration
+
+Integrate with MLflow or W&B through the experiment bridge:
+
+```python
+from coral.integrations.pytorch import Checkpointer
+from coral.integrations import MLflowBridge
+
+tracker = MLflowBridge(experiment_name="my-mlflow-experiment")
+
+with Checkpointer(model, repo, "experiment", tracker=tracker) as ckpt:
+    for epoch in range(num_epochs):
+        # Metrics automatically logged to MLflow
+        ckpt.log(epoch, step, loss=loss, accuracy=accuracy)
+```
+
+### Properties and State Access
+
+```python
+ckpt = Checkpointer(model, repo, "experiment")
+
+# Current training state
+print(ckpt.epoch)         # Current epoch
+print(ckpt.global_step)   # Current step
+
+# Best checkpoint info
+print(ckpt.best_commit)   # Commit hash of best checkpoint
+print(ckpt.metrics)       # Current metric values
+
+# Repository access
+print(ckpt.repo)          # Underlying Repository object
+```
+
+### Complete Example
+
+```python
+import torch
+import torch.nn as nn
+from coral.integrations.pytorch import Checkpointer
+
+model = nn.Sequential(
+    nn.Linear(784, 256),
+    nn.ReLU(),
+    nn.Linear(256, 10),
+)
+
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+with Checkpointer(
+    model,
+    "./mnist_checkpoints",
+    "mnist-classifier",
+    every_n_epochs=1,
+    on_best="val_loss",
+    minimize=True,
+    keep_last=5,
+    keep_best=3,
+    resume=True,
+) as ckpt:
+    start_epoch = ckpt.epoch
+
+    for epoch in range(start_epoch, 20):
+        # Training
+        model.train()
+        for batch_idx, (data, target) in enumerate(train_loader):
+            optimizer.zero_grad()
+            output = model(data)
+            loss = criterion(output, target)
+            loss.backward()
+            optimizer.step()
+
+        # Validation
+        val_loss = validate(model, val_loader)
+
+        # Log and potentially save
+        ckpt.log(epoch, global_step, loss=loss.item(), val_loss=val_loss)
+
+    print(f"Best checkpoint: {ckpt.best_commit}")
+```
+
+## 6.8 Framework Integration Examples
 
 Coral provides integration layers for popular ML frameworks, enabling automatic checkpointing with minimal code changes.
 
@@ -968,6 +1190,26 @@ trainer.set_optimizer(optimizer)
 trainer.epoch_end(epoch)  # Automatic checkpointing
 ```
 
+### Unified load() and save() Functions
+
+For simple one-off operations, use the unified `load()` and `save()` functions:
+
+```python
+from coral.integrations.pytorch import load, save
+
+# Save model to repository
+result = save(model, repo, "Checkpoint after epoch 10")
+print(f"Saved commit: {result['commit_hash']}")
+print(f"Weights saved: {result['weights_saved']}")
+
+# Load model from repository
+result = load(model, repo, commit="a7f3c2d1", strict=True)
+print(f"Loaded {len(result['loaded'])} weights")
+print(f"Matched: {result['matched']}")
+```
+
+These functions provide a simpler alternative to the full `CoralTrainer` when you just need basic save/load functionality.
+
 ### PyTorch Lightning Integration
 
 For PyTorch Lightning users, Coral provides a callback:
@@ -975,11 +1217,15 @@ For PyTorch Lightning users, Coral provides a callback:
 ```python
 import pytorch_lightning as pl
 from coral.integrations.lightning import CoralCallback
+# Alias also available:
+# from coral.integrations.lightning import CoralLightningCallback
 
-# Create Coral callback
+# Create Coral callback with repository object
+from coral import Repository
+repo = Repository("./lightning_model", init=True)
+
 coral_callback = CoralCallback(
-    repo_path="./lightning_model",
-    init=True,
+    repo=repo,                  # Can also use repo_path="./lightning_model"
     save_every_n_epochs=1,
     save_on_best="val_loss",
     mode="min",
@@ -1026,11 +1272,15 @@ For transformer models with the HuggingFace Trainer:
 ```python
 from transformers import Trainer, TrainingArguments
 from coral.integrations.hf_trainer import CoralTrainerCallback
+# Alias also available:
+# from coral.integrations.hf_trainer import CoralHFCallback
 
-# Create Coral callback
+# Create Coral callback with repository object
+from coral import Repository
+repo = Repository("./bert_finetuned", init=True)
+
 coral_callback = CoralTrainerCallback(
-    repo_path="./bert_finetuned",
-    init=True,
+    repo=repo,                  # Can also use repo_path="./bert_finetuned"
     save_every_n_steps=1000,
     save_on_best="eval_accuracy",
     mode="max",
@@ -1133,7 +1383,7 @@ if checkpoint:
 3. **State Tracking**: Create `TrainingState` with metrics and configuration
 4. **Checkpoint Lifecycle**: Use `CheckpointManager` for save/load/cleanup
 
-## 6.8 Best Practices
+## 6.9 Best Practices
 
 ### Checkpoint Frequency Recommendations
 
