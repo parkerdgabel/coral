@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import weakref
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import numpy as np
 import xxhash
 
 if TYPE_CHECKING:
-    pass  # For type hints that would cause circular imports
+    from coral.storage.weight_store import WeightStore
 
 
 @dataclass
@@ -34,6 +35,7 @@ class WeightTensor:
     - Metadata tracking
     - Lazy loading from storage
     - Compression support
+    - Memory-efficient streaming for large models
     """
 
     def __init__(
@@ -41,6 +43,7 @@ class WeightTensor:
         data: Optional[np.ndarray] = None,
         metadata: Optional[WeightMetadata] = None,
         store_ref: Optional[str] = None,
+        load_fn: Optional[Callable[[], np.ndarray]] = None,
     ):
         """
         Initialize a WeightTensor.
@@ -49,11 +52,14 @@ class WeightTensor:
             data: The actual weight data as numpy array
             metadata: Metadata about the weight tensor
             store_ref: Reference to data in storage (for lazy loading)
+            load_fn: Optional function to load data on demand
         """
         self._data = data
         self._metadata = metadata
         self._store_ref = store_ref
         self._hash: Optional[str] = None
+        self._load_fn = load_fn
+        self._store_weak_ref = None
 
         if data is not None and metadata is None:
             # Auto-create metadata from data
@@ -65,8 +71,41 @@ class WeightTensor:
     def data(self) -> np.ndarray:
         """Get the weight data, loading from storage if necessary"""
         if self._data is None:
-            raise ValueError("Weight data not loaded and no store reference available")
+            # Try lazy loading
+            if self._load_fn is not None:
+                self._data = self._load_fn()
+            elif self._store_weak_ref is not None:
+                store = self._store_weak_ref()
+                if store is not None and self._store_ref is not None:
+                    loaded = store.load(self._store_ref)
+                    if loaded is not None:
+                        self._data = loaded._data
+            if self._data is None:
+                raise ValueError(
+                    "Weight data not loaded and no store reference available"
+                )
         return self._data
+
+    @property
+    def is_loaded(self) -> bool:
+        """Check if weight data is currently loaded in memory."""
+        return self._data is not None
+
+    def unload(self) -> None:
+        """Unload weight data from memory to free RAM.
+
+        Data can be reloaded on next access if a load function or store is set.
+        """
+        if self._load_fn is not None or self._store_weak_ref is not None:
+            self._data = None
+
+    def set_store(self, store: WeightStore) -> None:
+        """Set a store reference for lazy loading.
+
+        Args:
+            store: WeightStore that can load this weight's data
+        """
+        self._store_weak_ref = weakref.ref(store)
 
     @data.setter
     def data(self, value: np.ndarray) -> None:
