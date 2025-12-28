@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional
+from pathlib import Path
+from typing import Any, Callable, Optional, Union
 
 try:
     import torch
@@ -267,8 +268,7 @@ class CoralTrainer:
         # Log to experiment tracker if configured
         if self.experiment_bridge and self.experiment_bridge.is_run_active:
             numeric_metrics = {
-                k: float(v) for k, v in metrics.items()
-                if isinstance(v, (int, float))
+                k: float(v) for k, v in metrics.items() if isinstance(v, (int, float))
             }
             self.experiment_bridge.log_metrics(numeric_metrics, step=self.global_step)
 
@@ -463,6 +463,347 @@ class CoralTrainer:
         )
 
         return self.checkpoint_manager.should_save_checkpoint(state)
+
+    def _get_learning_rate(self) -> float:
+        """Get current learning rate."""
+        if self.optimizer:
+            return self.optimizer.param_groups[0]["lr"]
+        return 0.0
+
+
+class Checkpointer:
+    """Streamlined checkpoint coordinator for PyTorch training.
+
+    Provides a simplified API for checkpoint management with:
+    - Context manager support for clean training sessions
+    - Automatic resume detection
+    - Unified logging interface
+    - Built-in experiment tracking integration
+
+    Example:
+        >>> ckpt = Checkpointer(
+        ...     model, "./checkpoints", "my-experiment",
+        ...     every_n_epochs=1, on_best="val_loss", resume=True
+        ... )
+        >>> with ckpt:
+        ...     for epoch in range(ckpt.epoch, 100):
+        ...         for batch in loader:
+        ...             loss = train_step(batch)
+        ...             ckpt.step(loss=loss)
+        ...         ckpt.log(val_loss=validate())
+        ...         ckpt.end_epoch()
+    """
+
+    def __init__(
+        self,
+        model: nn.Module,
+        repo: Union[str, Path, Repository],
+        experiment: str,
+        *,
+        # Checkpoint triggers
+        every_n_epochs: int = 0,
+        every_n_steps: int = 0,
+        on_best: Optional[str] = None,
+        minimize: bool = True,
+        # Retention
+        keep_last: int = 5,
+        keep_best: int = 3,
+        # Resume
+        resume: Union[bool, str] = False,  # True=auto, str=specific commit
+        # Integration
+        tracker: Optional[ExperimentBridge] = None,
+    ):
+        """Initialize the checkpointer.
+
+        Args:
+            model: PyTorch model to checkpoint
+            repo: Repository path (str/Path) or Repository object
+            experiment: Experiment name for this training run
+            every_n_epochs: Save checkpoint every N epochs (0 to disable)
+            every_n_steps: Save checkpoint every N steps (0 to disable)
+            on_best: Metric name to monitor for best checkpoint (e.g., "val_loss")
+            minimize: If True, lower is better for on_best metric
+            keep_last: Number of most recent checkpoints to keep
+            keep_best: Number of best checkpoints to keep
+            resume: Resume from checkpoint (True=latest, str=specific commit)
+            tracker: Optional experiment tracker bridge
+        """
+        if not TORCH_AVAILABLE:
+            raise ImportError("PyTorch is not installed")
+
+        self.model = model
+        self.experiment = experiment
+        self._tracker = tracker
+
+        # Initialize or get repository
+        if isinstance(repo, Repository):
+            self.repo = repo
+        else:
+            self.repo = Repository(Path(repo), init=True)
+
+        # Create checkpoint config
+        checkpoint_config = CheckpointConfig(
+            save_every_n_epochs=every_n_epochs,
+            save_every_n_steps=every_n_steps,
+            save_on_best_metric=on_best,
+            minimize_metric=minimize,
+            keep_last_n_checkpoints=keep_last,
+            keep_best_n_checkpoints=keep_best,
+        )
+
+        # Initialize checkpoint manager
+        self.checkpoint_manager = CheckpointManager(
+            repository=self.repo,
+            config=checkpoint_config,
+            model_name=model.__class__.__name__,
+            experiment_name=experiment,
+        )
+
+        # Training state
+        self._epoch = 0
+        self._global_step = 0
+        self._metrics: dict[str, float] = {}
+        self._best_commit: Optional[str] = None
+
+        # Optional components
+        self.optimizer: Optional[Optimizer] = None
+        self.scheduler: Optional[_LRScheduler] = None
+
+        # Try to resume if requested
+        if resume:
+            self._try_resume(resume)
+
+    def __enter__(self) -> Checkpointer:
+        """Start training session."""
+        if self._tracker:
+            self._tracker.start_run(name=self.experiment)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """End training session."""
+        if self._tracker:
+            status = "failed" if exc_type else "completed"
+            self._tracker.end_run(status)
+
+    def log(self, **metrics) -> None:
+        """Log metrics for current step.
+
+        Args:
+            **metrics: Metric name-value pairs to log
+        """
+        self._metrics.update(metrics)
+
+        # Log to tracker if configured
+        if self._tracker and self._tracker.is_run_active:
+            numeric_metrics = {
+                k: float(v) for k, v in metrics.items() if isinstance(v, (int, float))
+            }
+            self._tracker.log_metrics(numeric_metrics, step=self._global_step)
+
+    def step(self, loss: float = None, **metrics) -> Optional[str]:
+        """Record training step, optionally save checkpoint.
+
+        Args:
+            loss: Training loss (optional)
+            **metrics: Additional metrics to log
+
+        Returns:
+            Commit hash if checkpoint was saved, None otherwise
+        """
+        self._global_step += 1
+
+        if loss is not None:
+            metrics["loss"] = loss
+
+        self.log(**metrics)
+
+        # Check if we should save
+        state = self._create_training_state()
+        if self.checkpoint_manager.should_save_checkpoint(state):
+            return self._save_checkpoint(state)
+
+        return None
+
+    def end_epoch(self) -> Optional[str]:
+        """End current epoch, optionally save checkpoint.
+
+        Returns:
+            Commit hash if checkpoint was saved, None otherwise
+        """
+        self._epoch += 1
+
+        # Update scheduler if present
+        if self.scheduler:
+            self.scheduler.step()
+
+        # Check if we should save
+        state = self._create_training_state()
+        if self.checkpoint_manager.should_save_checkpoint(state):
+            return self._save_checkpoint(state)
+
+        return None
+
+    def save(self, message: str = None, force: bool = True) -> Optional[str]:
+        """Manually save checkpoint.
+
+        Args:
+            message: Optional commit message
+            force: Force save even if conditions aren't met
+
+        Returns:
+            Commit hash if saved, None otherwise
+        """
+        state = self._create_training_state()
+        return self._save_checkpoint(state, force=force, message=message)
+
+    def load(self, ref: str = None, best: bool = False) -> bool:
+        """Load checkpoint.
+
+        Args:
+            ref: Specific commit hash to load (None for latest)
+            best: Load best checkpoint instead
+
+        Returns:
+            True if successfully loaded, False otherwise
+        """
+        checkpoint_data = self.checkpoint_manager.load_checkpoint(
+            commit_hash=ref, load_best=best
+        )
+
+        if checkpoint_data is None:
+            logger.warning("No checkpoint found")
+            return False
+
+        weights = checkpoint_data["weights"]
+        state = checkpoint_data["state"]
+
+        # Load weights into model
+        PyTorchIntegration.weights_to_model(weights, self.model)
+
+        if state:
+            # Restore training state
+            self._epoch = state.epoch
+            self._global_step = state.global_step
+            self._metrics = state.metrics.copy()
+
+            # Load optimizer state
+            if self.optimizer and state.optimizer_state:
+                PyTorchIntegration.load_optimizer_state(
+                    self.optimizer, state.optimizer_state
+                )
+
+            # Load scheduler state
+            if self.scheduler and state.scheduler_state:
+                PyTorchIntegration.load_scheduler_state(
+                    self.scheduler, state.scheduler_state
+                )
+
+            # Restore random state
+            if state.random_state:
+                PyTorchIntegration.set_random_state(state.random_state)
+
+        # Track best commit
+        self._best_commit = checkpoint_data["commit_hash"]
+
+        logger.info(f"Loaded checkpoint: {checkpoint_data['commit_hash']}")
+        return True
+
+    @property
+    def epoch(self) -> int:
+        """Current epoch number."""
+        return self._epoch
+
+    @property
+    def global_step(self) -> int:
+        """Global step counter."""
+        return self._global_step
+
+    @property
+    def best_commit(self) -> Optional[str]:
+        """Commit hash of best checkpoint."""
+        return self._best_commit
+
+    @property
+    def metrics(self) -> dict[str, float]:
+        """Current metrics dictionary."""
+        return self._metrics.copy()
+
+    def _try_resume(self, ref: Union[bool, str]) -> bool:
+        """Attempt to resume from checkpoint.
+
+        Args:
+            ref: True for latest, or specific commit hash
+
+        Returns:
+            True if resumed successfully, False otherwise
+        """
+        if isinstance(ref, str):
+            # Load specific commit
+            return self.load(ref=ref)
+        elif ref is True:
+            # Load latest checkpoint
+            checkpoints = self.checkpoint_manager.list_checkpoints()
+            if checkpoints:
+                latest = max(checkpoints, key=lambda c: c.get("timestamp", 0))
+                return self.load(ref=latest.get("commit_hash"))
+
+        return False
+
+    def _create_training_state(self) -> TrainingState:
+        """Create training state from current state."""
+        return TrainingState(
+            epoch=self._epoch,
+            global_step=self._global_step,
+            learning_rate=self._get_learning_rate(),
+            loss=self._metrics.get("loss", 0.0),
+            metrics=self._metrics.copy(),
+            optimizer_state=PyTorchIntegration.save_optimizer_state(self.optimizer)
+            if self.optimizer
+            else None,
+            scheduler_state=PyTorchIntegration.save_scheduler_state(self.scheduler)
+            if self.scheduler
+            else None,
+            random_state=PyTorchIntegration.get_random_state(),
+            model_name=self.model.__class__.__name__,
+            experiment_name=self.experiment,
+        )
+
+    def _save_checkpoint(
+        self,
+        state: TrainingState,
+        force: bool = False,
+        message: str = None,
+    ) -> Optional[str]:
+        """Save checkpoint with given state.
+
+        Args:
+            state: Training state to save
+            force: Force save even if conditions aren't met
+            message: Optional commit message
+
+        Returns:
+            Commit hash if saved, None otherwise
+        """
+        # Convert model to weights
+        weights = PyTorchIntegration.model_to_weights(self.model)
+
+        # Save checkpoint
+        commit_hash = self.checkpoint_manager.save_checkpoint(
+            weights, state, force=force
+        )
+
+        if commit_hash:
+            logger.info(f"Saved checkpoint: {commit_hash}")
+
+            # Update best commit tracker
+            self._best_commit = commit_hash
+
+            # Log to tracker if configured
+            if self._tracker and self._tracker.is_run_active:
+                msg = message or f"Epoch {self._epoch}, Step {self._global_step}"
+                self._tracker.log_coral_commit(commit_hash, msg)
+
+        return commit_hash
 
     def _get_learning_rate(self) -> float:
         """Get current learning rate."""
@@ -939,6 +1280,224 @@ def create_model_from_weights(
     load_into_model(model, weights, strict=False, device=device)
 
     return model
+
+
+# ==================== Unified Load/Save API ====================
+
+
+def load(
+    model: nn.Module,
+    repo: Union[str, Path, Repository],
+    *,
+    ref: Optional[str] = None,
+    tag: Optional[str] = None,
+    branch: Optional[str] = None,
+    remote: Optional[str] = None,
+    pull: bool = False,
+    strict: bool = True,
+    device: Optional[str] = None,
+    stream: bool = False,
+    progress: bool = True,
+) -> dict[str, Any]:
+    """
+    Unified function to load weights from a Coral repository into a PyTorch model.
+
+    This is the recommended entry point for loading models. It consolidates
+    the functionality of load_from_repo, load_from_remote, and stream_load_model.
+
+    Args:
+        model: PyTorch model to load weights into
+        repo: Path to repository or Repository object
+        ref: Specific commit hash to load from
+        tag: Tag/version name to load from
+        branch: Branch name to load from
+        remote: Remote name to pull from before loading
+        pull: If True and remote specified, pull before loading
+        strict: If True, raise error for missing/unexpected keys
+        device: Device to place weights on ('cpu', 'cuda', 'cuda:0', etc.)
+        stream: If True, use memory-efficient streaming for large models
+        progress: Show progress bar when streaming
+
+    Returns:
+        Dictionary with load statistics:
+        - loaded: List of loaded weight names
+        - missing: List of missing model parameters
+        - unexpected: List of weights not in model
+        - matched: Number of successfully matched weights
+        - pull_stats: Pull statistics (if remote/pull used)
+
+    Examples:
+        >>> # Simple load from local repo
+        >>> stats = load(model, "./weights")
+
+        >>> # Load specific commit
+        >>> stats = load(model, "./weights", ref="abc123")
+
+        >>> # Load from tag
+        >>> stats = load(model, "./weights", tag="v1.0")
+
+        >>> # Load from remote with pull
+        >>> stats = load(model, "./weights", remote="origin", pull=True)
+
+        >>> # Stream large model to GPU
+        >>> stats = load(model, "./weights", stream=True, device="cuda")
+    """
+    if not TORCH_AVAILABLE:
+        raise ImportError("PyTorch is not installed")
+
+    # Handle Repository object or path
+    if isinstance(repo, (str, Path)):
+        repository = Repository(Path(repo))
+    else:
+        repository = repo
+
+    # Pull from remote if requested
+    pull_stats = None
+    if remote and pull:
+        pull_stats = repository.pull(remote)
+        weights_count = pull_stats.get("weights_pulled", 0)
+        logger.info(f"Pulled {weights_count} weights from {remote}")
+
+    # Determine commit reference
+    commit_ref = ref
+    if commit_ref is None:
+        if branch:
+            commit_ref = repository.branch_manager.get_branch_commit(branch)
+        elif tag:
+            for v in repository.version_graph.versions.values():
+                if v.name == tag:
+                    commit_ref = v.commit_hash
+                    break
+            if commit_ref is None:
+                raise ValueError(f"Tag '{tag}' not found")
+
+    # Use streaming or regular loading
+    if stream:
+        loader = StreamingWeightLoader(str(repository.coral_dir.parent), commit_ref)
+        result = loader.stream_into_model(
+            model, device=device, strict=strict, progress=progress
+        )
+    else:
+        weights = repository.get_all_weights(commit_ref)
+        if not weights:
+            raise ValueError("No weights found in repository")
+        result = load_into_model(model, weights, strict=strict, device=device)
+
+    if pull_stats:
+        result["pull_stats"] = pull_stats
+
+    return result
+
+
+def save(
+    model: nn.Module,
+    repo: Union[str, Path, Repository],
+    message: str,
+    *,
+    branch: Optional[str] = None,
+    create_branch: bool = False,
+    tag: Optional[str] = None,
+    push_to: Optional[str] = None,
+    init: bool = False,
+    **metadata,
+) -> dict[str, Any]:
+    """
+    Unified function to save a PyTorch model to a Coral repository.
+
+    This is the recommended entry point for saving models. It consolidates
+    save_model and save_model_to_coral with additional features.
+
+    Args:
+        model: PyTorch model to save
+        repo: Path to repository or Repository object
+        message: Commit message
+        branch: Branch to save to (creates if doesn't exist and create_branch=True)
+        create_branch: If True, create branch if it doesn't exist
+        tag: Optional tag/version name to create for this commit
+        push_to: Remote name to push to after commit
+        init: If True, initialize repository if it doesn't exist
+        **metadata: Additional metadata to attach to weights
+
+    Returns:
+        Dictionary with save info:
+        - commit_hash: Hash of the commit
+        - weights_saved: Number of weights saved
+        - branch: Current branch name
+        - tag: Tag name if created
+        - push_stats: Push statistics (if push_to was specified)
+
+    Examples:
+        >>> # Simple save
+        >>> result = save(model, "./weights", "Initial checkpoint")
+
+        >>> # Save to branch with push
+        >>> result = save(model, "./weights", "Experiment 1",
+        ...               branch="exp-1", create_branch=True, push_to="origin")
+
+        >>> # Save with tag
+        >>> result = save(model, "./weights", "Release v1.0", tag="v1.0")
+    """
+    if not TORCH_AVAILABLE:
+        raise ImportError("PyTorch is not installed")
+
+    # Handle Repository object or path
+    if isinstance(repo, (str, Path)):
+        repository = Repository(Path(repo), init=init)
+    else:
+        repository = repo
+
+    # Handle branching
+    if branch:
+        current_branch = repository.branch_manager.get_current_branch()
+        if branch != current_branch:
+            branches = [b.name for b in repository.branch_manager.list_branches()]
+            if branch not in branches:
+                if create_branch:
+                    repository.create_branch(branch)
+                else:
+                    raise ValueError(
+                        f"Branch '{branch}' doesn't exist. "
+                        "Set create_branch=True to create it."
+                    )
+            repository.checkout(branch)
+
+    # Convert model to weights
+    weights = PyTorchIntegration.model_to_weights(model)
+
+    # Add metadata
+    model_name = metadata.pop("model_name", model.__class__.__name__)
+    for weight in weights.values():
+        weight.metadata.model_name = model_name
+        for key, value in metadata.items():
+            if hasattr(weight.metadata, key):
+                setattr(weight.metadata, key, value)
+
+    # Stage and commit
+    repository.stage_weights(weights)
+    commit = repository.commit(message=message)
+
+    result = {
+        "commit_hash": commit.commit_hash,
+        "weights_saved": len(weights),
+        "branch": repository.branch_manager.get_current_branch(),
+    }
+
+    # Create tag if requested
+    if tag:
+        repository.tag_version(
+            name=tag,
+            description=message,
+            commit_ref=commit.commit_hash,
+        )
+        result["tag"] = tag
+
+    # Push if requested
+    if push_to:
+        push_stats = repository.push(push_to)
+        result["push_stats"] = push_stats
+        logger.info(f"Pushed to {push_to}")
+
+    return result
 
 
 # ==================== Streaming Support for Large Models ====================

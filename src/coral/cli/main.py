@@ -185,8 +185,10 @@ class CoralCLI:
             "set", help="Set a configuration value"
         )
         config_set.add_argument(
-            "--global", dest="global_config", action="store_true",
-            help="Set in global user config"
+            "--global",
+            dest="global_config",
+            action="store_true",
+            help="Set in global user config",
         )
         config_set.add_argument(
             "key", help="Configuration key (e.g., core.similarity_threshold)"

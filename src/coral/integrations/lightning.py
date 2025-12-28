@@ -8,11 +8,13 @@ to experiment tracking systems (MLflow, Weights & Biases, etc.).
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 if TYPE_CHECKING:
     from coral.integrations.experiment_bridge import ExperimentBridge
+    from coral.version_control.repository import Repository
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +65,8 @@ class CoralCallback(Callback):
         >>> trainer.fit(model)
 
     Args:
-        repo_path: Path to Coral repository (will be created if init=True)
+        repo: Coral repository (as path or Repository object). Preferred over repo_path.
+        repo_path: Path to Coral repository (DEPRECATED: use repo instead)
         init: If True, initialize the repository if it doesn't exist
         save_every_n_epochs: Save checkpoint every N epochs (0 to disable)
         save_every_n_steps: Save checkpoint every N steps (0 to disable)
@@ -78,7 +81,8 @@ class CoralCallback(Callback):
 
     def __init__(
         self,
-        repo_path: Union[str, Path],
+        repo: Union[str, Path, Repository, None] = None,
+        repo_path: Union[str, Path, None] = None,
         init: bool = True,
         save_every_n_epochs: int = 0,
         save_every_n_steps: int = 0,
@@ -98,7 +102,28 @@ class CoralCallback(Callback):
 
         super().__init__()
 
-        self.repo_path = Path(repo_path)
+        # Handle both repo and repo_path for backwards compatibility
+        if repo is not None:
+            if isinstance(repo, (str, Path)):
+                self.repo_path = Path(repo)
+                self._repo = None
+            else:
+                # It's a Repository object
+                self._repo = repo
+                self.repo_path = (
+                    repo.coral_dir.parent if hasattr(repo, "coral_dir") else None
+                )
+        elif repo_path is not None:
+            warnings.warn(
+                "repo_path is deprecated, use repo instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self.repo_path = Path(repo_path)
+            self._repo = None
+        else:
+            raise ValueError("Either repo or repo_path must be provided")
+
         self.init = init
         self.save_every_n_epochs = save_every_n_epochs
         self.save_every_n_steps = save_every_n_steps
@@ -113,9 +138,6 @@ class CoralCallback(Callback):
         self.best_metric = float("inf") if mode == "min" else float("-inf")
         self.best_epoch = -1
 
-        # Repository will be initialized lazily
-        self._repo = None
-
         # Optional experiment tracking
         self.experiment_bridge = experiment_bridge
 
@@ -127,8 +149,10 @@ class CoralCallback(Callback):
 
             self._repo = Repository(self.repo_path, init=self.init)
 
-            # Switch to specified branch if provided
-            if self.branch:
+        # Switch to specified branch if provided (both lazy init and passed repo)
+        if self.branch and hasattr(self._repo, "current_branch"):
+            current_branch = self._repo.current_branch()
+            if current_branch != self.branch:
                 try:
                     self._repo.create_branch(self.branch)
                 except ValueError:
@@ -297,9 +321,7 @@ class CoralCallback(Callback):
                     message=f"Step {step} checkpoint",
                 )
 
-    def on_train_end(
-        self, trainer: pl.Trainer, pl_module: pl.LightningModule
-    ) -> None:
+    def on_train_end(self, trainer: pl.Trainer, pl_module: pl.LightningModule) -> None:
         """Called at the end of training."""
         self._save_checkpoint(
             trainer,
@@ -357,3 +379,7 @@ class CoralCallback(Callback):
             "loaded_weights": len(state_dict),
             "commit_ref": commit_ref,
         }
+
+
+# Alias for more descriptive name
+CoralLightningCallback = CoralCallback

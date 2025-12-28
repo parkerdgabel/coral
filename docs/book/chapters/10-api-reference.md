@@ -892,7 +892,15 @@ class CheckpointConfig:
     auto_commit: bool = True
     commit_message_template: str = "Checkpoint at epoch {epoch}, step {step}"
     tag_best_checkpoints: bool = True
+
+    # Early stopping
+    early_stopping_patience: Optional[int] = None
+    early_stopping_threshold: float = 0.0
 ```
+
+**Early Stopping Parameters**:
+- `early_stopping_patience`: Number of checkpoints without improvement before triggering early stop (None to disable)
+- `early_stopping_threshold`: Minimum improvement required to reset patience counter
 
 ### CheckpointManager Class
 
@@ -930,6 +938,37 @@ class CheckpointManager:
 
     def cleanup_old_checkpoints(self) -> int:
         """Remove old checkpoints according to retention policy."""
+
+    def diff_checkpoints(self, ref_a: str, ref_b: str) -> Dict[str, Any]:
+        """
+        Compare two checkpoints.
+
+        Args:
+            ref_a: Commit hash of first checkpoint
+            ref_b: Commit hash of second checkpoint
+
+        Returns:
+            Dictionary with:
+            - identical: bool - True if all weights match exactly
+            - changed: List[str] - Weights with different values
+            - added: List[str] - Weights only in second checkpoint
+            - removed: List[str] - Weights only in first checkpoint
+            - similarity: Dict[str, float] - Cosine similarity for changed weights
+        """
+
+    @property
+    def should_stop_early(self) -> bool:
+        """
+        Check if early stopping should be triggered.
+
+        Returns True if no_improvement_count >= early_stopping_patience
+        """
+
+    @property
+    def no_improvement_count(self) -> int:
+        """
+        Get the number of checkpoints since last improvement.
+        """
 ```
 
 ### TrainingState Class
@@ -1038,6 +1077,125 @@ class CoralTrainer:
         """Restore model from checkpoint."""
 ```
 
+### Checkpointer Class
+
+Simplified, Pythonic API for PyTorch checkpointing with context manager support.
+
+```python
+class Checkpointer:
+    """Simplified checkpoint management for PyTorch models."""
+
+    def __init__(
+        self,
+        model: nn.Module,
+        repo: Union[str, Path, Repository],
+        experiment: str,
+        *,
+        every_n_epochs: int = 0,
+        every_n_steps: int = 0,
+        on_best: Optional[str] = None,
+        minimize: bool = True,
+        keep_last: int = 5,
+        keep_best: int = 3,
+        resume: Union[bool, str] = False,
+        tracker: Optional[ExperimentBridge] = None,
+    ):
+        """
+        Initialize checkpointer.
+
+        Args:
+            model: PyTorch model to checkpoint
+            repo: Repository path or object
+            experiment: Experiment name
+            every_n_epochs: Save every N epochs (0 to disable)
+            every_n_steps: Save every N steps (0 to disable)
+            on_best: Metric name to monitor for best checkpoint
+            minimize: Whether lower metric values are better
+            keep_last: Number of recent checkpoints to keep
+            keep_best: Number of best checkpoints to keep
+            resume: True for latest, "best" for best, or False
+            tracker: Optional experiment tracker (MLflow, W&B)
+        """
+
+    def __enter__(self) -> Checkpointer:
+        """Start experiment tracking run."""
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """End experiment tracking run."""
+
+    def log(self, epoch: int, step: int, **metrics) -> Optional[str]:
+        """
+        Log metrics and save checkpoint if conditions met.
+
+        Returns:
+            Commit hash if checkpoint saved, None otherwise
+        """
+
+    @property
+    def epoch(self) -> int:
+        """Current epoch number."""
+
+    @property
+    def global_step(self) -> int:
+        """Current global step."""
+
+    @property
+    def best_commit(self) -> Optional[str]:
+        """Commit hash of best checkpoint."""
+
+    @property
+    def metrics(self) -> Dict[str, float]:
+        """Current metric values."""
+
+    @property
+    def repo(self) -> Repository:
+        """Underlying repository object."""
+```
+
+### Unified load() and save() Functions
+
+```python
+def load(
+    model: nn.Module,
+    repo: Union[str, Path, Repository],
+    commit: Optional[str] = None,
+    strict: bool = False
+) -> Dict[str, Any]:
+    """
+    Load weights from repository into model.
+
+    Args:
+        model: PyTorch model to load into
+        repo: Repository path or object
+        commit: Commit hash (None for HEAD)
+        strict: Raise error on missing/unexpected keys
+
+    Returns:
+        Dictionary with:
+        - loaded: List of weight names loaded
+        - matched: Whether all weights matched
+    """
+
+def save(
+    model: nn.Module,
+    repo: Union[str, Path, Repository],
+    message: str = "Checkpoint"
+) -> Dict[str, Any]:
+    """
+    Save model weights to repository.
+
+    Args:
+        model: PyTorch model to save
+        repo: Repository path or object
+        message: Commit message
+
+    Returns:
+        Dictionary with:
+        - commit_hash: Hash of created commit
+        - weights_saved: Number of weights saved
+    """
+```
+
 ### Utility Functions
 
 ```python
@@ -1071,6 +1229,34 @@ class StreamingWeightLoader:
 
     def load_layer(self, layer_name: str) -> WeightTensor:
         """Load a specific layer's weights."""
+```
+
+### Framework Callback Aliases
+
+For consistency and discoverability, Coral provides aliases for framework callbacks:
+
+```python
+# PyTorch Lightning
+from coral.integrations.lightning import CoralCallback
+from coral.integrations.lightning import CoralLightningCallback  # Alias
+
+# HuggingFace Transformers
+from coral.integrations.hf_trainer import CoralTrainerCallback
+from coral.integrations.hf_trainer import CoralHFCallback  # Alias
+```
+
+Both callbacks now accept a `repo` parameter that can be a path string, `Path` object, or `Repository` instance:
+
+```python
+from coral import Repository
+from coral.integrations.lightning import CoralCallback
+
+# Using Repository object
+repo = Repository("./checkpoints", init=True)
+callback = CoralCallback(repo=repo)
+
+# Using path string (deprecated, use repo instead)
+callback = CoralCallback(repo_path="./checkpoints", init=True)
 ```
 
 ---
