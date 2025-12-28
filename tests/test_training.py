@@ -114,6 +114,188 @@ class TestTrainingState:
         finally:
             shutil.rmtree(temp_dir)
 
+    def test_training_state_update_metrics(self):
+        """Test updating training metrics."""
+        state = TrainingState(
+            epoch=5,
+            global_step=1000,
+            learning_rate=0.001,
+            loss=0.5,
+            metrics={"accuracy": 0.85},
+        )
+
+        # Update with new metrics
+        state.update_metrics(precision=0.9, recall=0.88)
+
+        assert state.metrics["accuracy"] == 0.85
+        assert state.metrics["precision"] == 0.9
+        assert state.metrics["recall"] == 0.88
+
+    def test_training_state_format_summary(self):
+        """Test formatting training state summary."""
+        state = TrainingState(
+            epoch=5,
+            global_step=1000,
+            learning_rate=0.001,
+            loss=0.5,
+            metrics={"accuracy": 0.85, "f1": 0.82},
+        )
+
+        summary = state.format_summary()
+
+        assert "Epoch: 5" in summary
+        assert "Step: 1000" in summary
+        assert "Learning Rate:" in summary
+        assert "Loss: 0.5000" in summary
+        assert "accuracy: 0.8500" in summary
+        assert "f1: 0.8200" in summary
+
+    def test_training_state_format_summary_no_metrics(self):
+        """Test formatting summary without metrics."""
+        state = TrainingState(
+            epoch=1,
+            global_step=100,
+            learning_rate=0.01,
+            loss=1.5,
+        )
+
+        summary = state.format_summary()
+
+        assert "Epoch: 1" in summary
+        assert "Step: 100" in summary
+        assert "Loss: 1.5000" in summary
+
+    def test_training_state_with_torch_tensors(self):
+        """Test serialization with PyTorch tensors in optimizer state."""
+        try:
+            import torch
+
+            # Create a training state with tensor-like data
+            optimizer_state = {
+                "step": 100,
+                "lr": 0.001,
+                "momentum_buffer": torch.tensor([1.0, 2.0, 3.0]),
+            }
+
+            state = TrainingState(
+                epoch=5,
+                global_step=1000,
+                learning_rate=0.001,
+                loss=0.5,
+                optimizer_state=optimizer_state,
+            )
+
+            # Serialize and deserialize
+            state_dict = state.to_dict()
+
+            # Check that tensor was serialized
+            assert state_dict["optimizer_state"]["step"] == 100
+            assert "__tensor__" in state_dict["optimizer_state"]["momentum_buffer"]
+
+            # Restore and verify
+            restored = TrainingState.from_dict(state_dict)
+            assert restored.optimizer_state["step"] == 100
+            assert isinstance(restored.optimizer_state["momentum_buffer"], torch.Tensor)
+
+        except ImportError:
+            pytest.skip("PyTorch not installed")
+
+    def test_training_state_with_nested_dicts(self):
+        """Test serialization with nested dictionaries."""
+        state = TrainingState(
+            epoch=5,
+            global_step=1000,
+            learning_rate=0.001,
+            loss=0.5,
+            optimizer_state={
+                "level1": {
+                    "level2": {
+                        "value": 42,
+                    }
+                }
+            },
+            scheduler_state={
+                "last_epoch": 4,
+                "base_lrs": [0.01, 0.001],
+            },
+        )
+
+        # Serialize and deserialize
+        state_dict = state.to_dict()
+        restored = TrainingState.from_dict(state_dict)
+
+        assert restored.optimizer_state["level1"]["level2"]["value"] == 42
+        assert restored.scheduler_state["last_epoch"] == 4
+        assert restored.scheduler_state["base_lrs"] == [0.01, 0.001]
+
+    def test_training_state_with_lists(self):
+        """Test serialization with lists."""
+        state = TrainingState(
+            epoch=5,
+            global_step=1000,
+            learning_rate=0.001,
+            loss=0.5,
+            random_state={
+                "seeds": [1, 2, 3, 4, 5],
+                "nested": [[1, 2], [3, 4]],
+            },
+        )
+
+        state_dict = state.to_dict()
+        restored = TrainingState.from_dict(state_dict)
+
+        assert restored.random_state["seeds"] == [1, 2, 3, 4, 5]
+        assert restored.random_state["nested"] == [[1, 2], [3, 4]]
+
+    def test_training_state_with_none_values(self):
+        """Test serialization with None values."""
+        state = TrainingState(
+            epoch=5,
+            global_step=1000,
+            learning_rate=0.001,
+            loss=0.5,
+            optimizer_state=None,
+            scheduler_state=None,
+            random_state=None,
+        )
+
+        state_dict = state.to_dict()
+        restored = TrainingState.from_dict(state_dict)
+
+        assert restored.optimizer_state is None
+        assert restored.scheduler_state is None
+        assert restored.random_state is None
+
+    def test_training_state_all_optional_fields(self):
+        """Test with all optional fields populated."""
+        state = TrainingState(
+            epoch=10,
+            global_step=5000,
+            learning_rate=0.0001,
+            loss=0.1,
+            metrics={"accuracy": 0.98, "loss": 0.1},
+            batch_size=32,
+            gradient_accumulation_steps=4,
+            max_epochs=100,
+            max_steps=50000,
+            model_name="ResNet50",
+            dataset_name="ImageNet",
+            experiment_name="baseline_run",
+            notes="This is a test run",
+        )
+
+        state_dict = state.to_dict()
+        restored = TrainingState.from_dict(state_dict)
+
+        assert restored.batch_size == 32
+        assert restored.gradient_accumulation_steps == 4
+        assert restored.max_epochs == 100
+        assert restored.max_steps == 50000
+        assert restored.model_name == "ResNet50"
+        assert restored.dataset_name == "ImageNet"
+        assert restored.experiment_name == "baseline_run"
+        assert restored.notes == "This is a test run"
+
 
 class TestCheckpointManager:
     """Test checkpoint manager functionality."""
