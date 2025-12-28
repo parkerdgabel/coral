@@ -2,7 +2,6 @@
 
 import io
 import json
-from typing import Any
 
 import numpy as np
 import pytest

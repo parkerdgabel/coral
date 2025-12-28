@@ -17,7 +17,7 @@ from coral.version_control.repository import Repository
 
 # Check if Transformers is available
 try:
-    from transformers import TrainerCallback
+    import transformers  # noqa: F401
 
     HAS_TRANSFORMERS = True
 except ImportError:
@@ -86,7 +86,9 @@ def mock_hf_model():
     return model
 
 
-@pytest.mark.skipif(not HAS_TRANSFORMERS, reason="HuggingFace Transformers not installed")
+@pytest.mark.skipif(
+    not HAS_TRANSFORMERS, reason="HuggingFace Transformers not installed"
+)
 class TestCoralTrainerCallbackInitialization:
     """Test CoralTrainerCallback initialization."""
 
@@ -191,7 +193,9 @@ class TestCoralTrainerCallbackInitialization:
         assert callback.repo_path is not None
 
 
-@pytest.mark.skipif(not HAS_TRANSFORMERS, reason="HuggingFace Transformers not installed")
+@pytest.mark.skipif(
+    not HAS_TRANSFORMERS, reason="HuggingFace Transformers not installed"
+)
 class TestCoralTrainerCallbackMethods:
     """Test CoralTrainerCallback methods."""
 
@@ -222,7 +226,9 @@ class TestCoralTrainerCallbackMethods:
         assert callback._is_better(0.8) is False
 
 
-@pytest.mark.skipif(not HAS_TRANSFORMERS, reason="HuggingFace Transformers not installed")
+@pytest.mark.skipif(
+    not HAS_TRANSFORMERS, reason="HuggingFace Transformers not installed"
+)
 class TestCoralTrainerCallbackLifecycle:
     """Test CoralTrainerCallback lifecycle methods."""
 
@@ -525,7 +531,9 @@ class TestCoralTrainerCallbackLifecycle:
         mock_bridge.end_run.assert_called_once_with("completed")
 
 
-@pytest.mark.skipif(not HAS_TRANSFORMERS, reason="HuggingFace Transformers not installed")
+@pytest.mark.skipif(
+    not HAS_TRANSFORMERS, reason="HuggingFace Transformers not installed"
+)
 class TestCoralTrainerCallbackSaveCheckpoint:
     """Test _save_checkpoint method."""
 
@@ -598,7 +606,9 @@ class TestCoralTrainerCallbackSaveCheckpoint:
         mock_bridge.log_metrics.assert_called_once_with({"loss": 0.5}, step=100)
 
 
-@pytest.mark.skipif(not HAS_TRANSFORMERS, reason="HuggingFace Transformers not installed")
+@pytest.mark.skipif(
+    not HAS_TRANSFORMERS, reason="HuggingFace Transformers not installed"
+)
 class TestCoralTrainerCallbackLoadFromCoral:
     """Test load_from_coral method."""
 
@@ -638,7 +648,9 @@ class TestCoralTrainerCallbackLoadFromCoral:
         assert result["unexpected_keys"] == []
 
 
-@pytest.mark.skipif(not HAS_TRANSFORMERS, reason="HuggingFace Transformers not installed")
+@pytest.mark.skipif(
+    not HAS_TRANSFORMERS, reason="HuggingFace Transformers not installed"
+)
 class TestCoralHFCallbackAlias:
     """Test that CoralHFCallback is an alias."""
 
@@ -661,5 +673,7 @@ class TestCoralTrainerCallbackWithoutTransformers:
         with patch("coral.integrations.hf_trainer.HAS_TRANSFORMERS", False):
             from coral.integrations.hf_trainer import CoralTrainerCallback
 
-            with pytest.raises(ImportError, match="HuggingFace Transformers is required"):
+            with pytest.raises(
+                ImportError, match="HuggingFace Transformers is required"
+            ):
                 CoralTrainerCallback(repo=temp_repo)

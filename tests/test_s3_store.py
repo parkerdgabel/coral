@@ -194,9 +194,7 @@ class TestS3Store:
         from botocore.exceptions import ClientError
 
         error_response = {"Error": {"Code": "NoSuchKey"}}
-        mock_s3_client.get_object.side_effect = ClientError(
-            error_response, "GetObject"
-        )
+        mock_s3_client.get_object.side_effect = ClientError(error_response, "GetObject")
 
         loaded = s3_store.load("nonexistent-hash")
 
@@ -291,9 +289,7 @@ class TestS3Store:
             ),
             "weight2": WeightTensor(
                 data=np.random.randn(5, 3).astype(np.float32),
-                metadata=WeightMetadata(
-                    name="weight2", shape=(5, 3), dtype=np.float32
-                ),
+                metadata=WeightMetadata(name="weight2", shape=(5, 3), dtype=np.float32),
             ),
         }
 
@@ -371,9 +367,7 @@ class TestS3Store:
         from botocore.exceptions import ClientError
 
         error_response = {"Error": {"Code": "NoSuchKey"}}
-        mock_s3_client.get_object.side_effect = ClientError(
-            error_response, "GetObject"
-        )
+        mock_s3_client.get_object.side_effect = ClientError(error_response, "GetObject")
 
         result = s3_store.load_delta("nonexistent")
 
@@ -439,9 +433,7 @@ class TestS3StoreSyncMethods:
         mock_local_store.list_weights.return_value = ["hash1", "hash2", "hash3"]
         mock_local_store.load.return_value = WeightTensor(
             data=np.random.randn(10, 5).astype(np.float32),
-            metadata=WeightMetadata(
-                name="weight", shape=(10, 5), dtype=np.float32
-            ),
+            metadata=WeightMetadata(name="weight", shape=(10, 5), dtype=np.float32),
         )
 
         # Mock S3 store list_weights (empty at first)

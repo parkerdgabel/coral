@@ -188,7 +188,9 @@ class TestWandbBridge:
                 bridge = WandbBridge(temp_repo, project="test-project")
                 bridge.start_run("test-run")
 
-                assert bridge.current_run_url == "https://wandb.ai/test/run/test-run-123"
+                assert (
+                    bridge.current_run_url == "https://wandb.ai/test/run/test-run-123"
+                )
 
     def test_current_run_url_no_run(self, temp_repo):
         """Test getting current run URL when no run is active."""

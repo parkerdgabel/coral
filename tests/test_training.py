@@ -195,9 +195,7 @@ class TestTrainingState:
             # Restore and verify
             restored = TrainingState.from_dict(state_dict)
             assert restored.optimizer_state["step"] == 100
-            assert isinstance(
-                restored.optimizer_state["momentum_buffer"], torch.Tensor
-            )
+            assert isinstance(restored.optimizer_state["momentum_buffer"], torch.Tensor)
 
         except ImportError:
             pytest.skip("PyTorch not installed")

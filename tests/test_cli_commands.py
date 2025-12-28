@@ -183,12 +183,17 @@ class TestCLICommandExecution:
         np.save(Path(temp_dir) / "weights.npy", weight_data)
         cli.run(["add", "weights.npy"])
 
-        result = cli.run([
-            "commit",
-            "-m", "Test commit",
-            "--author", "John Doe",
-            "--email", "john@example.com",
-        ])
+        result = cli.run(
+            [
+                "commit",
+                "-m",
+                "Test commit",
+                "--author",
+                "John Doe",
+                "--email",
+                "john@example.com",
+            ]
+        )
         assert result == 0
 
     # === Log Command Tests ===
@@ -219,7 +224,7 @@ class TestCLICommandExecution:
 
         assert result == 0
         # Oneline format should be more compact
-        lines = [l for l in output.strip().split("\n") if l]
+        lines = [line for line in output.strip().split("\n") if line]
         assert len(lines) >= 1
 
     def test_cmd_log_limit(self, cli, initialized_repo, temp_dir):
@@ -344,9 +349,8 @@ class TestCLICommandExecution:
 
     def test_cmd_tag_with_description(self, cli, repo_with_weights):
         """Test creating a tag with description."""
-        with patch("sys.stdout", new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()):
             result = cli.run(["tag", "v1.0.0", "-d", "First release"])
-            output = fake_out.getvalue()
 
         assert result == 0
 
@@ -595,7 +599,7 @@ class TestCLIErrorHandling:
     def test_find_repo_root(self, temp_dir):
         """Test finding repository root from subdirectory."""
         # Initialize repo
-        repo = Repository(Path(temp_dir), init=True)
+        Repository(Path(temp_dir), init=True)
 
         # Create a subdirectory
         subdir = Path(temp_dir) / "subdir" / "nested"
@@ -705,7 +709,7 @@ class TestCLIPushPull:
 
     def test_sync_status_no_remote(self, temp_dir):
         """Test sync status without remote."""
-        repo = Repository(Path(temp_dir), init=True)
+        Repository(Path(temp_dir), init=True)
 
         cli = CoralCLI()
         result = cli.run(["sync-status", "origin"])
@@ -770,8 +774,7 @@ class TestCLICompareCommand:
 
         cli = CoralCLI()
 
-        with patch("sys.stdout", new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()):
             result = cli.run(["compare", "main", "feature"])
-            output = fake_out.getvalue()
 
         assert result == 0

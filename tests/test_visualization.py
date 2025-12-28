@@ -320,9 +320,7 @@ class TestModelComparison:
             ),
             "minor": WeightTensor(
                 data=base + np.random.randn(10, 10).astype(np.float32) * 0.001,
-                metadata=WeightMetadata(
-                    name="minor", shape=(10, 10), dtype=np.float32
-                ),
+                metadata=WeightMetadata(name="minor", shape=(10, 10), dtype=np.float32),
             ),
         }
         weights_b = {
@@ -334,9 +332,7 @@ class TestModelComparison:
             ),
             "minor": WeightTensor(
                 data=base,  # Original
-                metadata=WeightMetadata(
-                    name="minor", shape=(10, 10), dtype=np.float32
-                ),
+                metadata=WeightMetadata(name="minor", shape=(10, 10), dtype=np.float32),
             ),
         }
 

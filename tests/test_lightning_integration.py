@@ -9,10 +9,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import numpy as np
 import pytest
 
-from coral.core.weight_tensor import WeightMetadata, WeightTensor
 from coral.version_control.repository import Repository
 
 # Check if PyTorch Lightning is available
