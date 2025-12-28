@@ -1,5 +1,7 @@
 """Additional compression utilities for delta encoding."""
 
+from __future__ import annotations
+
 import logging
 from typing import Any
 
@@ -28,7 +30,9 @@ class DeltaCompressor:
         sorted_values = values[sorted_order]
 
         # Run-length encode index differences
-        index_diffs = np.diff(sorted_indices, prepend=sorted_indices[0])
+        # First element is the actual index, rest are differences
+        index_diffs = np.diff(sorted_indices, prepend=0)
+        index_diffs[0] = sorted_indices[0]
 
         # Simple compression: store (diff, value) pairs
         compressed_data = np.column_stack([index_diffs, sorted_values])
@@ -54,9 +58,8 @@ class DeltaCompressor:
         values = compressed_data[:, 1]
 
         # Reconstruct original indices
+        # First element is the actual index, rest are differences
         indices = np.cumsum(index_diffs)
-        if metadata.get("first_index", 0) != 0:
-            indices[0] = metadata["first_index"]
 
         return indices, values
 
@@ -67,6 +70,20 @@ class DeltaCompressor:
         """Apply adaptive quantization based on data distribution."""
         if target_bits not in [8, 16]:
             raise ValueError("target_bits must be 8 or 16")
+
+        # Handle empty arrays
+        if data.size == 0:
+            dtype = np.int8 if target_bits == 8 else np.int16
+            metadata = {
+                "scale": 1.0,
+                "min_val": 0.0,
+                "max_val": 0.0,
+                "mean": 0.0,
+                "std": 0.0,
+                "target_bits": target_bits,
+                "outlier_ratio": 0.0,
+            }
+            return np.array([], dtype=dtype), metadata
 
         # Analyze data distribution
         std_dev = np.std(data)

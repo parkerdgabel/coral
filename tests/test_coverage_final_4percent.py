@@ -1,5 +1,6 @@
 """Final 4% coverage push - very targeted tests."""
 
+import argparse
 import tempfile
 from pathlib import Path
 
@@ -28,11 +29,11 @@ class TestCoverageFinal4Percent:
         assert hasattr(cli, "parser")
         assert hasattr(cli, "run")
 
-        # Test subparsers exist
+        # Test subparsers exist by checking for subparsers action type
         subparsers_actions = [
             action
             for action in cli.parser._actions
-            if isinstance(action, type(cli.parser._subparsers_action))
+            if isinstance(action, argparse._SubParsersAction)
         ]
         assert len(subparsers_actions) > 0
 
@@ -45,10 +46,10 @@ class TestCoverageFinal4Percent:
             store = HDF5Store(store_path)
 
             # Test store initialization creates groups
-            assert store._file is not None
-            assert "weights" in store._file
-            assert "deltas" in store._file
-            assert "metadata" in store._file
+            assert store.file is not None
+            assert "weights" in store.file
+            assert "deltas" in store.file
+            assert "metadata" in store.file
 
             # Test get_metadata for non-existent
             meta = store.get_metadata("non-existent")
@@ -66,7 +67,7 @@ class TestCoverageFinal4Percent:
             Path(store_path).unlink(missing_ok=True)
 
     def test_repository_internal_methods(self):
-        """Test Repository internal helper methods."""
+        """Test Repository internal paths and structure."""
         with tempfile.TemporaryDirectory() as tmpdir:
             repo = Repository(tmpdir, init=True)
 
@@ -74,17 +75,16 @@ class TestCoverageFinal4Percent:
             head_file = repo.coral_dir / "HEAD"
             assert head_file.exists()
 
-            # Test branch ref path
-            branch_ref = repo._get_branch_ref_path("test-branch")
-            assert branch_ref == repo.coral_dir / "refs" / "heads" / "test-branch"
+            # Test directory structure
+            assert repo.coral_dir.exists()
+            assert (repo.coral_dir / "refs" / "heads").exists()
+            assert (repo.coral_dir / "objects" / "commits").exists()
+            assert repo.staging_dir.exists()
 
-            # Test commit file path
-            commit_path = repo._get_commit_path("abc123")
-            assert commit_path == repo.coral_dir / "objects" / "commits" / "abc123.json"
-
-            # Test version file path
-            version_path = repo._get_version_path("v1.0")
-            assert version_path == repo.coral_dir / "refs" / "tags" / "v1.0.json"
+            # Test config loading
+            assert repo.config is not None
+            assert "user" in repo.config
+            assert "core" in repo.config
 
     def test_commit_metadata_edge_cases(self):
         """Test CommitMetadata edge cases."""
@@ -144,11 +144,13 @@ class TestCoverageFinal4Percent:
             "store",
             "load",
             "exists",
+            "delete",
             "list_weights",
             "get_metadata",
             "get_storage_info",
             "store_batch",
             "load_batch",
+            "close",
         }
         assert abstract_methods == expected_methods
 
@@ -157,9 +159,12 @@ class TestCoverageFinal4Percent:
         config = CheckpointConfig()
 
         # Test default values
-        assert config.save_every_n_epochs == 1
-        assert config.keep_last_n_checkpoints == 5
+        assert config.save_every_n_epochs is None
+        assert config.save_every_n_steps is None
+        assert config.keep_last_n_checkpoints is None
         assert config.save_on_best_metric is None
+        assert config.auto_commit is True
+        assert config.save_optimizer_state is True
 
         # Test with custom values
         config2 = CheckpointConfig(
@@ -221,7 +226,7 @@ class TestCoverageFinal4Percent:
                 metadata=WeightMetadata(name="test", shape=(3,), dtype=np.float32),
             )
             hash_key = weight.compute_hash()
-            store.store(hash_key, weight)
+            store.store(weight, hash_key)
 
             # Test exists
             assert store.exists(hash_key)

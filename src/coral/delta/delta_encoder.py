@@ -18,6 +18,8 @@ COMPRESSED. For training checkpoints where small errors are acceptable,
 quantized strategies provide better compression.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from dataclasses import dataclass
@@ -136,7 +138,7 @@ class DeltaConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "DeltaConfig":
+    def from_dict(cls, data: dict[str, Any]) -> DeltaConfig:
         """Create from dictionary."""
         data = data.copy()
         data["delta_type"] = DeltaType(data["delta_type"])
@@ -170,7 +172,7 @@ class Delta:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Delta":
+    def from_dict(cls, data: dict[str, Any]) -> Delta:
         """Create from dictionary."""
         # Reconstruct data array
         data_bytes = data["data_bytes"]

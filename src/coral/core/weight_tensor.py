@@ -1,5 +1,7 @@
 """Base class for representing neural network weights"""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -142,7 +144,7 @@ class WeightTensor:
 
         return self._hash
 
-    def is_similar_to(self, other: "WeightTensor", threshold: float = 0.99) -> bool:
+    def is_similar_to(self, other: WeightTensor, threshold: float = 0.99) -> bool:
         """
         Check if this weight tensor is similar to another.
 
@@ -185,7 +187,7 @@ class WeightTensor:
     @classmethod
     def from_dict(
         cls, data: dict[str, Any], weight_data: Optional[np.ndarray] = None
-    ) -> "WeightTensor":
+    ) -> WeightTensor:
         """Create WeightTensor from dictionary"""
         metadata = WeightMetadata(
             name=data["metadata"]["name"],

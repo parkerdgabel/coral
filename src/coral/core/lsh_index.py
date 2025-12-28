@@ -17,6 +17,8 @@ Trade-offs:
 - Default (k=8, L=4) works well for similarity threshold >= 0.9
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -76,7 +78,7 @@ class TrainingState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TrainingState":
+    def from_dict(cls, data: dict[str, Any]) -> TrainingState:
         """Create from dictionary."""
         data = data.copy()
         data["timestamp"] = datetime.fromisoformat(data["timestamp"])
@@ -115,7 +117,7 @@ class TrainingState:
             json.dump(self.to_dict(), f, indent=2)
 
     @classmethod
-    def load(cls, path: str) -> "TrainingState":
+    def load(cls, path: str) -> TrainingState:
         """Load state from JSON file."""
         with open(path) as f:
             data = json.load(f)

@@ -1,5 +1,7 @@
 """HDF5-based storage backend for weight tensors"""
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -75,12 +77,14 @@ class HDF5Store(WeightStore):
 
         # Store weight data
         weights_group = self.file["weights"]
-        dataset = weights_group.create_dataset(
-            hash_key,
-            data=weight.data,
-            compression=self.compression,
-            compression_opts=self.compression_opts,
-        )
+        # Only pass compression_opts for gzip (lzf doesn't accept options)
+        create_kwargs = {
+            "data": weight.data,
+            "compression": self.compression,
+        }
+        if self.compression == "gzip" and self.compression_opts is not None:
+            create_kwargs["compression_opts"] = self.compression_opts
+        dataset = weights_group.create_dataset(hash_key, **create_kwargs)
 
         # Store metadata as attributes
         metadata = weight.metadata
@@ -218,7 +222,7 @@ class HDF5Store(WeightStore):
         if hasattr(self, "file") and self.file:
             self.file.close()
 
-    def __enter__(self) -> "HDF5Store":
+    def __enter__(self) -> HDF5Store:
         """Enter context manager."""
         return self
 
@@ -236,12 +240,14 @@ class HDF5Store(WeightStore):
         deltas_group = self.file["deltas"]
 
         # Store delta data
-        dataset = deltas_group.create_dataset(
-            delta_hash,
-            data=delta.data,
-            compression=self.compression,
-            compression_opts=self.compression_opts,
-        )
+        # Only pass compression_opts for gzip (lzf doesn't accept options)
+        create_kwargs = {
+            "data": delta.data,
+            "compression": self.compression,
+        }
+        if self.compression == "gzip" and self.compression_opts is not None:
+            create_kwargs["compression_opts"] = self.compression_opts
+        dataset = deltas_group.create_dataset(delta_hash, **create_kwargs)
 
         # Store delta metadata as attributes
         dataset.attrs["delta_type"] = delta.delta_type.value

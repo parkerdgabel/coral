@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -26,7 +28,7 @@ class CommitMetadata:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "CommitMetadata":
+    def from_dict(cls, data: dict) -> CommitMetadata:
         """Create from dictionary."""
         data = data.copy()
         data["timestamp"] = datetime.fromisoformat(data["timestamp"])
@@ -60,7 +62,7 @@ class Commit:
         """Check if this is a root commit."""
         return len(self.parent_hashes) == 0
 
-    def get_changed_weights(self, parent_commit: Optional["Commit"]) -> dict[str, str]:
+    def get_changed_weights(self, parent_commit: Optional[Commit]) -> dict[str, str]:
         """Get weights that changed from parent commit."""
         if parent_commit is None:
             return self.weight_hashes
@@ -75,14 +77,14 @@ class Commit:
 
         return changed
 
-    def get_added_weights(self, parent_commit: Optional["Commit"]) -> set[str]:
+    def get_added_weights(self, parent_commit: Optional[Commit]) -> set[str]:
         """Get weights added in this commit."""
         if parent_commit is None:
             return set(self.weight_hashes.keys())
 
         return set(self.weight_hashes.keys()) - set(parent_commit.weight_hashes.keys())
 
-    def get_removed_weights(self, parent_commit: Optional["Commit"]) -> set[str]:
+    def get_removed_weights(self, parent_commit: Optional[Commit]) -> set[str]:
         """Get weights removed in this commit."""
         if parent_commit is None:
             return set()
@@ -100,7 +102,7 @@ class Commit:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Commit":
+    def from_dict(cls, data: dict) -> Commit:
         """Create from dictionary."""
         data = data.copy()
         data["metadata"] = CommitMetadata.from_dict(data["metadata"])
@@ -113,7 +115,7 @@ class Commit:
             json.dump(self.to_dict(), f, indent=2)
 
     @classmethod
-    def load(cls, path: Path) -> "Commit":
+    def load(cls, path: Path) -> Commit:
         """Load commit from file."""
         with open(path) as f:
             data = json.load(f)

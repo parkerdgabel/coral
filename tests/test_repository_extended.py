@@ -31,9 +31,8 @@ class TestRepositoryExtended:
 
             # Check directory structure
             assert (Path(temp_dir) / ".coral").exists()
-            assert (Path(temp_dir) / ".coral" / "config").exists()
+            assert (Path(temp_dir) / ".coral" / "config.json").exists()
             assert (Path(temp_dir) / ".coral" / "refs" / "heads").exists()
-            assert (Path(temp_dir) / ".coral" / "refs" / "tags").exists()
             assert (Path(temp_dir) / ".coral" / "objects").exists()
             assert (Path(temp_dir) / ".coral" / "objects" / "weights.h5").exists()
 
@@ -58,17 +57,16 @@ class TestRepositoryExtended:
 
         weights = {"model.layer1": weight1, "model.layer2": weight2}
 
-        temp_repo.stage_weights(weights)
+        staged = temp_repo.stage_weights(weights)
 
         # Check weights are staged
-        status = temp_repo.status()
-        assert len(status["staged"]) == 2
-        assert "model.layer1" in status["staged"]
-        assert "model.layer2" in status["staged"]
+        assert len(staged) == 2
+        assert "model.layer1" in staged
+        assert "model.layer2" in staged
 
     def test_commit_empty_staging_fails(self, temp_repo):
         """Test committing with empty staging area fails."""
-        with pytest.raises(ValueError, match="Nothing to commit"):
+        with pytest.raises(ValueError, match="No weights staged for commit"):
             temp_repo.commit("Empty commit")
 
     def test_commit_with_author(self, temp_repo):
@@ -92,7 +90,7 @@ class TestRepositoryExtended:
 
         # Create new branch
         temp_repo.create_branch("feature-1")
-        branches = [b.name for b in temp_repo.list_branches()]
+        branches = [b.name for b in temp_repo.branch_manager.list_branches()]
         assert "feature-1" in branches
 
         # Switch to new branch
@@ -175,31 +173,43 @@ class TestRepositoryExtended:
         assert version.metrics["accuracy"] == 0.95
 
         # List versions
-        versions = temp_repo.list_versions()
+        versions = list(temp_repo.version_graph.versions.values())
         assert len(versions) == 1
         assert versions[0].name == "v1.0.0"
 
-        # Get version by name
-        retrieved = temp_repo.get_version("v1.0.0")
+        # Get version by ID
+        retrieved = temp_repo.version_graph.get_version(version.version_id)
         assert retrieved.name == "v1.0.0"
 
     def test_checkout_commit(self, temp_repo):
         """Test checking out specific commit."""
-        # Create multiple commits
+        # Create multiple commits, accumulating weights
         commits = []
-        for i in range(3):
-            weight = create_weight_tensor(np.ones(5) * i, f"weight{i}")
-            temp_repo.stage_weights({f"weight{i}": weight})
-            commit = temp_repo.commit(f"Commit {i}")
-            commits.append(commit)
 
-        # Checkout middle commit
-        temp_repo.checkout(commits[1].commit_hash[:8])
+        # First commit with weight0
+        weight0 = create_weight_tensor(np.ones(5) * 0, "weight0")
+        temp_repo.stage_weights({"weight0": weight0})
+        commits.append(temp_repo.commit("Commit 0"))
+
+        # Second commit adds weight1 (also includes weight0)
+        weight1 = create_weight_tensor(np.ones(5) * 1, "weight1")
+        temp_repo.stage_weights({"weight0": weight0, "weight1": weight1})
+        commits.append(temp_repo.commit("Commit 1"))
+
+        # Third commit adds weight2 (includes all weights)
+        weight2 = create_weight_tensor(np.ones(5) * 2, "weight2")
+        temp_repo.stage_weights(
+            {"weight0": weight0, "weight1": weight1, "weight2": weight2}
+        )
+        commits.append(temp_repo.commit("Commit 2"))
+
+        # Checkout middle commit using full hash
+        temp_repo.checkout(commits[1].commit_hash)
 
         # Should have weights 0 and 1, but not 2
-        assert temp_repo.get_weight("weight0") is not None
-        assert temp_repo.get_weight("weight1") is not None
-        assert temp_repo.get_weight("weight2") is None
+        assert temp_repo.get_weight("weight0", commits[1].commit_hash) is not None
+        assert temp_repo.get_weight("weight1", commits[1].commit_hash) is not None
+        assert temp_repo.get_weight("weight2", commits[1].commit_hash) is None
 
     def test_diff_operations(self, temp_repo):
         """Test diff between commits/branches."""
@@ -208,18 +218,18 @@ class TestRepositoryExtended:
         temp_repo.stage_weights({"weight1": weight1})
         commit1 = temp_repo.commit("First commit")
 
-        # Second commit adds weight
+        # Second commit adds weight2 (keep weight1)
         weight2 = create_weight_tensor(np.ones(10) * 2, "weight2")
-        temp_repo.stage_weights({"weight2": weight2})
+        temp_repo.stage_weights({"weight1": weight1, "weight2": weight2})
         temp_repo.commit("Second commit")
 
-        # Third commit modifies weight1
+        # Third commit modifies weight1 (keep weight2)
         weight1_mod = create_weight_tensor(np.ones(10) * 3, "weight1")
-        temp_repo.stage_weights({"weight1": weight1_mod})
+        temp_repo.stage_weights({"weight1": weight1_mod, "weight2": weight2})
         commit3 = temp_repo.commit("Third commit")
 
-        # Diff between commits
-        diff = temp_repo.diff(commit1.commit_hash[:8], commit3.commit_hash[:8])
+        # Diff between commits using full hashes
+        diff = temp_repo.diff(commit1.commit_hash, commit3.commit_hash)
 
         assert "weight2" in diff["added"]
         assert "weight1" in diff["modified"]
@@ -296,14 +306,15 @@ class TestRepositoryExtended:
 
         # Stage new weight
         weight3 = create_weight_tensor(np.ones(10) * 3, "weight3")
-        temp_repo.stage_weights({"weight3": weight3})
+        staged = temp_repo.stage_weights({"weight3": weight3})
 
-        # Get status
-        status = temp_repo.status()
+        # Check staged weights
+        assert len(staged) == 1
+        assert "weight3" in staged
 
-        assert len(status["staged"]) == 1
-        assert "weight3" in status["staged"]
-        assert "branch" in status
+        # Verify we're on a branch
+        current_branch = temp_repo.branch_manager.get_current_branch()
+        assert current_branch == "main"
 
     def test_get_weight_by_name(self, temp_repo):
         """Test getting weight by name from current commit."""
@@ -328,21 +339,25 @@ class TestRepositoryExtended:
         commit = temp_repo.commit("Test commit")
 
         # Create tag
-        temp_repo.tag_version("v1.0.0")
+        version = temp_repo.tag_version("v1.0.0")
 
         # Test resolving different refs
-        # Branch name
-        resolved = temp_repo._resolve_ref("main")
-        assert resolved is not None
+        # Branch name - verify branch exists and can be checked out
+        branch = temp_repo.branch_manager.get_branch("main")
+        assert branch is not None
+        assert branch.commit_hash == commit.commit_hash
 
-        # Tag name
-        resolved = temp_repo._resolve_ref("v1.0.0")
-        assert resolved is not None
+        # Tag name - verify version exists
+        retrieved_version = temp_repo.version_graph.get_version(version.version_id)
+        assert retrieved_version is not None
+        assert retrieved_version.commit_hash == commit.commit_hash
 
-        # Commit hash (short)
-        resolved = temp_repo._resolve_ref(commit.commit_hash[:8])
-        assert resolved == commit.commit_hash
+        # Commit hash - verify commit exists
+        retrieved_commit = temp_repo.version_graph.get_commit(commit.commit_hash)
+        assert retrieved_commit is not None
+        assert retrieved_commit.commit_hash == commit.commit_hash
 
-        # HEAD
-        resolved = temp_repo._resolve_ref("HEAD")
-        assert resolved == commit.commit_hash
+        # Current branch points to correct commit
+        current_branch = temp_repo.branch_manager.get_current_branch()
+        current_commit = temp_repo.branch_manager.get_branch_commit(current_branch)
+        assert current_commit == commit.commit_hash

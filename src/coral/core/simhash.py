@@ -14,6 +14,8 @@ Reference: Charikar, M. (2002). "Similarity estimation techniques from
 rounding algorithms". STOC '02.
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 from typing import Any, Optional, Union
