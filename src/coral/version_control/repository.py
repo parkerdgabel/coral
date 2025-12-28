@@ -405,6 +405,12 @@ class Repository:
                 if not branch:
                     raise ValueError(f"Invalid reference: {from_ref}")
                 commit_hash = branch.commit_hash
+                # Check if the branch has commits
+                if not commit_hash:
+                    raise ValueError(
+                        "Cannot create branch: repository has no commits yet. "
+                        "Please make an initial commit first."
+                    )
             else:
                 commit_hash = from_ref
         else:
@@ -412,7 +418,10 @@ class Repository:
             current_branch = self.branch_manager.get_current_branch()
             commit_hash = self.branch_manager.get_branch_commit(current_branch)
             if not commit_hash:
-                raise ValueError("No commits in repository")
+                raise ValueError(
+                    "Cannot create branch: repository has no commits yet. "
+                    "Please make an initial commit first."
+                )
 
         self.branch_manager.create_branch(name, commit_hash)
 
@@ -529,9 +538,19 @@ class Repository:
                 ref_weight = store.load(delta.reference_hash)
                 if ref_weight and self.deduplicator.delta_encoder:
                     # Reconstruct original weight from delta
-                    return self.deduplicator.delta_encoder.decode_delta(
+                    reconstructed = self.deduplicator.delta_encoder.decode_delta(
                         delta, ref_weight
                     )
+                    # Verify reconstructed weight hash matches expected hash
+                    if reconstructed:
+                        actual_hash = reconstructed.compute_hash()
+                        if actual_hash != weight_hash:
+                            logger.warning(
+                                f"Hash mismatch for reconstructed weight '{name}': "
+                                f"expected {weight_hash}, got {actual_hash}. "
+                                f"Delta reconstruction may have failed."
+                            )
+                    return reconstructed
 
         # Otherwise load the weight directly
         weight = store.load(weight_hash)
@@ -1239,7 +1258,10 @@ class Repository:
         state_file = self._get_sync_state_file(remote_name)
         if state_file.exists():
             with open(state_file) as f:
-                return json.load(f)
+                state = json.load(f)
+                # Convert remote_hashes from list to set for consistency
+                state["remote_hashes"] = set(state.get("remote_hashes", []))
+                return state
         return {"last_push": {}, "last_pull": {}, "remote_hashes": set()}
 
     def _save_sync_state(self, remote_name: str, state: dict[str, Any]) -> None:

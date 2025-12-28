@@ -209,10 +209,11 @@ class Deduplicator:
         if name is None:
             name = weight.metadata.name
 
-        # Compute hash outside the lock (CPU-intensive, doesn't need synchronization)
-        weight_hash = weight.compute_hash()
-
         with self._lock:
+            # Compute hash inside the lock to prevent race conditions
+            # This ensures the hash is computed atomically with the duplicate check
+            weight_hash = weight.compute_hash()
+
             # Check for exact duplicate
             if weight_hash in self.weight_index:
                 # Exact duplicate found
@@ -355,6 +356,11 @@ class Deduplicator:
 
         else:
             # O(n) fallback: scan all weights with matching shape/dtype
+            logger.warning(
+                "Falling back to O(n) similarity search. "
+                "Consider enabling unified similarity index (use_unified_index=True) "
+                "for better performance with large weight collections."
+            )
             candidates = [
                 (hash_val, w)
                 for hash_val, w in self.weight_index.items()
