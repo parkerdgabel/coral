@@ -7,6 +7,16 @@ from coral.core.lazy_weight import (
     StreamingWeightIterator,
     WeightProxy,
 )
+from coral.core.model_soup import (
+    ModelSoup,
+    SoupConfig,
+    SoupResult,
+    SoupStrategy,
+    dare_ties_merge,
+    greedy_soup,
+    ties_merge,
+    uniform_soup,
+)
 from coral.core.simhash import (
     MultiDimSimHashIndex,
     SimHash,
@@ -31,6 +41,15 @@ __all__ = [
     "LazyWeightCollection",
     "StreamingWeightIterator",
     "LazyLoadConfig",
+    # Model Souping
+    "ModelSoup",
+    "SoupConfig",
+    "SoupResult",
+    "SoupStrategy",
+    "uniform_soup",
+    "greedy_soup",
+    "ties_merge",
+    "dare_ties_merge",
     # Unified similarity index (recommended)
     "SimilarityIndex",
     "MultiDimSimilarityIndex",

@@ -25,15 +25,36 @@ logger = logging.getLogger(__name__)
 class MergeStrategy(Enum):
     """Strategy for resolving merge conflicts.
 
-    For neural network weights, AVERAGE and WEIGHTED strategies can be useful
+    For neural network weights, model souping strategies are recommended
     for combining changes from different training runs or experiments.
+
+    Basic strategies:
+    - OURS: Take weights from current branch
+    - THEIRS: Take weights from source branch
+    - FAIL: Raise error on conflicts
+
+    Model Souping strategies (recommended for ML):
+    - AVERAGE: Simple uniform averaging (uniform soup)
+    - WEIGHTED: Weighted averaging with configurable alpha
+    - GREEDY_SOUP: Add models only if they improve validation metric
+    - TIES: TIES-Merging (Trim, Elect Sign, Merge)
+    - DARE_TIES: DARE sparsification + TIES-Merging
+    - TASK_ARITHMETIC: Task vectors with scaling
+
+    References:
+    - Wortsman et al. (2022) "Model soups" (ICML 2022)
+    - Yadav et al. (2023) "TIES-Merging"
     """
 
     OURS = "ours"  # Prefer weights from current branch
     THEIRS = "theirs"  # Prefer weights from source branch
     FAIL = "fail"  # Raise MergeConflictError on conflicts
-    AVERAGE = "average"  # Average conflicting weights: (ours + theirs) / 2
+    AVERAGE = "average"  # Simple uniform averaging (uniform soup)
     WEIGHTED = "weighted"  # Weighted average: alpha * ours + (1-alpha) * theirs
+    GREEDY_SOUP = "greedy_soup"  # Add models only if they improve validation
+    TIES = "ties"  # TIES-Merging: Trim, Elect Sign, Merge
+    DARE_TIES = "dare_ties"  # DARE + TIES-Merging
+    TASK_ARITHMETIC = "task_arithmetic"  # Task vectors with scaling
 
 
 class MergeConflictError(Exception):
@@ -402,6 +423,11 @@ class Repository:
         message: Optional[str] = None,
         strategy: MergeStrategy = MergeStrategy.OURS,
         merge_alpha: float = 0.5,
+        validation_fn: Optional[Callable[[dict[str, Any]], float]] = None,
+        ties_density: float = 0.5,
+        dare_drop_rate: float = 0.9,
+        task_scaling: float = 1.0,
+        base_commit_ref: Optional[str] = None,
     ) -> Commit:
         """Merge another branch into current branch.
 
@@ -409,19 +435,31 @@ class Repository:
             source_branch: Branch to merge from
             message: Optional merge commit message
             strategy: How to resolve conflicts:
+                Basic strategies:
                 - OURS: Take weights from current branch
                 - THEIRS: Take weights from source branch
                 - FAIL: Raise MergeConflictError on conflicts
-                - AVERAGE: Average conflicting weights: (ours + theirs) / 2
+
+                Model Souping strategies (recommended for ML):
+                - AVERAGE: Simple uniform averaging (uniform soup)
                 - WEIGHTED: Weighted avg: alpha * ours + (1-alpha) * theirs
-            merge_alpha: Weight for current branch when using WEIGHTED strategy (0-1).
-                0.5 = equal weight, 0.7 = prefer current, 0.3 = prefer source
+                - GREEDY_SOUP: Add models only if validation improves
+                - TIES: TIES-Merging (Trim, Elect Sign, Merge)
+                - DARE_TIES: DARE sparsification + TIES-Merging
+                - TASK_ARITHMETIC: Task vectors with scaling
+            merge_alpha: Weight for WEIGHTED strategy (0=source, 1=current)
+            validation_fn: For GREEDY_SOUP: function(weights) -> score
+            ties_density: For TIES: top-k% params to keep (default 0.5)
+            dare_drop_rate: For DARE: fraction to drop (default 0.9)
+            task_scaling: For TASK_ARITHMETIC: scaling factor
+            base_commit_ref: For TIES/DARE: base model commit reference.
+                If None, uses common ancestor.
 
         Returns:
             The merge commit
 
         Raises:
-            MergeConflictError: If strategy is FAIL and conflicts are detected
+            MergeConflictError: If strategy is FAIL and conflicts detected
             ValueError: If branches are in invalid state
         """
         current_branch = self.branch_manager.get_current_branch()
@@ -456,7 +494,16 @@ class Repository:
 
         # Merge weights
         merged_weights = self._merge_weights(
-            current_commit, source_commit, ancestor_commit, strategy, merge_alpha
+            current_commit,
+            source_commit,
+            ancestor_commit,
+            strategy,
+            merge_alpha,
+            validation_fn=validation_fn,
+            ties_density=ties_density,
+            dare_drop_rate=dare_drop_rate,
+            task_scaling=task_scaling,
+            base_commit_ref=base_commit_ref,
         )
 
         # Stage merged weights
@@ -698,6 +745,11 @@ class Repository:
         ancestor: Optional[Commit],
         strategy: MergeStrategy = MergeStrategy.OURS,
         merge_alpha: float = 0.5,
+        validation_fn: Optional[Callable[[dict[str, Any]], float]] = None,
+        ties_density: float = 0.5,
+        dare_drop_rate: float = 0.9,
+        task_scaling: float = 1.0,
+        base_commit_ref: Optional[str] = None,
     ) -> dict[str, WeightTensor]:
         """Perform three-way merge of weights.
 
@@ -707,6 +759,11 @@ class Repository:
             ancestor: Common ancestor commit (if any)
             strategy: How to resolve conflicts
             merge_alpha: Weight for current branch when using WEIGHTED strategy
+            validation_fn: For GREEDY_SOUP: function(weights) -> score
+            ties_density: For TIES: top-k% params to keep
+            dare_drop_rate: For DARE: fraction to drop
+            task_scaling: For TASK_ARITHMETIC: scaling factor
+            base_commit_ref: For TIES/DARE: base model commit reference
 
         Returns:
             Merged weights dictionary
@@ -714,8 +771,28 @@ class Repository:
         Raises:
             MergeConflictError: If strategy is FAIL and conflicts are detected
         """
-
         from ..core.weight_tensor import WeightMetadata
+
+        # Check if we need model souping (advanced merge strategies)
+        souping_strategies = {
+            MergeStrategy.GREEDY_SOUP,
+            MergeStrategy.TIES,
+            MergeStrategy.DARE_TIES,
+            MergeStrategy.TASK_ARITHMETIC,
+        }
+
+        if strategy in souping_strategies:
+            return self._merge_weights_soup(
+                current,
+                source,
+                ancestor,
+                strategy,
+                validation_fn=validation_fn,
+                ties_density=ties_density,
+                dare_drop_rate=dare_drop_rate,
+                task_scaling=task_scaling,
+                base_commit_ref=base_commit_ref,
+            )
 
         merged = {}
         conflicts = []
@@ -830,6 +907,96 @@ class Repository:
             )
 
         return merged
+
+    def _merge_weights_soup(
+        self,
+        current: Commit,
+        source: Commit,
+        ancestor: Optional[Commit],
+        strategy: MergeStrategy,
+        validation_fn: Optional[Callable[[dict[str, Any]], float]] = None,
+        ties_density: float = 0.5,
+        dare_drop_rate: float = 0.9,
+        task_scaling: float = 1.0,
+        base_commit_ref: Optional[str] = None,
+    ) -> dict[str, WeightTensor]:
+        """Perform model souping merge using advanced algorithms.
+
+        Args:
+            current: Current branch commit
+            source: Source branch commit
+            ancestor: Common ancestor commit (if any)
+            strategy: Souping strategy to use
+            validation_fn: For GREEDY_SOUP: function(weights) -> score
+            ties_density: For TIES: top-k% params to keep
+            dare_drop_rate: For DARE: fraction to drop
+            task_scaling: For TASK_ARITHMETIC: scaling factor
+            base_commit_ref: For TIES/DARE: base model commit reference
+
+        Returns:
+            Merged weights dictionary
+        """
+        from ..core.model_soup import ModelSoup, SoupConfig, SoupStrategy
+
+        # Load weights from both commits
+        current_weights = self.get_all_weights(current.commit_hash)
+        source_weights = self.get_all_weights(source.commit_hash)
+
+        # For strategies that need a base model, load it
+        base_weights = None
+        if strategy in {
+            MergeStrategy.TIES,
+            MergeStrategy.DARE_TIES,
+            MergeStrategy.TASK_ARITHMETIC,
+        }:
+            if base_commit_ref:
+                base_weights = self.get_all_weights(base_commit_ref)
+            elif ancestor:
+                # Use common ancestor as base
+                base_weights = self.get_all_weights(ancestor.commit_hash)
+            else:
+                raise ValueError(
+                    f"{strategy.value} requires a base model. "
+                    "Provide base_commit_ref or ensure branches have a common ancestor."
+                )
+
+        # Map MergeStrategy to SoupStrategy
+        strategy_map = {
+            MergeStrategy.GREEDY_SOUP: SoupStrategy.GREEDY,
+            MergeStrategy.TIES: SoupStrategy.TIES,
+            MergeStrategy.DARE_TIES: SoupStrategy.DARE_TIES,
+            MergeStrategy.TASK_ARITHMETIC: SoupStrategy.TASK_ARITHMETIC,
+        }
+
+        soup_strategy = strategy_map[strategy]
+
+        # Build config
+        config = SoupConfig(
+            strategy=soup_strategy,
+            validation_fn=validation_fn,
+            ties_density=ties_density,
+            dare_drop_rate=dare_drop_rate,
+            task_scaling=task_scaling,
+        )
+
+        # Validate greedy soup has validation function
+        if strategy == MergeStrategy.GREEDY_SOUP and validation_fn is None:
+            raise ValueError("GREEDY_SOUP strategy requires a validation_fn")
+
+        # Create soup and merge
+        soup = ModelSoup(config)
+        models = [current_weights, source_weights]
+
+        result = soup.merge(models, base_model=base_weights)
+
+        logger.info(
+            f"Model soup merge completed using {strategy.value}: "
+            f"{result.num_models} models merged"
+        )
+        if result.stats:
+            logger.debug(f"Soup stats: {result.stats}")
+
+        return result.weights
 
     def gc(self) -> dict[str, int]:
         """Garbage collect unreferenced weights."""
