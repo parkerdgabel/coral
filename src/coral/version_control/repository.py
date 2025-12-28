@@ -5,7 +5,7 @@ import json
 import logging
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional, Union
 
 from ..core.deduplicator import Deduplicator
 from ..core.weight_tensor import WeightTensor
@@ -15,6 +15,9 @@ from ..utils.json_utils import dump_numpy
 from .branch import BranchManager
 from .commit import Commit, CommitMetadata
 from .version import Version, VersionGraph
+
+if TYPE_CHECKING:
+    from ..config import CoralConfig
 
 logger = logging.getLogger(__name__)
 
@@ -42,19 +45,34 @@ class MergeConflictError(Exception):
 
 
 class Repository:
-    """Main repository class for version control operations."""
+    """Main repository class for version control operations.
 
-    def __init__(self, path: Path, init: bool = False):
+    Args:
+        path: Path to the repository root directory
+        init: If True, initialize a new repository
+        config: Optional CoralConfig instance. If not provided, configuration
+            will be loaded from files and environment variables.
+    """
+
+    def __init__(
+        self,
+        path: Path,
+        init: bool = False,
+        config: Optional["CoralConfig"] = None,
+    ):
         self.path = Path(path)
         self.coral_dir = self.path / ".coral"
 
         if init:
-            self._initialize_repository()
+            self._initialize_repository(config)
         elif not self.coral_dir.exists():
             raise ValueError(f"Not a Coral repository: {self.path}")
 
-        # Load configuration first
-        self.config = self._load_config()
+        # Load configuration (use provided config or load from sources)
+        self._coral_config = config or self._load_coral_config()
+
+        # Keep legacy dict-based config for backwards compatibility
+        self.config = self._get_legacy_config_dict()
 
         # Initialize components
         self.branch_manager = BranchManager(self.path)
@@ -64,20 +82,15 @@ class Repository:
         from ..delta.delta_encoder import DeltaType
 
         delta_config = DeltaConfig()
-        if self.config.get("core", {}).get("delta_encoding", True):
-            delta_type_str = self.config.get("core", {}).get(
-                "delta_type", "float32_raw"
-            )
-            delta_config.delta_type = DeltaType(delta_type_str)
+        if self._coral_config.core.delta_encoding:
+            delta_config.delta_type = DeltaType(self._coral_config.core.delta_type)
 
         self.deduplicator = Deduplicator(
-            similarity_threshold=self.config.get("core", {}).get(
-                "similarity_threshold", 0.98
-            ),
+            similarity_threshold=self._coral_config.core.similarity_threshold,
             delta_config=delta_config,
-            enable_delta_encoding=self.config.get("core", {}).get(
-                "delta_encoding", True
-            ),
+            enable_delta_encoding=self._coral_config.core.delta_encoding,
+            enable_lsh=self._coral_config.core.enable_lsh,
+            magnitude_tolerance=self._coral_config.core.magnitude_tolerance,
         )
 
         # Storage paths
@@ -94,8 +107,32 @@ class Repository:
         # Load existing commits
         self._load_commits()
 
-    def _initialize_repository(self) -> None:
-        """Initialize a new repository."""
+    @property
+    def coral_config(self) -> "CoralConfig":
+        """Get the typed configuration object."""
+        return self._coral_config
+
+    def _load_coral_config(self) -> "CoralConfig":
+        """Load configuration using the new config system."""
+        from ..config import load_config
+
+        return load_config(repo_path=self.path)
+
+    def _get_legacy_config_dict(self) -> dict:
+        """Convert CoralConfig to legacy dict format for backwards compatibility."""
+        return {
+            "user": self._coral_config.user.to_dict(),
+            "core": self._coral_config.core.to_dict(),
+        }
+
+    def _initialize_repository(
+        self, config: Optional["CoralConfig"] = None
+    ) -> None:
+        """Initialize a new repository.
+
+        Args:
+            config: Optional configuration to use. If not provided, defaults are used.
+        """
         if self.coral_dir.exists():
             raise ValueError(f"Repository already exists at {self.path}")
 
@@ -107,18 +144,31 @@ class Repository:
         (self.coral_dir / "refs" / "heads").mkdir(parents=True)
         (self.coral_dir / "staging").mkdir()
 
-        # Create initial config
-        config = {
-            "user": {"name": "Anonymous", "email": "anonymous@example.com"},
+        # Get config or create defaults
+        if config is None:
+            from ..config import get_default_config
+
+            config = get_default_config()
+
+        # Store config for use before full initialization
+        self._coral_config = config
+
+        # Save configuration in both formats for compatibility
+        # New TOML format
+        self._save_config_toml(config)
+
+        # Legacy JSON format (for backwards compatibility)
+        legacy_config = {
+            "user": config.user.to_dict(),
             "core": {
-                "compression": "gzip",
-                "similarity_threshold": 0.98,
-                "delta_encoding": True,
+                "compression": config.core.compression,
+                "similarity_threshold": config.core.similarity_threshold,
+                "delta_encoding": config.core.delta_encoding,
+                "delta_type": config.core.delta_type,
             },
         }
-
         with open(self.coral_dir / "config.json", "w") as f:
-            json.dump(config, f, indent=2)
+            json.dump(legacy_config, f, indent=2)
 
         # Create initial branch reference
         with open(self.coral_dir / "HEAD", "w") as f:
@@ -135,13 +185,43 @@ class Repository:
         with open(main_branch_file, "w") as f:
             json.dump(initial_branch_data, f, indent=2)
 
-    def _load_config(self) -> dict:
-        """Load repository configuration."""
-        config_file = self.coral_dir / "config.json"
-        if config_file.exists():
-            with open(config_file) as f:
-                return json.load(f)
-        return {}
+    def _save_config_toml(self, config: "CoralConfig") -> None:
+        """Save configuration to TOML format.
+
+        Args:
+            config: Configuration to save
+        """
+        from ..config import ConfigLoader
+
+        loader = ConfigLoader(repo_path=self.path)
+        loader.save_repo_config(config)
+
+    def save_config(self) -> None:
+        """Save the current configuration to the repository."""
+        self._save_config_toml(self._coral_config)
+
+        # Also update legacy format
+        legacy_config = self._get_legacy_config_dict()
+        with open(self.coral_dir / "config.json", "w") as f:
+            json.dump(legacy_config, f, indent=2)
+
+    def update_config(self, **kwargs: Any) -> None:
+        """Update configuration values.
+
+        Args:
+            **kwargs: Configuration values in dot notation
+                (e.g., core_similarity_threshold=0.95)
+        """
+        for key, value in kwargs.items():
+            # Convert underscore notation to dot notation
+            dot_key = key.replace("_", ".", 1)
+            self._coral_config.set_nested(dot_key, value)
+
+        # Update legacy config dict
+        self.config = self._get_legacy_config_dict()
+
+        # Save to disk
+        self.save_config()
 
     def _load_commits(self) -> None:
         """Load all commits into the version graph."""
@@ -155,7 +235,7 @@ class Repository:
 
         with HDF5Store(
             self.weights_store_path,
-            compression=self.config.get("core", {}).get("compression", "gzip"),
+            compression=self._coral_config.core.compression,
         ) as store:
             for name, weight in weights.items():
                 # Add to deduplicator
@@ -228,9 +308,8 @@ class Repository:
 
         # Create commit metadata
         metadata = CommitMetadata(
-            author=author or self.config.get("user", {}).get("name", "Anonymous"),
-            email=email
-            or self.config.get("user", {}).get("email", "anonymous@example.com"),
+            author=author or self._coral_config.user.name,
+            email=email or self._coral_config.user.email,
             message=message,
             tags=tags or [],
         )
