@@ -436,3 +436,137 @@ class TestSyncRepositories:
 
         assert stats["push"]["weights"] == 4  # All weights pushed
         assert stats["pull"]["weights"] == 4  # All weights pulled
+
+
+class TestRemoteRefs:
+    """Tests for Remote refs management (fetch_refs and push_refs)."""
+
+    @pytest.fixture
+    def remote(self, tmp_path):
+        """Create a file-based remote."""
+        remote_path = tmp_path / "remote"
+        remote_path.mkdir(parents=True, exist_ok=True)
+        config = RemoteConfig.from_url("origin", f"file://{remote_path}")
+        remote = Remote.from_config(config)
+        yield remote
+        remote.close()
+
+    def test_push_refs(self, remote):
+        """Test pushing refs to remote."""
+        refs = {
+            "main": "abc123def456",
+            "feature-branch": "789xyz000",
+        }
+
+        result = remote.push_refs(refs)
+
+        assert result is True
+        assert remote._refs == refs
+
+    def test_fetch_refs_after_push(self, remote):
+        """Test fetching refs after pushing."""
+        refs = {
+            "main": "abc123def456",
+            "develop": "fedcba654321",
+        }
+        remote.push_refs(refs)
+
+        # Create a new remote instance to simulate fetching
+        config = remote.config
+        new_remote = Remote.from_config(config)
+
+        fetched_refs = new_remote.fetch_refs()
+
+        assert fetched_refs == refs
+        new_remote.close()
+
+    def test_fetch_refs_empty(self, remote):
+        """Test fetching refs when none exist returns empty dict."""
+        refs = remote.fetch_refs()
+
+        assert refs == {}
+
+    def test_push_refs_updates_internal_state(self, remote):
+        """Test that push_refs updates internal _refs."""
+        refs1 = {"main": "commit1"}
+        refs2 = {"main": "commit2", "dev": "commit3"}
+
+        remote.push_refs(refs1)
+        assert remote._refs == refs1
+
+        remote.push_refs(refs2)
+        assert remote._refs == refs2
+
+    def test_fetch_refs_updates_internal_state(self, remote):
+        """Test that fetch_refs updates internal _refs."""
+        refs = {"main": "abc123", "feature": "def456"}
+        remote.push_refs(refs)
+
+        # Clear internal state
+        remote._refs = {}
+
+        # Fetch should restore it
+        fetched = remote.fetch_refs()
+
+        assert fetched == refs
+        assert remote._refs == refs
+
+    def test_refs_file_location(self, remote, tmp_path):
+        """Test that refs are stored in the correct location."""
+        refs = {"main": "abc123"}
+        remote.push_refs(refs)
+
+        # For file backend, refs.json should be in the remote path
+        remote_path = tmp_path / "remote"
+        refs_file = remote_path / "refs.json"
+
+        assert refs_file.exists()
+
+        # Verify contents
+        import json
+
+        with open(refs_file) as f:
+            data = json.load(f)
+
+        assert data["refs"] == refs
+
+    def test_push_refs_with_special_characters(self, remote):
+        """Test pushing refs with special branch names."""
+        refs = {
+            "feature/new-feature": "abc123",
+            "hotfix/urgent-fix": "def456",
+            "release-v1.0.0": "789xyz",
+        }
+
+        result = remote.push_refs(refs)
+
+        assert result is True
+
+        # Fetch and verify
+        new_remote = Remote.from_config(remote.config)
+        fetched = new_remote.fetch_refs()
+        assert fetched == refs
+        new_remote.close()
+
+    def test_fetch_refs_with_corrupted_file(self, remote, tmp_path):
+        """Test fetch_refs handles corrupted refs file gracefully."""
+        # Write invalid JSON to refs file
+        remote_path = tmp_path / "remote"
+        refs_file = remote_path / "refs.json"
+        refs_file.parent.mkdir(parents=True, exist_ok=True)
+        refs_file.write_text("not valid json")
+
+        # Should not raise, just return empty dict
+        refs = remote.fetch_refs()
+        assert refs == {}
+
+    def test_get_file_refs_path(self, tmp_path):
+        """Test _get_file_refs_path returns correct path."""
+        remote_path = tmp_path / "my_remote"
+        config = RemoteConfig.from_url("test", f"file://{remote_path}")
+        remote = Remote.from_config(config)
+
+        refs_path = remote._get_file_refs_path()
+
+        assert refs_path == remote_path / "refs.json"
+        remote.close()
