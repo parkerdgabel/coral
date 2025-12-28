@@ -160,6 +160,53 @@ class CoralCLI:
         )
         stats_parser.add_argument("--json", action="store_true", help="Output as JSON")
 
+        # Config command
+        config_parser = subparsers.add_parser("config", help="Manage configuration")
+        config_subparsers = config_parser.add_subparsers(
+            dest="config_command", help="Configuration commands"
+        )
+
+        # config list
+        config_list = config_subparsers.add_parser(
+            "list", help="List all configuration options"
+        )
+        config_list.add_argument("--json", action="store_true", help="Output as JSON")
+
+        # config get
+        config_get = config_subparsers.add_parser(
+            "get", help="Get a configuration value"
+        )
+        config_get.add_argument(
+            "key", help="Configuration key (e.g., core.similarity_threshold)"
+        )
+
+        # config set
+        config_set = config_subparsers.add_parser(
+            "set", help="Set a configuration value"
+        )
+        config_set.add_argument(
+            "--global", dest="global_config", action="store_true",
+            help="Set in global user config"
+        )
+        config_set.add_argument(
+            "key", help="Configuration key (e.g., core.similarity_threshold)"
+        )
+        config_set.add_argument("value", help="Value to set")
+
+        # config show
+        config_show = config_subparsers.add_parser(
+            "show", help="Show effective configuration (merged from all sources)"
+        )
+        config_show.add_argument("--json", action="store_true", help="Output as JSON")
+
+        # config validate
+        config_subparsers.add_parser("validate", help="Validate configuration")
+
+        # config migrate
+        config_subparsers.add_parser(
+            "migrate", help="Migrate from legacy config.json to coral.toml"
+        )
+
         # Compare command
         compare_parser = subparsers.add_parser(
             "compare", help="Compare weights between commits or branches"
@@ -390,6 +437,8 @@ class CoralCLI:
                 return self._cmd_clone(args)
             elif args.command == "stats":
                 return self._cmd_stats(args, repo_path)
+            elif args.command == "config":
+                return self._cmd_config(args, repo_path)
             elif args.command == "compare":
                 return self._cmd_compare(args, repo_path)
             elif args.command == "sync":
@@ -1017,6 +1066,227 @@ class CoralCLI:
                 return f"{size:.1f} {unit}"
             size /= 1024
         return f"{size:.1f} PB"
+
+    def _cmd_config(self, args, repo_path: Path) -> int:
+        """Manage configuration."""
+        from coral.config import (
+            ConfigLoader,
+            CoralConfig,
+            load_config,
+            validate_config,
+        )
+
+        if not args.config_command or args.config_command == "show":
+            # Show effective configuration
+            config = load_config(repo_path=repo_path)
+
+            if args.config_command == "show" and hasattr(args, "json") and args.json:
+                print(json.dumps(config.to_dict(), indent=2))
+                return 0
+
+            self._print_config(config)
+            return 0
+
+        elif args.config_command == "list":
+            # List all available configuration options
+            config = load_config(repo_path=repo_path)
+
+            if args.json:
+                print(json.dumps(config.to_dict(), indent=2))
+                return 0
+
+            self._print_config_list(config)
+            return 0
+
+        elif args.config_command == "get":
+            # Get a specific configuration value
+            config = load_config(repo_path=repo_path)
+            value = config.get_nested(args.key)
+
+            if value is None:
+                print(f"Error: Unknown configuration key: {args.key}", file=sys.stderr)
+                return 1
+
+            # Handle object values
+            if hasattr(value, "to_dict"):
+                print(json.dumps(value.to_dict(), indent=2))
+            else:
+                print(value)
+            return 0
+
+        elif args.config_command == "set":
+            # Set a configuration value
+            config = load_config(repo_path=repo_path)
+
+            # Parse value (convert to appropriate type)
+            value = self._parse_config_value(args.value)
+
+            try:
+                config.set_nested(args.key, value)
+            except KeyError:
+                print(f"Error: Unknown configuration key: {args.key}", file=sys.stderr)
+                return 1
+
+            # Save configuration
+            loader = ConfigLoader(repo_path=repo_path)
+            if args.global_config:
+                loader.save_user_config(config)
+                print(f"Set {args.key} = {value} (global)")
+            else:
+                loader.save_repo_config(config)
+                print(f"Set {args.key} = {value}")
+            return 0
+
+        elif args.config_command == "validate":
+            # Validate configuration
+            config = load_config(repo_path=repo_path)
+            result = validate_config(config)
+
+            if result.valid:
+                print("Configuration is valid")
+                if result.warnings:
+                    print("\nWarnings:")
+                    for warning in result.warnings:
+                        print(f"  - {warning}")
+                return 0
+            else:
+                print("Configuration has errors:")
+                for error in result.errors:
+                    print(f"  - {error}")
+                if result.warnings:
+                    print("\nWarnings:")
+                    for warning in result.warnings:
+                        print(f"  - {warning}")
+                return 1
+
+        elif args.config_command == "migrate":
+            # Migrate from legacy config.json to coral.toml
+            legacy_path = repo_path / ".coral" / "config.json"
+            toml_path = repo_path / ".coral" / "coral.toml"
+
+            if not legacy_path.exists():
+                print("No legacy config.json found")
+                return 0
+
+            if toml_path.exists():
+                print("coral.toml already exists. Delete it first to re-migrate.")
+                return 1
+
+            # Load legacy config and save as TOML
+            config = load_config(repo_path=repo_path)
+            loader = ConfigLoader(repo_path=repo_path)
+            loader.save_repo_config(config)
+
+            print(f"Migrated configuration to {toml_path}")
+            print("You can now delete config.json if you no longer need it.")
+            return 0
+
+        return 0
+
+    def _print_config(self, config) -> None:
+        """Print configuration in human-readable format."""
+        print("Coral Configuration")
+        print("=" * 50)
+        print()
+
+        # User
+        print("[user]")
+        print(f"  name = {config.user.name!r}")
+        print(f"  email = {config.user.email!r}")
+        print()
+
+        # Core
+        print("[core]")
+        print(f"  compression = {config.core.compression!r}")
+        print(f"  compression_level = {config.core.compression_level}")
+        print(f"  similarity_threshold = {config.core.similarity_threshold}")
+        print(f"  magnitude_tolerance = {config.core.magnitude_tolerance}")
+        print(f"  enable_lsh = {str(config.core.enable_lsh).lower()}")
+        print(f"  delta_encoding = {str(config.core.delta_encoding).lower()}")
+        print(f"  delta_type = {config.core.delta_type!r}")
+        print(f"  strict_reconstruction = {str(config.core.strict_reconstruction).lower()}")
+        print()
+
+        # Delta
+        print("[delta]")
+        print(f"  sparse_threshold = {config.delta.sparse_threshold}")
+        print(f"  quantization_bits = {config.delta.quantization_bits}")
+        print(f"  min_weight_size = {config.delta.min_weight_size}")
+        print(f"  max_delta_ratio = {config.delta.max_delta_ratio}")
+        print()
+
+        # Storage
+        print("[storage]")
+        print(f"  compression = {config.storage.compression!r}")
+        print(f"  compression_level = {config.storage.compression_level}")
+        print()
+
+        # Logging
+        print("[logging]")
+        print(f"  level = {config.logging.level!r}")
+        print()
+
+    def _print_config_list(self, config) -> None:
+        """Print available configuration options."""
+        print("Available Configuration Options")
+        print("=" * 60)
+        print()
+        print("Use 'coral config get <key>' to view a value")
+        print("Use 'coral config set <key> <value>' to set a value")
+        print()
+
+        options = [
+            ("user.name", "string", "User name for commits"),
+            ("user.email", "string", "User email for commits"),
+            ("core.compression", "string", "Compression type: gzip, lzf, none"),
+            ("core.compression_level", "int", "Compression level (1-9)"),
+            ("core.similarity_threshold", "float", "Threshold for deduplication (0-1)"),
+            ("core.magnitude_tolerance", "float", "Magnitude tolerance (0-1)"),
+            ("core.enable_lsh", "bool", "Enable LSH for large repos"),
+            ("core.delta_encoding", "bool", "Enable delta encoding"),
+            ("core.delta_type", "string", "Delta encoding strategy"),
+            ("core.strict_reconstruction", "bool", "Fail on hash mismatch"),
+            ("delta.sparse_threshold", "float", "Sparse encoding threshold"),
+            ("delta.quantization_bits", "int", "Quantization bits (8 or 16)"),
+            ("delta.min_weight_size", "int", "Min weight size for delta (bytes)"),
+            ("delta.max_delta_ratio", "float", "Max delta size ratio"),
+            ("storage.compression", "string", "HDF5 compression type"),
+            ("storage.compression_level", "int", "HDF5 compression level"),
+            ("lsh.num_hyperplanes", "int", "LSH hyperplanes per table"),
+            ("lsh.num_tables", "int", "Number of LSH tables"),
+            ("lsh.max_candidates", "int", "Max LSH candidates"),
+            ("simhash.num_bits", "int", "SimHash fingerprint bits (64/128)"),
+            ("simhash.similarity_threshold", "float", "SimHash threshold"),
+            ("logging.level", "string", "Log level: DEBUG, INFO, etc."),
+        ]
+
+        print(f"{'Key':<35} {'Type':<8} {'Description'}")
+        print("-" * 60)
+        for key, type_str, desc in options:
+            print(f"{key:<35} {type_str:<8} {desc}")
+
+    def _parse_config_value(self, value: str):
+        """Parse a configuration value from string."""
+        # Handle booleans
+        if value.lower() in ("true", "yes", "1", "on"):
+            return True
+        if value.lower() in ("false", "no", "0", "off"):
+            return False
+
+        # Handle None
+        if value.lower() in ("none", "null", ""):
+            return None
+
+        # Try numeric types
+        try:
+            if "." in value:
+                return float(value)
+            return int(value)
+        except ValueError:
+            pass
+
+        # Return as string
+        return value
 
     def _cmd_compare(self, args, repo_path: Path) -> int:
         """Compare weights between two commits."""

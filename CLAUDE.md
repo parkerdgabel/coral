@@ -100,6 +100,11 @@ coral/
 │   ├── cli/                     # Command-line interface
 │   │   ├── __init__.py
 │   │   └── main.py              # CLI entry point (CoralCLI class)
+│   ├── config/                  # Configuration system
+│   │   ├── __init__.py          # Public exports
+│   │   ├── schema.py            # Configuration dataclasses
+│   │   ├── loader.py            # Multi-source config loading
+│   │   └── validation.py        # Config validation
 │   ├── core/                    # Core data structures and algorithms
 │   │   ├── __init__.py
 │   │   ├── weight_tensor.py     # WeightTensor, WeightMetadata classes
@@ -173,18 +178,29 @@ The main package exports these classes (from `coral/__init__.py`):
 
 ```python
 from coral import (
+    # Core
     WeightTensor,          # Core weight container
     WeightMetadata,        # Weight metadata
     Deduplicator,          # Deduplication engine
+    # Storage
     WeightStore,           # Abstract storage interface
     HDF5Store,             # HDF5 storage backend
+    # Version Control
     Repository,            # Version control repository
     MergeStrategy,         # Merge strategy enum
     MergeConflictError,    # Merge conflict exception
+    # Delta Encoding
     DeltaEncoder,          # Delta encoding engine
     DeltaConfig,           # Delta configuration
     DeltaReconstructionError,  # Reconstruction error
     DeltaType,             # Delta encoding type enum
+    # Configuration
+    CoralConfig,           # Main configuration container
+    CoreConfig,            # Core settings
+    UserConfig,            # User identity
+    load_config,           # Load config from sources
+    get_default_config,    # Get default config
+    validate_config,       # Validate configuration
 )
 ```
 
@@ -217,6 +233,37 @@ from coral import (
 - **HDF5Store** (`storage/hdf5_store.py`): Local content-addressable storage with compression
 - **S3Store** (`storage/s3_store.py`): S3-compatible cloud storage (AWS S3, MinIO, DigitalOcean Spaces)
 - **WeightStore** (`storage/weight_store.py`): Abstract interface for storage backends
+
+### Configuration System
+
+- **CoralConfig** (`config/schema.py`): Main configuration container with all settings
+- **ConfigLoader** (`config/loader.py`): Multi-source configuration loading
+- **Validation** (`config/validation.py`): Configuration validation utilities
+
+**Configuration Sources (Priority Order)**:
+1. **Programmatic** (highest) - Direct API calls
+2. **Environment Variables** - `CORAL_*` prefixed variables
+3. **Repository Config** - `.coral/coral.toml` (per-repository)
+4. **User Config** - `~/.config/coral/config.toml` (global)
+5. **Defaults** (lowest) - Built-in defaults
+
+**Key Configuration Sections**:
+- `[user]`: User identity (name, email)
+- `[core]`: Core settings (compression, similarity_threshold, delta_encoding, delta_type)
+- `[delta]`: Delta encoding settings (sparse_threshold, quantization_bits)
+- `[storage]`: Storage backend settings
+- `[lsh]`: LSH index settings
+- `[simhash]`: SimHash fingerprinting settings
+- `[checkpoint]`: Training checkpoint defaults
+- `[logging]`: Logging configuration
+
+**Environment Variable Examples**:
+```bash
+CORAL_CORE_SIMILARITY_THRESHOLD=0.95
+CORAL_USER_NAME="CI Bot"
+CORAL_CORE_DELTA_TYPE=xor_float32
+CORAL_LOGGING_LEVEL=DEBUG
+```
 
 ### Version Control
 
@@ -299,6 +346,15 @@ coral-ml sync-status [remote]      # Show sync status
 # Maintenance
 coral-ml gc                        # Garbage collect unreferenced weights
 coral-ml stats [--json]            # Show repository statistics
+
+# Configuration
+coral-ml config list               # List all configuration options
+coral-ml config get <key>          # Get a configuration value
+coral-ml config set <key> <value>  # Set a configuration value
+coral-ml config set --global <key> <value>  # Set global user config
+coral-ml config show               # Show effective configuration
+coral-ml config validate           # Validate configuration
+coral-ml config migrate            # Migrate from config.json to coral.toml
 
 # Experiments
 coral-ml experiment                # Manage experiments
@@ -525,6 +581,45 @@ config = CheckpointConfig(
 
 trainer = CoralTrainer(model, repo_path="./checkpoints", config=config)
 trainer.fit(train_loader, val_loader, epochs=10)
+```
+
+### Configuration System
+
+```python
+from coral import CoralConfig, CoreConfig, load_config, validate_config
+from coral.config import ConfigLoader
+from pathlib import Path
+
+# Load configuration from all sources (env vars, files, defaults)
+config = load_config(repo_path=Path("./my_model"))
+
+# Access configuration values
+print(config.core.similarity_threshold)  # 0.98
+print(config.core.delta_type)            # "compressed"
+print(config.user.name)                  # "Anonymous"
+
+# Create custom configuration
+custom_config = CoralConfig(
+    core=CoreConfig(
+        similarity_threshold=0.95,
+        delta_type="xor_float32",
+        enable_lsh=True,
+    )
+)
+
+# Initialize repository with custom config
+from coral import Repository
+repo = Repository("./my_model", init=True, config=custom_config)
+
+# Validate configuration
+result = validate_config(config)
+if not result.valid:
+    for error in result.errors:
+        print(f"Error: {error}")
+
+# Save configuration to repository
+loader = ConfigLoader(repo_path=Path("./my_model"))
+loader.save_repo_config(custom_config)
 ```
 
 ## Benchmarking & Performance

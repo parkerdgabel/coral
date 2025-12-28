@@ -371,6 +371,7 @@ class TestCLICommandsCoverage:
             "pull",
             "clone",
             "stats",
+            "config",
             "compare",
             "sync",
             "sync-status",
