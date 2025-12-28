@@ -50,6 +50,14 @@ class HDF5Store(WeightStore):
         self.compression_opts = compression_opts
         self.mode = mode
 
+        # Validate mode parameter
+        valid_modes = {"r", "r+", "w", "w-", "x", "a"}
+        if mode not in valid_modes:
+            raise ValueError(
+                f"Invalid HDF5 file mode: '{mode}'. "
+                f"Valid modes are: {', '.join(sorted(valid_modes))}"
+            )
+
         # Ensure directory exists
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
 

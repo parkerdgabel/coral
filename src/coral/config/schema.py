@@ -47,8 +47,8 @@ class UserConfig:
     def from_dict(cls, data: dict[str, Any]) -> UserConfig:
         """Create from dictionary."""
         return cls(
-            name=data.get("name", cls.name),
-            email=data.get("email", cls.email),
+            name=data.get("name", "Anonymous"),
+            email=data.get("email", "anonymous@example.com"),
         )
 
 
@@ -175,7 +175,11 @@ class DeltaEncodingConfig:
 
 @dataclass
 class StorageConfig:
-    """Local storage settings."""
+    """Local storage settings.
+
+    Note: These settings can override CoreConfig defaults for local storage.
+    If not specified, values from CoreConfig are used.
+    """
 
     compression: str = "gzip"
     compression_level: int = 4

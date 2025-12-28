@@ -22,9 +22,9 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import numpy as np
 
@@ -147,7 +147,11 @@ class DeltaConfig:
 
 @dataclass
 class Delta:
-    """Represents a delta encoding of weight differences."""
+    """Represents a delta encoding of weight differences.
+
+    Note: Keep metadata dictionary small to minimize serialization overhead.
+    Metadata size is cached on first access to the nbytes property.
+    """
 
     delta_type: DeltaType
     data: np.ndarray
@@ -156,6 +160,7 @@ class Delta:
     original_dtype: np.dtype
     reference_hash: str
     compression_ratio: float = 0.0
+    _cached_metadata_size: Optional[int] = field(default=None, repr=False, init=False)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -206,12 +211,17 @@ class Delta:
                     f"data.nbytes returned non-int: {type(data_nbytes)} = {data_nbytes}"
                 )
 
-            # Calculate metadata size
-            metadata_size = len(json.dumps(self.metadata).encode())
-            if not isinstance(metadata_size, int):
-                raise TypeError(
-                    f"metadata size calculation returned non-int: {type(metadata_size)}"
-                )
+            # Calculate metadata size (cached to avoid repeated JSON serialization)
+            if self._cached_metadata_size is None:
+                metadata_size = len(json.dumps(self.metadata).encode())
+                if not isinstance(metadata_size, int):
+                    raise TypeError(
+                        f"metadata size returned non-int: {type(metadata_size)}"
+                    )
+                # Cache for future access
+                self._cached_metadata_size = metadata_size
+            else:
+                metadata_size = self._cached_metadata_size
 
             # Add constant overhead for delta object fields
             return data_nbytes + metadata_size + DELTA_OBJECT_OVERHEAD_BYTES
@@ -229,6 +239,26 @@ class DeltaEncoder:
 
     def __init__(self, config: Optional[DeltaConfig] = None):
         self.config = config or DeltaConfig()
+
+    @staticmethod
+    def _ensure_delta_type(delta_type: Union[str, DeltaType]) -> DeltaType:
+        """Convert delta_type to DeltaType enum if it's a string.
+
+        This centralizes the conversion logic for handling both string and enum types,
+        which can occur during deserialization or when using string literals.
+
+        Args:
+            delta_type: Either a DeltaType enum or a string value
+
+        Returns:
+            DeltaType enum
+
+        Raises:
+            ValueError: If string value is not a valid DeltaType
+        """
+        if isinstance(delta_type, str):
+            return DeltaType(delta_type)
+        return delta_type
 
     def can_encode_as_delta(
         self, weight: WeightTensor, reference: WeightTensor
@@ -312,9 +342,7 @@ class DeltaEncoder:
 
         # Apply encoding strategy
         # Handle both string and enum types for delta_type
-        delta_type = self.config.delta_type
-        if isinstance(delta_type, str):
-            delta_type = DeltaType(delta_type)
+        delta_type = self._ensure_delta_type(self.config.delta_type)
 
         if delta_type == DeltaType.FLOAT32_RAW:
             encoded_data, metadata = self._encode_raw(delta_data)
@@ -425,9 +453,7 @@ class DeltaEncoder:
 
         # Decode delta data based on type
         # Handle both string and enum types for backwards compatibility
-        delta_type = delta.delta_type
-        if isinstance(delta_type, str):
-            delta_type = DeltaType(delta_type)
+        delta_type = self._ensure_delta_type(delta.delta_type)
 
         if delta_type == DeltaType.FLOAT32_RAW:
             delta_data = self._decode_raw(delta.data, delta.metadata)
