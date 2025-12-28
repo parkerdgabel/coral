@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Optional
 
+import numpy as np
+
 from coral.core.weight_tensor import WeightTensor
 from coral.version_control.repository import Repository
 
@@ -40,6 +42,10 @@ class CheckpointConfig:
     commit_message_template: str = "Checkpoint at epoch {epoch}, step {step}"
     tag_best_checkpoints: bool = True
 
+    # Early stopping (add after existing fields)
+    early_stopping_patience: Optional[int] = None  # Stop if no improvement for N checks
+    early_stopping_threshold: float = 0.0  # Minimum improvement required
+
 
 class CheckpointManager:
     """Manages training checkpoints with Coral version control."""
@@ -62,6 +68,10 @@ class CheckpointManager:
         self.checkpoint_history: list[dict[str, Any]] = []
         self.best_metric_value: Optional[float] = None
         self.best_checkpoint_hash: Optional[str] = None
+
+        # Early stopping tracking
+        self._no_improvement_count = 0
+        self._should_stop = False
 
         # Callback system
         self._callbacks: list[Callable[[TrainingState, Optional[str]], None]] = []
@@ -154,8 +164,16 @@ class CheckpointManager:
             state_dest = self.repository.commits_dir / f"{commit_hash}_state.json"
             shutil.copy2(state_file, state_dest)
 
+            # Check if this is the best checkpoint and track for early stopping
+            is_best = self._is_best_checkpoint(state)
+
+            # Check early stopping BEFORE updating best_metric_value
+            # (so threshold comparison uses the old best value)
+            if self.config.early_stopping_patience:
+                self._check_early_stopping_with_improvement(state, is_best)
+
             # Tag as best if applicable
-            if self._is_best_checkpoint(state):
+            if is_best:
                 self.best_checkpoint_hash = commit_hash
                 self.best_metric_value = state.metrics.get(
                     self.config.save_on_best_metric
@@ -308,6 +326,154 @@ class CheckpointManager:
             List[str]: List of callback function names
         """
         return [callback.__name__ for callback in self._callbacks]
+
+    def check_early_stopping(self, state: TrainingState) -> bool:
+        """Check if training should stop early.
+
+        Returns True if training should stop (no improvement for patience checks).
+        """
+        if not self.config.early_stopping_patience:
+            return False
+
+        if not self.config.save_on_best_metric:
+            return False
+
+        # Determine if this checkpoint is an improvement
+        is_improvement = self._is_best_checkpoint(state)
+        return self._check_early_stopping_with_improvement(state, is_improvement)
+
+    def _check_early_stopping_with_improvement(
+        self, state: TrainingState, is_improvement: bool
+    ) -> bool:
+        """Internal method to check early stopping given improvement status.
+
+        Args:
+            state: Current training state
+            is_improvement: Whether this checkpoint is an improvement
+
+        Returns:
+            True if training should stop
+        """
+        if not self.config.early_stopping_patience:
+            return False
+
+        if not self.config.save_on_best_metric:
+            return False
+
+        metric_name = self.config.save_on_best_metric
+        if metric_name not in state.metrics:
+            return False
+
+        current_value = state.metrics[metric_name]
+
+        # If this is an improvement, check if it meets the threshold
+        if is_improvement:
+            if self.best_metric_value is None:
+                # First checkpoint is always an improvement
+                improved = True
+            else:
+                # Check if improvement meets threshold
+                threshold = self.config.early_stopping_threshold
+                if self.config.minimize_metric:
+                    improved = current_value < (self.best_metric_value - threshold)
+                else:
+                    improved = current_value > (self.best_metric_value + threshold)
+        else:
+            improved = False
+
+        if improved:
+            self._no_improvement_count = 0
+        else:
+            self._no_improvement_count += 1
+
+        self._should_stop = (
+            self._no_improvement_count >= self.config.early_stopping_patience
+        )
+        return self._should_stop
+
+    @property
+    def should_stop_early(self) -> bool:
+        """Whether early stopping has been triggered."""
+        return self._should_stop
+
+    @property
+    def no_improvement_count(self) -> int:
+        """Number of checks without improvement."""
+        return self._no_improvement_count
+
+    def diff_checkpoints(
+        self,
+        ref_a: str,
+        ref_b: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Compare two checkpoints and return differences.
+
+        Args:
+            ref_a: First commit hash to compare
+            ref_b: Second commit hash (None for latest/HEAD)
+
+        Returns:
+            Dictionary with:
+            - changed: List of weight names that differ
+            - added: List of weights only in ref_b
+            - removed: List of weights only in ref_a
+            - similarity: Dict mapping changed weight names to similarity scores
+            - identical: Whether checkpoints are identical
+        """
+        from coral.utils.similarity import cosine_similarity
+
+        # Get weights from both commits
+        weights_a = self.repository.get_all_weights(ref_a)
+
+        if ref_b is None:
+            # Get latest checkpoint
+            if self.checkpoint_history:
+                ref_b = self.checkpoint_history[-1]["commit_hash"]
+            else:
+                return {
+                    "changed": [],
+                    "added": [],
+                    "removed": list(weights_a.keys()),
+                    "similarity": {},
+                    "identical": False,
+                    "error": "No second checkpoint available",
+                }
+
+        weights_b = self.repository.get_all_weights(ref_b)
+
+        keys_a = set(weights_a.keys())
+        keys_b = set(weights_b.keys())
+
+        added = list(keys_b - keys_a)
+        removed = list(keys_a - keys_b)
+        common = keys_a & keys_b
+
+        changed = []
+        similarity = {}
+
+        for key in common:
+            weight_a = weights_a[key]
+            weight_b = weights_b[key]
+
+            if weight_a.shape != weight_b.shape:
+                changed.append(key)
+                similarity[key] = 0.0
+            elif not np.allclose(weight_a.data, weight_b.data, atol=1e-7):
+                changed.append(key)
+                sim = cosine_similarity(
+                    weight_a.data.flatten(), weight_b.data.flatten()
+                )
+                similarity[key] = float(sim)
+
+        return {
+            "changed": changed,
+            "added": added,
+            "removed": removed,
+            "similarity": similarity,
+            "identical": len(changed) == 0 and len(added) == 0 and len(removed) == 0,
+            "ref_a": ref_a,
+            "ref_b": ref_b,
+        }
 
     def _is_best_checkpoint(self, state: TrainingState) -> bool:
         """Check if this is the best checkpoint so far."""

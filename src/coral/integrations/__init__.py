@@ -22,34 +22,42 @@ except ImportError:
 # PyTorch integrations
 try:
     from .pytorch import (  # noqa: F401
+        Checkpointer,
         CoralTrainer,
         PyTorchIntegration,
         StreamingWeightLoader,
         compare_model_weights,
         create_model_from_weights,
+        load,
         load_from_remote,
         load_from_repo,
         load_into_model,
         load_model_from_coral,
+        save,
         save_model,
         save_model_to_coral,
         stream_load_model,
     )
 
-    __all__.extend([
-        "PyTorchIntegration",
-        "CoralTrainer",
-        "load_into_model",
-        "load_from_repo",
-        "load_from_remote",
-        "save_model",
-        "compare_model_weights",
-        "create_model_from_weights",
-        "save_model_to_coral",
-        "load_model_from_coral",
-        "StreamingWeightLoader",
-        "stream_load_model",
-    ])
+    __all__.extend(
+        [
+            "PyTorchIntegration",
+            "CoralTrainer",
+            "Checkpointer",
+            "load",
+            "save",
+            "load_into_model",
+            "load_from_repo",
+            "load_from_remote",
+            "save_model",
+            "compare_model_weights",
+            "create_model_from_weights",
+            "save_model_to_coral",
+            "load_model_from_coral",
+            "StreamingWeightLoader",
+            "stream_load_model",
+        ]
+    )
 except ImportError:
     # PyTorch not installed
     pass
@@ -84,18 +92,18 @@ except ImportError:
 
 # PyTorch Lightning integration
 try:
-    from .lightning import CoralCallback  # noqa: F401
+    from .lightning import CoralCallback, CoralLightningCallback  # noqa: F401
 
-    __all__.append("CoralCallback")
+    __all__.extend(["CoralCallback", "CoralLightningCallback"])
 except ImportError:
     # pytorch-lightning not installed
     pass
 
 # HuggingFace Transformers Trainer integration
 try:
-    from .hf_trainer import CoralTrainerCallback  # noqa: F401
+    from .hf_trainer import CoralHFCallback, CoralTrainerCallback  # noqa: F401
 
-    __all__.append("CoralTrainerCallback")
+    __all__.extend(["CoralTrainerCallback", "CoralHFCallback"])
 except ImportError:
     # transformers not installed
     pass
