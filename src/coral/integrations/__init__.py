@@ -64,10 +64,37 @@ except ImportError:
 
 import importlib.util
 
+# TensorFlow/Keras integration (optional)
 if importlib.util.find_spec("tensorflow") is not None:
-    from .tensorflow import TensorFlowIntegration as TensorFlowIntegration  # noqa: F401
+    try:
+        from .tensorflow import TensorFlowIntegration  # noqa: F401
+        from .tensorflow import (  # noqa: F401
+            compare_model_weights as tf_compare_model_weights,
+        )
+        from .tensorflow import load as tf_load  # noqa: F401
+        from .tensorflow import (  # noqa: F401
+            load_into_model as tf_load_into_model,
+        )
+        from .tensorflow import (  # noqa: F401
+            load_model_from_coral as tf_load_model_from_coral,
+        )
+        from .tensorflow import save as tf_save  # noqa: F401
+        from .tensorflow import (  # noqa: F401
+            save_model as tf_save_model,
+        )
 
-    __all__.append("TensorFlowIntegration")
+        __all__.extend([
+            "TensorFlowIntegration",
+            "tf_save",
+            "tf_load",
+            "tf_save_model",
+            "tf_load_model_from_coral",
+            "tf_load_into_model",
+            "tf_compare_model_weights",
+        ])
+    except ImportError:
+        # TensorFlow available but import failed
+        pass
 
 # Hugging Face integration (requires huggingface-hub and safetensors)
 try:
