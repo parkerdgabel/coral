@@ -607,3 +607,171 @@ class TestCLIErrorHandling:
 
         assert repo_root is not None
         assert repo_root == Path(temp_dir)
+
+    def test_checkout_nonexistent_branch(self, temp_dir):
+        """Test checking out a nonexistent branch."""
+        repo = Repository(Path(temp_dir), init=True)
+
+        # Create initial commit
+        weight = WeightTensor(
+            data=np.ones(5).astype(np.float32),
+            metadata=WeightMetadata(name="weight", shape=(5,), dtype=np.float32),
+        )
+        repo.stage_weights({"weight": weight})
+        repo.commit("Initial")
+
+        cli = CoralCLI()
+        result = cli.run(["checkout", "nonexistent-branch"])
+        assert result == 1  # Should fail
+
+
+class TestCLIPushPull:
+    """Test CLI push and pull commands."""
+
+    @pytest.fixture
+    def temp_dir(self):
+        """Create a temporary directory for testing."""
+        tmpdir = tempfile.mkdtemp()
+        original_cwd = os.getcwd()
+        os.chdir(tmpdir)
+        yield tmpdir
+        os.chdir(original_cwd)
+        shutil.rmtree(tmpdir)
+
+    @pytest.fixture
+    def repo_with_remote(self, temp_dir):
+        """Create a repository with a remote."""
+        repo = Repository(Path(temp_dir), init=True)
+
+        # Create a weight and commit
+        weight = WeightTensor(
+            data=np.random.randn(10, 5).astype(np.float32),
+            metadata=WeightMetadata(
+                name="layer.weight", shape=(10, 5), dtype=np.float32
+            ),
+        )
+        repo.stage_weights({"layer.weight": weight})
+        repo.commit("Initial commit")
+
+        # Create remote directory
+        remote_path = Path(temp_dir) / "remote_storage"
+        remote_path.mkdir()
+
+        # Add remote
+        repo.add_remote("origin", f"file://{remote_path}")
+
+        return repo
+
+    def test_push_no_remote(self, temp_dir):
+        """Test push without remote configured."""
+        repo = Repository(Path(temp_dir), init=True)
+
+        weight = WeightTensor(
+            data=np.ones(5).astype(np.float32),
+            metadata=WeightMetadata(name="weight", shape=(5,), dtype=np.float32),
+        )
+        repo.stage_weights({"weight": weight})
+        repo.commit("Initial")
+
+        cli = CoralCLI()
+        result = cli.run(["push", "origin"])
+        assert result == 1  # Should fail - no remote
+
+    def test_pull_no_remote(self, temp_dir):
+        """Test pull without remote configured."""
+        repo = Repository(Path(temp_dir), init=True)
+
+        weight = WeightTensor(
+            data=np.ones(5).astype(np.float32),
+            metadata=WeightMetadata(name="weight", shape=(5,), dtype=np.float32),
+        )
+        repo.stage_weights({"weight": weight})
+        repo.commit("Initial")
+
+        cli = CoralCLI()
+        result = cli.run(["pull", "origin"])
+        assert result == 1  # Should fail - no remote
+
+    def test_push_to_file_remote(self, repo_with_remote):
+        """Test pushing to a file:// remote."""
+        cli = CoralCLI()
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            result = cli.run(["push", "origin"])
+            output = fake_out.getvalue()
+
+        assert result == 0
+        assert "Push complete" in output
+
+    def test_sync_status_no_remote(self, temp_dir):
+        """Test sync status without remote."""
+        repo = Repository(Path(temp_dir), init=True)
+
+        cli = CoralCLI()
+        result = cli.run(["sync-status", "origin"])
+        assert result == 1  # Should fail
+
+
+class TestCLICompareCommand:
+    """Test CLI compare command."""
+
+    @pytest.fixture
+    def temp_dir(self):
+        """Create a temporary directory for testing."""
+        tmpdir = tempfile.mkdtemp()
+        original_cwd = os.getcwd()
+        os.chdir(tmpdir)
+        yield tmpdir
+        os.chdir(original_cwd)
+        shutil.rmtree(tmpdir)
+
+    @pytest.fixture
+    def repo_with_history(self, temp_dir):
+        """Create a repository with multiple commits."""
+        repo = Repository(Path(temp_dir), init=True)
+
+        # First commit
+        weight1 = WeightTensor(
+            data=np.ones(10).astype(np.float32),
+            metadata=WeightMetadata(name="weight1", shape=(10,), dtype=np.float32),
+        )
+        repo.stage_weights({"weight1": weight1})
+        repo.commit("First commit")
+
+        # Second commit with additional weight
+        weight2 = WeightTensor(
+            data=np.ones(5).astype(np.float32),
+            metadata=WeightMetadata(name="weight2", shape=(5,), dtype=np.float32),
+        )
+        repo.stage_weights({"weight1": weight1, "weight2": weight2})
+        repo.commit("Second commit")
+
+        return repo
+
+    def test_compare_branches(self, repo_with_history):
+        """Test comparing main to a new branch."""
+        # Create a feature branch
+        repo_with_history.create_branch("feature")
+        repo_with_history.checkout("feature")
+
+        # Add a new weight on feature
+        weight3 = WeightTensor(
+            data=np.ones(3).astype(np.float32),
+            metadata=WeightMetadata(name="weight3", shape=(3,), dtype=np.float32),
+        )
+        repo_with_history.stage_weights(
+            {
+                "weight1": repo_with_history.get_weight("weight1"),
+                "weight2": repo_with_history.get_weight("weight2"),
+                "weight3": weight3,
+            }
+        )
+        repo_with_history.commit("Feature commit")
+
+        cli = CoralCLI()
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            result = cli.run(["compare", "main", "feature"])
+            output = fake_out.getvalue()
+
+        assert result == 0
