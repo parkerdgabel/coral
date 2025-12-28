@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
+
+if TYPE_CHECKING:
+    from ..delta.delta_encoder import DeltaType
 
 
 class CompressionType(str, Enum):
@@ -17,23 +20,6 @@ class CompressionType(str, Enum):
     GZIP = "gzip"
     LZF = "lzf"
     NONE = "none"
-
-
-class DeltaTypeEnum(str, Enum):
-    """Delta encoding strategies."""
-
-    # Lossless strategies
-    FLOAT32_RAW = "float32_raw"
-    COMPRESSED = "compressed"
-    XOR_FLOAT32 = "xor_float32"
-    XOR_BFLOAT16 = "xor_bfloat16"
-    EXPONENT_MANTISSA = "exponent_mantissa"
-
-    # Lossy strategies
-    INT8_QUANTIZED = "int8_quantized"
-    INT16_QUANTIZED = "int16_quantized"
-    SPARSE = "sparse"
-    PER_AXIS_SCALED = "per_axis_scaled"
 
 
 class LogLevel(str, Enum):
@@ -81,11 +67,18 @@ class CoreConfig:
 
     # Delta encoding
     delta_encoding: bool = True
-    delta_type: str = "compressed"
+    delta_type: DeltaType = None  # Will be set in __post_init__
     strict_reconstruction: bool = False
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
+        # Import at runtime to avoid circular imports
+        from ..delta.delta_encoder import DeltaType as DT
+
+        # Set default delta_type if not provided
+        if self.delta_type is None:
+            self.delta_type = DT.COMPRESSED
+
         if not 0.0 <= self.similarity_threshold <= 1.0:
             raise ValueError("similarity_threshold must be between 0.0 and 1.0")
         if not 0.0 <= self.magnitude_tolerance <= 1.0:
@@ -102,13 +95,16 @@ class CoreConfig:
             "magnitude_tolerance": self.magnitude_tolerance,
             "enable_lsh": self.enable_lsh,
             "delta_encoding": self.delta_encoding,
-            "delta_type": self.delta_type,
+            "delta_type": self.delta_type.value,
             "strict_reconstruction": self.strict_reconstruction,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CoreConfig:
         """Create from dictionary."""
+        # Import at runtime to avoid circular imports
+        from ..delta.delta_encoder import DeltaType as DT
+
         return cls(
             compression=data.get("compression", "gzip"),
             compression_level=data.get("compression_level", 4),
@@ -116,7 +112,7 @@ class CoreConfig:
             magnitude_tolerance=data.get("magnitude_tolerance", 0.1),
             enable_lsh=data.get("enable_lsh", False),
             delta_encoding=data.get("delta_encoding", True),
-            delta_type=data.get("delta_type", "compressed"),
+            delta_type=DT(data.get("delta_type", "compressed")),
             strict_reconstruction=data.get("strict_reconstruction", False),
         )
 
@@ -450,10 +446,10 @@ class RemoteConfig:
         return result
 
     @classmethod
-    def from_dict(cls, name: str, data: dict[str, Any]) -> RemoteConfig:
+    def from_dict(cls, data: dict[str, Any]) -> RemoteConfig:
         """Create from dictionary."""
         return cls(
-            name=name,
+            name=data.get("name", ""),
             url=data.get("url", ""),
             backend=data.get("backend", "s3"),
             auto_push=data.get("auto_push", False),
@@ -516,7 +512,9 @@ class CoralConfig:
         remotes = {}
         if "remotes" in data:
             for name, remote_data in data["remotes"].items():
-                remotes[name] = RemoteConfig.from_dict(name, remote_data)
+                # Add name to remote_data before passing to from_dict
+                remote_data_with_name = {**remote_data, "name": name}
+                remotes[name] = RemoteConfig.from_dict(remote_data_with_name)
 
         return cls(
             user=UserConfig.from_dict(data.get("user", {})),

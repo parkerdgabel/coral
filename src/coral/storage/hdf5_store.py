@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import h5py
 import numpy as np
@@ -31,7 +31,7 @@ class HDF5Store(WeightStore):
 
     def __init__(
         self,
-        filepath: str,
+        filepath: Union[str, os.PathLike],
         compression: Optional[str] = "gzip",
         compression_opts: Optional[int] = 4,
         mode: str = "a",
@@ -40,7 +40,7 @@ class HDF5Store(WeightStore):
         Initialize HDF5 storage.
 
         Args:
-            filepath: Path to HDF5 file
+            filepath: Path to HDF5 file (str or Path-like object)
             compression: Compression algorithm ('gzip', 'lzf', None)
             compression_opts: Compression level (1-9 for gzip)
             mode: File mode ('r', 'r+', 'w', 'a')

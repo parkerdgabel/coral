@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import logging
 import threading
+import warnings
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from coral.storage.weight_store import WeightStore
 
 from coral.core.lsh_index import LSHConfig, MultiDimLSHIndex
 from coral.core.similarity_index import (
@@ -130,6 +134,20 @@ class Deduplicator:
             if enable_delta_encoding
             else None
         )
+
+        # Emit deprecation warnings for deprecated parameters
+        if enable_lsh:
+            warnings.warn(
+                "enable_lsh is deprecated, use use_unified_index=True instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        if lsh_config is not None:
+            warnings.warn(
+                "lsh_config is deprecated, use similarity_index_config instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
         # Unified similarity index (new, recommended)
         self.use_unified_index = use_unified_index
@@ -506,7 +524,7 @@ class Deduplicator:
             if self.lsh_index is not None:
                 self.lsh_index.clear()
 
-    def set_store(self, store) -> None:
+    def set_store(self, store: WeightStore) -> None:
         """Set the weight store for lazy loading.
 
         Args:

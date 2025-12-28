@@ -1,7 +1,8 @@
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 
 @dataclass
@@ -29,11 +30,11 @@ class Branch:
 class BranchManager:
     """Manages branches in the repository."""
 
-    def __init__(self, repo_path: Path):
-        self.repo_path = repo_path
-        self.refs_path = repo_path / ".coral" / "refs" / "heads"
+    def __init__(self, repo_path: Union[str, os.PathLike]):
+        self.repo_path = Path(repo_path)
+        self.refs_path = self.repo_path / ".coral" / "refs" / "heads"
         self.refs_path.mkdir(parents=True, exist_ok=True)
-        self.current_branch_file = repo_path / ".coral" / "HEAD"
+        self.current_branch_file = self.repo_path / ".coral" / "HEAD"
 
     def create_branch(
         self, name: str, commit_hash: str, parent_branch: Optional[str] = None
