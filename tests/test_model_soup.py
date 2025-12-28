@@ -187,24 +187,30 @@ class TestTIESMerging:
     def test_ties_sign_election(self):
         """Test TIES sign election mechanism."""
         # Create base and models with specific sign patterns
-        base = {"w": WeightTensor(
-            data=np.zeros((4, 4), dtype=np.float32),
-            metadata=WeightMetadata(name="w", shape=(4, 4), dtype=np.float32),
-        )}
+        base = {
+            "w": WeightTensor(
+                data=np.zeros((4, 4), dtype=np.float32),
+                metadata=WeightMetadata(name="w", shape=(4, 4), dtype=np.float32),
+            )
+        }
 
         # Model 1: positive deltas
         m1_data = np.ones((4, 4), dtype=np.float32)
-        model1 = {"w": WeightTensor(
-            data=m1_data,
-            metadata=WeightMetadata(name="w", shape=(4, 4), dtype=np.float32),
-        )}
+        model1 = {
+            "w": WeightTensor(
+                data=m1_data,
+                metadata=WeightMetadata(name="w", shape=(4, 4), dtype=np.float32),
+            )
+        }
 
         # Model 2: mostly positive deltas (majority should win)
         m2_data = np.ones((4, 4), dtype=np.float32) * 0.5
-        model2 = {"w": WeightTensor(
-            data=m2_data,
-            metadata=WeightMetadata(name="w", shape=(4, 4), dtype=np.float32),
-        )}
+        model2 = {
+            "w": WeightTensor(
+                data=m2_data,
+                metadata=WeightMetadata(name="w", shape=(4, 4), dtype=np.float32),
+            )
+        }
 
         result = ties_merge([model1, model2], base, density=1.0)
 
@@ -284,19 +290,25 @@ class TestTaskArithmetic:
 
     def test_task_arithmetic_scaling(self):
         """Test that task scaling affects result magnitude."""
-        base = {"w": WeightTensor(
-            data=np.zeros((5, 5), dtype=np.float32),
-            metadata=WeightMetadata(name="w", shape=(5, 5), dtype=np.float32),
-        )}
+        base = {
+            "w": WeightTensor(
+                data=np.zeros((5, 5), dtype=np.float32),
+                metadata=WeightMetadata(name="w", shape=(5, 5), dtype=np.float32),
+            )
+        }
         # Two models with task vectors of 1.0 each
-        model1 = {"w": WeightTensor(
-            data=np.ones((5, 5), dtype=np.float32),
-            metadata=WeightMetadata(name="w", shape=(5, 5), dtype=np.float32),
-        )}
-        model2 = {"w": WeightTensor(
-            data=np.ones((5, 5), dtype=np.float32),
-            metadata=WeightMetadata(name="w", shape=(5, 5), dtype=np.float32),
-        )}
+        model1 = {
+            "w": WeightTensor(
+                data=np.ones((5, 5), dtype=np.float32),
+                metadata=WeightMetadata(name="w", shape=(5, 5), dtype=np.float32),
+            )
+        }
+        model2 = {
+            "w": WeightTensor(
+                data=np.ones((5, 5), dtype=np.float32),
+                metadata=WeightMetadata(name="w", shape=(5, 5), dtype=np.float32),
+            )
+        }
 
         # Scale = 1.0: result = base + 1.0 * (tv1 + tv2) = 0 + 1.0 * (1 + 1) = 2
         config_1 = SoupConfig(strategy=SoupStrategy.TASK_ARITHMETIC, task_scaling=1.0)

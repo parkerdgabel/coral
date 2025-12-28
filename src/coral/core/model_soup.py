@@ -166,9 +166,7 @@ class ModelSoup:
         else:
             raise ValueError(f"Unknown strategy: {strategy}")
 
-    def _uniform_soup(
-        self, models: list[dict[str, WeightTensor]]
-    ) -> SoupResult:
+    def _uniform_soup(self, models: list[dict[str, WeightTensor]]) -> SoupResult:
         """Simple uniform averaging of all model weights.
 
         This is the baseline souping method - just average all weights.
@@ -233,9 +231,7 @@ class ModelSoup:
             included_indices=list(range(len(models))),
         )
 
-    def _greedy_soup(
-        self, models: list[dict[str, WeightTensor]]
-    ) -> SoupResult:
+    def _greedy_soup(self, models: list[dict[str, WeightTensor]]) -> SoupResult:
         """Greedy soup: add models only if they improve validation metric.
 
         Models are sorted by individual performance, then added to the soup
@@ -286,9 +282,7 @@ class ModelSoup:
                 soup_weights.append(models[idx])
                 best_score = candidate_score
                 validation_scores.append(candidate_score)
-                logger.info(
-                    f"Added model {idx} to soup (score: {candidate_score:.4f})"
-                )
+                logger.info(f"Added model {idx} to soup (score: {candidate_score:.4f})")
             else:
                 logger.debug(
                     f"Rejected model {idx} (would have score: {candidate_score:.4f})"
@@ -323,9 +317,7 @@ class ModelSoup:
 
         result = {}
         for name in all_names:
-            weights_data = [
-                model[name].data for model in models if name in model
-            ]
+            weights_data = [model[name].data for model in models if name in model]
             if weights_data:
                 result[name] = np.mean(weights_data, axis=0)
 
@@ -416,8 +408,9 @@ class ModelSoup:
 
             for delta in trimmed_deltas:
                 # Mask: value agrees with elected sign (or is zero)
-                agrees = ((delta > 0) & (elected_sign > 0)) | \
-                         ((delta < 0) & (elected_sign < 0))
+                agrees = ((delta > 0) & (elected_sign > 0)) | (
+                    (delta < 0) & (elected_sign < 0)
+                )
                 merged_delta += np.where(agrees, delta, 0.0)
                 counts += agrees.astype(float)
 
