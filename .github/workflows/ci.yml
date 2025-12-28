@@ -133,7 +133,7 @@ jobs:
           python -c "import sys; from pkginfo import Wheel; w = Wheel(sys.argv[1]); print(f'Package: {w.name} v{w.version}')" "$WHEEL_FILE"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dist
           path: dist/
