@@ -265,18 +265,132 @@ class Remote:
     def fetch_refs(self) -> dict[str, str]:
         """Fetch remote references (branches, tags).
 
+        Reads refs from a JSON file stored on the remote. The refs file
+        contains a mapping of branch/tag names to their commit hashes.
+
         Returns:
             Dict mapping ref names to commit hashes
         """
-        # Try to load refs from remote
         try:
-            # Check for refs file in remote
-            # This would be stored as metadata in the remote
-            pass
-        except Exception:
-            pass
+            refs_data = self._load_refs_file()
+            if refs_data:
+                self._refs = refs_data
+                logger.debug(f"Fetched {len(self._refs)} refs from {self.config.name}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch refs from {self.config.name}: {e}")
 
         return self._refs
+
+    def push_refs(self, refs: dict[str, str]) -> bool:
+        """Push references to remote.
+
+        Stores refs as a JSON file on the remote storage.
+
+        Args:
+            refs: Dict mapping ref names (branches/tags) to commit hashes
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            self._save_refs_file(refs)
+            self._refs = refs.copy()
+            logger.debug(f"Pushed {len(refs)} refs to {self.config.name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to push refs to {self.config.name}: {e}")
+            return False
+
+    def _load_refs_file(self) -> Optional[dict[str, str]]:
+        """Load refs from remote storage.
+
+        Returns:
+            Dict of refs if found, None otherwise
+        """
+        if self.config.backend == "s3":
+            return self._load_refs_s3()
+        elif self.config.backend == "file":
+            return self._load_refs_file_backend()
+        else:
+            logger.warning(f"Refs not supported for backend: {self.config.backend}")
+            return None
+
+    def _save_refs_file(self, refs: dict[str, str]) -> None:
+        """Save refs to remote storage.
+
+        Args:
+            refs: Dict mapping ref names to commit hashes
+        """
+        if self.config.backend == "s3":
+            self._save_refs_s3(refs)
+        elif self.config.backend == "file":
+            self._save_refs_file_backend(refs)
+        else:
+            raise ValueError(f"Refs not supported for backend: {self.config.backend}")
+
+    def _load_refs_s3(self) -> Optional[dict[str, str]]:
+        """Load refs from S3 storage."""
+        from coral.storage.s3_store import S3Store
+
+        if not isinstance(self.store, S3Store):
+            return None
+
+        try:
+            # S3Store has _client attribute for boto3 client
+            refs_key = f"{self.store.config.prefix}refs.json"
+            response = self.store._client.get_object(
+                Bucket=self.store.config.bucket,
+                Key=refs_key,
+            )
+            data = json.loads(response["Body"].read().decode("utf-8"))
+            return data.get("refs", {})
+        except Exception:
+            # File doesn't exist or error reading
+            return None
+
+    def _save_refs_s3(self, refs: dict[str, str]) -> None:
+        """Save refs to S3 storage."""
+        from coral.storage.s3_store import S3Store
+
+        if not isinstance(self.store, S3Store):
+            raise ValueError("Store is not S3Store")
+
+        refs_key = f"{self.store.config.prefix}refs.json"
+        refs_data = json.dumps({"refs": refs}, indent=2)
+        self.store._client.put_object(
+            Bucket=self.store.config.bucket,
+            Key=refs_key,
+            Body=refs_data.encode("utf-8"),
+            ContentType="application/json",
+        )
+
+    def _load_refs_file_backend(self) -> Optional[dict[str, str]]:
+        """Load refs from file-based storage."""
+        refs_path = self._get_file_refs_path()
+        if refs_path and refs_path.exists():
+            with open(refs_path) as f:
+                data = json.load(f)
+                return data.get("refs", {})
+        return None
+
+    def _save_refs_file_backend(self, refs: dict[str, str]) -> None:
+        """Save refs to file-based storage."""
+        refs_path = self._get_file_refs_path()
+        if refs_path:
+            refs_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(refs_path, "w") as f:
+                json.dump({"refs": refs}, f, indent=2)
+        else:
+            raise ValueError("Could not determine refs path for file backend")
+
+    def _get_file_refs_path(self) -> Optional[Path]:
+        """Get the path to refs.json for file-based storage."""
+        url = self.config.url
+        if url.startswith("file://"):
+            base_path = Path(url[7:])
+        else:
+            base_path = Path(url)
+        return base_path / "refs.json"
 
     def list_remote_weights(self) -> list[str]:
         """List all weight hashes on remote."""
