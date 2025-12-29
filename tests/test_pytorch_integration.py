@@ -370,3 +370,443 @@ class TestCoralTrainer:
 
         assert len(checkpoints) == 2
         assert checkpoints[0]["checkpoint_id"] == "ckpt1"
+
+
+class TestSchedulerState:
+    """Test scheduler state save/load."""
+
+    def test_save_scheduler_state(self):
+        """Test saving scheduler state."""
+        scheduler = Mock()
+        scheduler.state_dict.return_value = {"last_epoch": 5, "step_size": 10}
+
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                state = PyTorchIntegration.save_scheduler_state(scheduler)
+
+        assert state == {"last_epoch": 5, "step_size": 10}
+
+    def test_load_scheduler_state(self):
+        """Test loading scheduler state."""
+        scheduler = Mock()
+        state = {"last_epoch": 5, "step_size": 10}
+
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                PyTorchIntegration.load_scheduler_state(scheduler, state)
+
+        scheduler.load_state_dict.assert_called_once_with(state)
+
+
+class TestRandomState:
+    """Test random state save/load for reproducibility."""
+
+    def test_get_random_state(self):
+        """Test getting random state."""
+        mock_torch = Mock()
+        mock_torch.get_rng_state.return_value = Mock()
+        mock_torch.cuda.is_available.return_value = False
+
+        with patch("coral.integrations.pytorch.torch", mock_torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                state = PyTorchIntegration.get_random_state()
+
+        assert "torch" in state
+        mock_torch.get_rng_state.assert_called_once()
+
+    def test_get_random_state_with_cuda(self):
+        """Test getting random state with CUDA available."""
+        mock_torch = Mock()
+        mock_torch.get_rng_state.return_value = Mock()
+        mock_torch.cuda.is_available.return_value = True
+        mock_torch.cuda.get_rng_state_all.return_value = [Mock()]
+
+        with patch("coral.integrations.pytorch.torch", mock_torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                state = PyTorchIntegration.get_random_state()
+
+        assert "torch_cuda" in state
+        mock_torch.cuda.get_rng_state_all.assert_called_once()
+
+    def test_set_random_state(self):
+        """Test setting random state."""
+        mock_torch = Mock()
+        mock_tensor = Mock()
+        mock_tensor.dtype = Mock()
+        mock_tensor.dtype.__ne__ = Mock(return_value=False)
+        mock_torch.Tensor = Mock
+        mock_torch.uint8 = "uint8"
+        mock_torch.cuda.is_available.return_value = False
+
+        state = {"torch": mock_tensor, "torch_cuda": None}
+
+        with patch("coral.integrations.pytorch.torch", mock_torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                PyTorchIntegration.set_random_state(state)
+
+        mock_torch.set_rng_state.assert_called_once()
+
+
+class TestCoralTrainerCallbacks:
+    """Test callback functionality."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        import tempfile
+        from pathlib import Path
+
+        self.model = Mock()
+        self.model.__class__.__name__ = "TestModel"
+        self.repo = Mock(spec=Repository)
+        self.temp_dir = tempfile.mkdtemp()
+        self.repo.coral_dir = Path(self.temp_dir) / ".coral"
+        self.repo.coral_dir.mkdir(parents=True, exist_ok=True)
+        (self.repo.coral_dir / "checkpoints").mkdir(exist_ok=True)
+
+    def teardown_method(self):
+        """Clean up test fixtures."""
+        import shutil
+
+        if hasattr(self, "temp_dir"):
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_add_step_callback(self):
+        """Test adding step end callback."""
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                trainer = CoralTrainer(
+                    model=self.model,
+                    repository=self.repo,
+                    experiment_name="test",
+                )
+                callback = Mock()
+                trainer.add_callback("step_end", callback)
+                assert callback in trainer.on_step_end_callbacks
+
+    def test_add_checkpoint_callback(self):
+        """Test adding checkpoint save callback."""
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                trainer = CoralTrainer(
+                    model=self.model,
+                    repository=self.repo,
+                    experiment_name="test",
+                )
+                callback = Mock()
+                trainer.add_callback("checkpoint_save", callback)
+                assert callback in trainer.on_checkpoint_save_callbacks
+
+    def test_add_invalid_callback(self):
+        """Test adding invalid callback type."""
+        import pytest
+
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                trainer = CoralTrainer(
+                    model=self.model,
+                    repository=self.repo,
+                    experiment_name="test",
+                )
+                with pytest.raises(ValueError, match="Unknown event"):
+                    trainer.add_callback("invalid_event", Mock())
+
+
+class TestCoralTrainerExperimentBridge:
+    """Test experiment bridge integration."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        import tempfile
+        from pathlib import Path
+
+        self.model = Mock()
+        self.model.__class__.__name__ = "TestModel"
+        self.repo = Mock(spec=Repository)
+        self.temp_dir = tempfile.mkdtemp()
+        self.repo.coral_dir = Path(self.temp_dir) / ".coral"
+        self.repo.coral_dir.mkdir(parents=True, exist_ok=True)
+        (self.repo.coral_dir / "checkpoints").mkdir(exist_ok=True)
+
+    def teardown_method(self):
+        """Clean up test fixtures."""
+        import shutil
+
+        if hasattr(self, "temp_dir"):
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_update_metrics_with_bridge(self):
+        """Test updating metrics logs to experiment bridge."""
+        mock_bridge = Mock()
+        mock_bridge.is_run_active = True
+
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                trainer = CoralTrainer(
+                    model=self.model,
+                    repository=self.repo,
+                    experiment_name="test",
+                    experiment_bridge=mock_bridge,
+                )
+                trainer.update_metrics(loss=0.5, accuracy=0.9)
+
+        mock_bridge.log_metrics.assert_called_once()
+
+    def test_start_experiment(self):
+        """Test starting experiment via bridge."""
+        mock_bridge = Mock()
+        mock_bridge.start_run.return_value = "run_id_123"
+
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                trainer = CoralTrainer(
+                    model=self.model,
+                    repository=self.repo,
+                    experiment_name="test",
+                    experiment_bridge=mock_bridge,
+                )
+                run_id = trainer.start_experiment(
+                    params={"lr": 0.001}, tags=["test"]
+                )
+
+        assert run_id == "run_id_123"
+        mock_bridge.start_run.assert_called_once()
+
+    def test_start_experiment_no_bridge(self):
+        """Test starting experiment without bridge returns None."""
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                trainer = CoralTrainer(
+                    model=self.model,
+                    repository=self.repo,
+                    experiment_name="test",
+                )
+                run_id = trainer.start_experiment()
+
+        assert run_id is None
+
+    def test_end_experiment(self):
+        """Test ending experiment via bridge."""
+        mock_bridge = Mock()
+        mock_bridge.is_run_active = True
+
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                trainer = CoralTrainer(
+                    model=self.model,
+                    repository=self.repo,
+                    experiment_name="test",
+                    experiment_bridge=mock_bridge,
+                )
+                trainer.end_experiment("completed")
+
+        mock_bridge.end_run.assert_called_once_with(status="completed")
+
+    def test_end_experiment_no_bridge(self):
+        """Test ending experiment without bridge is a no-op."""
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                trainer = CoralTrainer(
+                    model=self.model,
+                    repository=self.repo,
+                    experiment_name="test",
+                )
+                # Should not raise
+                trainer.end_experiment()
+
+
+class TestCoralTrainerScheduler:
+    """Test scheduler integration."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        import tempfile
+        from pathlib import Path
+
+        self.model = Mock()
+        self.model.__class__.__name__ = "TestModel"
+        self.repo = Mock(spec=Repository)
+        self.temp_dir = tempfile.mkdtemp()
+        self.repo.coral_dir = Path(self.temp_dir) / ".coral"
+        self.repo.coral_dir.mkdir(parents=True, exist_ok=True)
+        (self.repo.coral_dir / "checkpoints").mkdir(exist_ok=True)
+
+    def teardown_method(self):
+        """Clean up test fixtures."""
+        import shutil
+
+        if hasattr(self, "temp_dir"):
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_set_scheduler(self):
+        """Test setting scheduler."""
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                trainer = CoralTrainer(
+                    model=self.model,
+                    repository=self.repo,
+                    experiment_name="test",
+                )
+                scheduler = Mock()
+                trainer.set_scheduler(scheduler)
+                assert trainer.scheduler == scheduler
+
+    def test_epoch_end_steps_scheduler(self):
+        """Test epoch end steps scheduler."""
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                trainer = CoralTrainer(
+                    model=self.model,
+                    repository=self.repo,
+                    experiment_name="test",
+                )
+                trainer.checkpoint_manager.save_checkpoint = Mock(return_value=None)
+                trainer.checkpoint_manager.should_save_checkpoint = Mock(
+                    return_value=False
+                )
+
+                scheduler = Mock()
+                trainer.set_scheduler(scheduler)
+                trainer.epoch_end(epoch=1)
+
+        scheduler.step.assert_called_once()
+
+
+class TestLoadCheckpointNoState:
+    """Test loading checkpoint with no state."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        import tempfile
+        from pathlib import Path
+
+        self.model = Mock()
+        self.model.__class__.__name__ = "TestModel"
+        self.repo = Mock(spec=Repository)
+        self.temp_dir = tempfile.mkdtemp()
+        self.repo.coral_dir = Path(self.temp_dir) / ".coral"
+        self.repo.coral_dir.mkdir(parents=True, exist_ok=True)
+        (self.repo.coral_dir / "checkpoints").mkdir(exist_ok=True)
+
+    def teardown_method(self):
+        """Clean up test fixtures."""
+        import shutil
+
+        if hasattr(self, "temp_dir"):
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_load_checkpoint_no_checkpoint_found(self):
+        """Test loading when no checkpoint exists."""
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                trainer = CoralTrainer(
+                    model=self.model,
+                    repository=self.repo,
+                    experiment_name="test",
+                )
+                trainer.checkpoint_manager.load_checkpoint = Mock(return_value=None)
+
+                result = trainer.load_checkpoint("nonexistent")
+
+        assert result is False
+
+
+class TestGetLearningRate:
+    """Test getting learning rate."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        import tempfile
+        from pathlib import Path
+
+        self.model = Mock()
+        self.model.__class__.__name__ = "TestModel"
+        self.repo = Mock(spec=Repository)
+        self.temp_dir = tempfile.mkdtemp()
+        self.repo.coral_dir = Path(self.temp_dir) / ".coral"
+        self.repo.coral_dir.mkdir(parents=True, exist_ok=True)
+        (self.repo.coral_dir / "checkpoints").mkdir(exist_ok=True)
+
+    def teardown_method(self):
+        """Clean up test fixtures."""
+        import shutil
+
+        if hasattr(self, "temp_dir"):
+            shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_get_learning_rate_no_optimizer(self):
+        """Test getting learning rate with no optimizer set."""
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                trainer = CoralTrainer(
+                    model=self.model,
+                    repository=self.repo,
+                    experiment_name="test",
+                )
+                lr = trainer._get_learning_rate()
+
+        assert lr == 0.0
+
+    def test_get_learning_rate_with_optimizer(self):
+        """Test getting learning rate with optimizer set."""
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                trainer = CoralTrainer(
+                    model=self.model,
+                    repository=self.repo,
+                    experiment_name="test",
+                )
+                optimizer = Mock()
+                optimizer.param_groups = [{"lr": 0.001}]
+                trainer.set_optimizer(optimizer)
+                lr = trainer._get_learning_rate()
+
+        assert lr == 0.001
+
+
+class TestGetLayerType:
+    """Test _get_layer_type utility function."""
+
+    def test_get_layer_type(self):
+        """Test getting layer type from parameter name."""
+        from coral.integrations.pytorch import _get_layer_type
+
+        model = Mock()
+        model.layer1 = Mock()
+        model.layer1.__class__.__name__ = "Linear"
+
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                layer_type = _get_layer_type(model, "layer1.weight")
+
+        assert layer_type == "Linear"
+
+    def test_get_layer_type_nested(self):
+        """Test getting layer type from nested parameter name."""
+        from coral.integrations.pytorch import _get_layer_type
+
+        model = Mock()
+        model.encoder = Mock()
+        model.encoder.layer1 = Mock()
+        model.encoder.layer1.__class__.__name__ = "Conv2d"
+
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                layer_type = _get_layer_type(model, "encoder.layer1.weight")
+
+        assert layer_type == "Conv2d"
+
+    def test_get_layer_type_not_found(self):
+        """Test getting layer type when not found."""
+        from coral.integrations.pytorch import _get_layer_type
+
+        # Create a mock that returns False for hasattr by using spec
+        class EmptyModel:
+            pass
+
+        model = EmptyModel()
+
+        with patch("coral.integrations.pytorch.torch", torch):
+            with patch("coral.integrations.pytorch.TORCH_AVAILABLE", True):
+                layer_type = _get_layer_type(model, "nonexistent.weight")
+
+        assert layer_type is None

@@ -1,0 +1,20 @@
+[run]
+source = src/coral
+omit =
+    # Integration modules requiring optional dependencies
+    src/coral/integrations/pytorch.py
+    src/coral/integrations/lightning.py
+    src/coral/integrations/hf_trainer.py
+    src/coral/integrations/huggingface.py
+    src/coral/integrations/mlflow_bridge.py
+    src/coral/integrations/wandb_bridge.py
+    # S3 storage requires boto3
+    src/coral/storage/s3_store.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:
