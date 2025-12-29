@@ -37,6 +37,40 @@ class ValidationResult:
         return self.valid
 
 
+class ConfigValidationError(Exception):
+    """Raised when configuration validation fails during a save operation.
+
+    This exception is raised when attempting to save an invalid configuration
+    to disk. It provides detailed information about what validation failed.
+
+    Attributes:
+        errors: List of ValidationError objects describing what failed
+        warnings: List of ValidationError objects for non-fatal issues
+    """
+
+    def __init__(
+        self,
+        message: str,
+        errors: list[ValidationError],
+        warnings: Optional[list[ValidationError]] = None,
+    ) -> None:
+        super().__init__(message)
+        self.errors = errors
+        self.warnings = warnings or []
+
+    def __str__(self) -> str:
+        lines = [super().__str__()]
+        if self.errors:
+            lines.append("Errors:")
+            for error in self.errors:
+                lines.append(f"  - {error}")
+        if self.warnings:
+            lines.append("Warnings:")
+            for warning in self.warnings:
+                lines.append(f"  - {warning}")
+        return "\n".join(lines)
+
+
 def validate_config(config: CoralConfig) -> ValidationResult:
     """Validate a configuration instance.
 

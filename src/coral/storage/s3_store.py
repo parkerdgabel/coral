@@ -21,7 +21,7 @@ from typing import Any, Optional
 import numpy as np
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
-from coral.storage.weight_store import WeightStore
+from coral.storage.weight_store import DataIntegrityError, WeightStore
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,7 @@ class S3Config:
     max_concurrency: int = 10
     compression: str = "gzip"  # gzip, lz4, or none
     chunk_size: int = 8 * 1024 * 1024  # 8MB chunks for multipart upload
+    strict_integrity: bool = True  # Raise error on hash mismatch during load
 
 
 class S3Store(WeightStore):
@@ -227,7 +228,18 @@ class S3Store(WeightStore):
         return hash_key
 
     def load(self, hash_key: str) -> Optional[WeightTensor]:
-        """Load a weight tensor from S3."""
+        """Load a weight tensor from S3.
+
+        Args:
+            hash_key: Hash key of the weight to load.
+
+        Returns:
+            WeightTensor if found, None otherwise.
+
+        Raises:
+            DataIntegrityError: If strict_integrity is True and the loaded data's
+                hash doesn't match the expected hash.
+        """
         try:
             # Load weight data
             response = self._client.get_object(
@@ -248,7 +260,25 @@ class S3Store(WeightStore):
             # Load metadata
             metadata = self.get_metadata(hash_key)
 
-            return WeightTensor(data=data, metadata=metadata)
+            weight = WeightTensor(data=data, metadata=metadata)
+
+            # Verify data integrity
+            stored_hash = metadata.hash if metadata and metadata.hash else hash_key
+            weight_name = metadata.name if metadata else ""
+
+            computed_hash = weight.compute_hash(force=True)
+
+            if computed_hash != stored_hash:
+                if self.config.strict_integrity:
+                    raise DataIntegrityError(stored_hash, computed_hash, weight_name)
+                else:
+                    logger.warning(
+                        f"Data integrity check failed for weight '{weight_name}': "
+                        f"expected hash {stored_hash}, got {computed_hash}. "
+                        f"Returning data anyway (strict mode disabled)."
+                    )
+
+            return weight
 
         except ClientError as e:
             if e.response.get("Error", {}).get("Code") == "NoSuchKey":

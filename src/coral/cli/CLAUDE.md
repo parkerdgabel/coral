@@ -148,8 +148,8 @@ The CLI supports various remote URL formats:
 # Initialize repository
 coral-ml init ./my-model
 
-# Add weights
-coral-ml add model.safetensors
+# Add weights (supports .npy and .npz files)
+coral-ml add weights.npz
 
 # Commit
 coral-ml commit -m "Initial model weights"
@@ -210,15 +210,32 @@ coral-ml compare ref1 ref2 -v
 
 ## Weight File Formats
 
-The CLI auto-detects weight file formats:
+The `coral-ml add` command currently supports these formats:
 
 | Extension | Format |
 |-----------|--------|
-| `.safetensors` | SafeTensors |
-| `.npz` | NumPy compressed |
-| `.npy` | NumPy array |
-| `.pt`, `.pth` | PyTorch state dict |
-| `.h5`, `.hdf5` | HDF5 |
+| `.npz` | NumPy compressed archive |
+| `.npy` | NumPy array file |
+
+For other formats like PyTorch (`.pt`, `.pth`), SafeTensors (`.safetensors`), or HDF5 (`.h5`),
+use the Python API with the appropriate integration:
+
+```python
+from coral import Repository
+from coral.integrations.pytorch import PyTorchIntegration
+import torch
+
+# Load PyTorch model
+model = torch.load("model.pt")
+
+# Convert to Coral weights
+weights = PyTorchIntegration.model_to_weights(model)
+
+# Stage and commit
+repo = Repository("./my_model")
+repo.stage_weights(weights)
+repo.commit("Added PyTorch model weights")
+```
 
 ## Implementation Notes
 

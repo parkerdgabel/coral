@@ -987,8 +987,10 @@ class CoralCLI:
         """Manage configuration."""
         from coral.config import (
             ConfigLoader,
+            ConfigValidationError,
             load_config,
             validate_config,
+            validate_value,
         )
 
         if not args.config_command or args.config_command == "show":
@@ -1036,20 +1038,36 @@ class CoralCLI:
             # Parse value (convert to appropriate type)
             value = self._parse_config_value(args.value)
 
+            # Validate the individual value before setting
+            validation_error = validate_value(args.key, value)
+            if validation_error is not None:
+                print(f"Error: {validation_error}", file=sys.stderr)
+                return 1
+
             try:
                 config.set_nested(args.key, value)
             except KeyError:
                 print(f"Error: Unknown configuration key: {args.key}", file=sys.stderr)
                 return 1
 
-            # Save configuration
+            # Save configuration (validates full config before saving)
             loader = ConfigLoader(repo_path=repo_path)
-            if args.global_config:
-                loader.save_user_config(config)
-                print(f"Set {args.key} = {value} (global)")
-            else:
-                loader.save_repo_config(config)
-                print(f"Set {args.key} = {value}")
+            try:
+                if args.global_config:
+                    loader.save_user_config(config)
+                    print(f"Set {args.key} = {value} (global)")
+                else:
+                    loader.save_repo_config(config)
+                    print(f"Set {args.key} = {value}")
+            except ConfigValidationError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                for error in e.errors:
+                    print(f"  - {error}", file=sys.stderr)
+                if e.warnings:
+                    print("Warnings:", file=sys.stderr)
+                    for warning in e.warnings:
+                        print(f"  - {warning}", file=sys.stderr)
+                return 1
             return 0
 
         elif args.config_command == "validate":

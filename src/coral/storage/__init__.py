@@ -1,7 +1,7 @@
 """Storage backends for weight persistence"""
 
 from coral.storage.hdf5_store import HDF5Store
-from coral.storage.weight_store import WeightStore
+from coral.storage.weight_store import DataIntegrityError, WeightStore
 
 # Lazy import for S3 (requires boto3)
 try:
@@ -13,7 +13,7 @@ except ImportError:
     S3Store = None
     S3Config = None
 
-__all__ = ["WeightStore", "HDF5Store", "S3Store", "S3Config"]
+__all__ = ["WeightStore", "HDF5Store", "S3Store", "S3Config", "DataIntegrityError"]
 
 
 def get_s3_store(*args, **kwargs):

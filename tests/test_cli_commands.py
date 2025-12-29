@@ -610,7 +610,8 @@ class TestCLIErrorHandling:
         repo_root = cli._find_repo_root()
 
         assert repo_root is not None
-        assert repo_root == Path(temp_dir)
+        # Use resolve() to handle macOS symlinks (/tmp -> /private/tmp, /var -> /private/var)
+        assert repo_root.resolve() == Path(temp_dir).resolve()
 
     def test_checkout_nonexistent_branch(self, temp_dir):
         """Test checking out a nonexistent branch."""

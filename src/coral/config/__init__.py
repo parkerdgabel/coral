@@ -53,6 +53,7 @@ from .schema import (
     UserConfig,
 )
 from .validation import (
+    ConfigValidationError,
     ValidationError,
     ValidationResult,
     validate_config,
@@ -86,4 +87,5 @@ __all__ = [
     "validate_value",
     "ValidationError",
     "ValidationResult",
+    "ConfigValidationError",
 ]

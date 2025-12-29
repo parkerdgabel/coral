@@ -13,7 +13,7 @@ import numpy as np
 
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
 from coral.delta.delta_encoder import Delta
-from coral.storage.weight_store import WeightStore
+from coral.storage.weight_store import DataIntegrityError, WeightStore
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,7 @@ class HDF5Store(WeightStore):
         compression: Optional[str] = "gzip",
         compression_opts: Optional[int] = 4,
         mode: str = "a",
+        strict_integrity: bool = True,
     ):
         """
         Initialize HDF5 storage.
@@ -44,11 +45,14 @@ class HDF5Store(WeightStore):
             compression: Compression algorithm ('gzip', 'lzf', None)
             compression_opts: Compression level (1-9 for gzip)
             mode: File mode ('r', 'r+', 'w', 'a')
+            strict_integrity: If True (default), raise DataIntegrityError on hash
+                mismatch during load. If False, log warning but return data.
         """
         self.filepath = Path(filepath)
         self.compression = compression
         self.compression_opts = compression_opts
         self.mode = mode
+        self.strict_integrity = strict_integrity
 
         # Validate mode parameter
         valid_modes = {"r", "r+", "w", "w-", "x", "a"}
@@ -111,7 +115,18 @@ class HDF5Store(WeightStore):
         return hash_key
 
     def load(self, hash_key: str) -> Optional[WeightTensor]:
-        """Load a weight tensor by hash"""
+        """Load a weight tensor by hash.
+
+        Args:
+            hash_key: Hash key of the weight to load.
+
+        Returns:
+            WeightTensor if found, None otherwise.
+
+        Raises:
+            DataIntegrityError: If strict_integrity is True and the loaded data's
+                hash doesn't match the stored hash.
+        """
         if not self.exists(hash_key):
             return None
 
@@ -125,17 +140,35 @@ class HDF5Store(WeightStore):
         shape_array = dataset.attrs["shape"]
         normalized_shape = tuple(int(dim) for dim in shape_array)
 
+        stored_hash = dataset.attrs.get("hash", hash_key)
+        weight_name = dataset.attrs.get("name", "")
+
         metadata = WeightMetadata(
-            name=dataset.attrs["name"],
+            name=weight_name,
             shape=normalized_shape,
             dtype=np.dtype(dataset.attrs["dtype"]),
             layer_type=dataset.attrs.get("layer_type") or None,
             model_name=dataset.attrs.get("model_name") or None,
             compression_info=json.loads(dataset.attrs.get("compression_info", "{}")),
-            hash=dataset.attrs.get("hash", hash_key),
+            hash=stored_hash,
         )
 
-        return WeightTensor(data=data, metadata=metadata, store_ref=hash_key)
+        weight = WeightTensor(data=data, metadata=metadata, store_ref=hash_key)
+
+        # Verify data integrity by recomputing hash
+        computed_hash = weight.compute_hash(force=True)
+
+        if computed_hash != stored_hash:
+            if self.strict_integrity:
+                raise DataIntegrityError(stored_hash, computed_hash, weight_name)
+            else:
+                logger.warning(
+                    f"Data integrity check failed for weight '{weight_name}': "
+                    f"expected hash {stored_hash}, got {computed_hash}. "
+                    f"Returning data anyway (strict mode disabled)."
+                )
+
+        return weight
 
     def exists(self, hash_key: str) -> bool:
         """Check if a weight exists in storage"""

@@ -20,6 +20,7 @@ from typing import Any, Optional
 from .schema import (
     CoralConfig,
 )
+from .validation import ConfigValidationError, validate_config
 
 # Use tomllib (3.11+) or tomli for older Python versions
 if sys.version_info >= (3, 11):
@@ -292,9 +293,22 @@ class ConfigLoader:
 
         Args:
             config: Configuration to save
+
+        Raises:
+            ValueError: If no repository path is set
+            ConfigValidationError: If configuration validation fails
         """
         if not self.repo_path:
             raise ValueError("No repository path set")
+
+        # Validate configuration before saving
+        result = validate_config(config)
+        if not result.valid:
+            raise ConfigValidationError(
+                "Cannot save invalid configuration",
+                result.errors,
+                result.warnings,
+            )
 
         config_path = self.repo_path / ".coral" / REPO_CONFIG_NAME
         config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -307,7 +321,19 @@ class ConfigLoader:
 
         Args:
             config: Configuration to save
+
+        Raises:
+            ConfigValidationError: If configuration validation fails
         """
+        # Validate configuration before saving
+        result = validate_config(config)
+        if not result.valid:
+            raise ConfigValidationError(
+                "Cannot save invalid configuration",
+                result.errors,
+                result.warnings,
+            )
+
         self.user_config_path.parent.mkdir(parents=True, exist_ok=True)
         self._save_toml(self.user_config_path, config.to_dict())
         logger.info(f"Saved user config to {self.user_config_path}")

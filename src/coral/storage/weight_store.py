@@ -8,6 +8,35 @@ from typing import Any, Optional
 from coral.core.weight_tensor import WeightMetadata, WeightTensor
 
 
+class DataIntegrityError(Exception):
+    """Raised when loaded weight data fails hash verification.
+
+    This indicates potential data corruption in storage. The exception
+    includes both the expected (stored) hash and the actual (computed)
+    hash for debugging purposes.
+
+    Attributes:
+        expected_hash: The hash that was stored with the weight
+        actual_hash: The hash computed from the loaded data
+        weight_name: Name of the weight (if available)
+    """
+
+    def __init__(
+        self, expected_hash: str, actual_hash: str, weight_name: str = ""
+    ) -> None:
+        self.expected_hash = expected_hash
+        self.actual_hash = actual_hash
+        self.weight_name = weight_name
+
+        name_part = f" '{weight_name}'" if weight_name else ""
+        message = (
+            f"Data integrity check failed for weight{name_part}: "
+            f"expected hash {expected_hash}, got {actual_hash}. "
+            f"This may indicate data corruption in storage."
+        )
+        super().__init__(message)
+
+
 class WeightStore(ABC):
     """
     Abstract base class for weight storage backends.

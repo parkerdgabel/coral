@@ -341,3 +341,141 @@ class TestHDF5Store:
             store.close()
         finally:
             os.unlink(temp_path)
+
+
+class TestDataIntegrity:
+    """Tests for data integrity verification on load."""
+
+    def test_load_verifies_integrity_strict_mode(self):
+        """Test that load raises DataIntegrityError when data is corrupted."""
+        from coral.storage.weight_store import DataIntegrityError
+
+        with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            store = HDF5Store(temp_path, strict_integrity=True)
+
+            # Store a valid weight
+            data = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+            metadata = WeightMetadata(
+                name="test_weight", shape=data.shape, dtype=data.dtype
+            )
+            weight = WeightTensor(data=data, metadata=metadata)
+            weight_hash = store.store(weight)
+
+            # Corrupt the stored data directly in HDF5
+            dataset = store.file["weights"][weight_hash]
+            corrupted_data = np.array([9.0, 9.0, 9.0], dtype=np.float32)
+            dataset[...] = corrupted_data
+            store.file.flush()
+
+            # Attempt to load - should raise DataIntegrityError
+            with pytest.raises(DataIntegrityError) as exc_info:
+                store.load(weight_hash)
+
+            # Verify exception contains useful debugging info
+            assert exc_info.value.expected_hash == weight_hash
+            assert exc_info.value.actual_hash != weight_hash
+            assert "test_weight" in str(exc_info.value)
+
+            store.close()
+
+        finally:
+            os.unlink(temp_path)
+
+    def test_load_warns_on_corruption_non_strict_mode(self, caplog):
+        """Test that load warns but returns data when strict_integrity is False."""
+        import logging
+
+        with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            store = HDF5Store(temp_path, strict_integrity=False)
+
+            # Store a valid weight
+            data = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+            metadata = WeightMetadata(
+                name="test_weight", shape=data.shape, dtype=data.dtype
+            )
+            weight = WeightTensor(data=data, metadata=metadata)
+            weight_hash = store.store(weight)
+
+            # Corrupt the stored data
+            dataset = store.file["weights"][weight_hash]
+            corrupted_data = np.array([9.0, 9.0, 9.0], dtype=np.float32)
+            dataset[...] = corrupted_data
+            store.file.flush()
+
+            # Load should succeed but log warning
+            with caplog.at_level(logging.WARNING):
+                loaded = store.load(weight_hash)
+
+            # Data should be returned despite corruption
+            assert loaded is not None
+            np.testing.assert_array_equal(loaded.data, corrupted_data)
+
+            # Warning should be logged
+            assert "integrity check failed" in caplog.text.lower()
+
+            store.close()
+
+        finally:
+            os.unlink(temp_path)
+
+    def test_load_passes_for_uncorrupted_data(self):
+        """Test that load succeeds without error for valid uncorrupted data."""
+        with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            store = HDF5Store(temp_path, strict_integrity=True)
+
+            # Store and load - should work without error
+            data = np.random.randn(100, 100).astype(np.float32)
+            metadata = WeightMetadata(
+                name="test_weight", shape=data.shape, dtype=data.dtype
+            )
+            weight = WeightTensor(data=data, metadata=metadata)
+            weight_hash = store.store(weight)
+
+            # Load should succeed without raising
+            loaded = store.load(weight_hash)
+
+            assert loaded is not None
+            np.testing.assert_array_equal(loaded.data, weight.data)
+
+            store.close()
+
+        finally:
+            os.unlink(temp_path)
+
+    def test_data_integrity_error_attributes(self):
+        """Test DataIntegrityError exception attributes."""
+        from coral.storage.weight_store import DataIntegrityError
+
+        error = DataIntegrityError(
+            expected_hash="abc123",
+            actual_hash="def456",
+            weight_name="layer1.weight",
+        )
+
+        assert error.expected_hash == "abc123"
+        assert error.actual_hash == "def456"
+        assert error.weight_name == "layer1.weight"
+        assert "abc123" in str(error)
+        assert "def456" in str(error)
+        assert "layer1.weight" in str(error)
+
+    def test_strict_integrity_default_is_true(self):
+        """Test that strict_integrity defaults to True."""
+        with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            store = HDF5Store(temp_path)
+            assert store.strict_integrity is True
+            store.close()
+        finally:
+            os.unlink(temp_path)

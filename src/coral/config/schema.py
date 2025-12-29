@@ -70,6 +70,9 @@ class CoreConfig:
     delta_type: DeltaType = None  # Will be set in __post_init__
     strict_reconstruction: bool = False
 
+    # Data integrity
+    strict_integrity: bool = True  # Raise error on hash mismatch during load
+
     def __post_init__(self) -> None:
         """Validate configuration values."""
         # Import at runtime to avoid circular imports
@@ -97,6 +100,7 @@ class CoreConfig:
             "delta_encoding": self.delta_encoding,
             "delta_type": self.delta_type.value,
             "strict_reconstruction": self.strict_reconstruction,
+            "strict_integrity": self.strict_integrity,
         }
 
     @classmethod
@@ -114,6 +118,7 @@ class CoreConfig:
             delta_encoding=data.get("delta_encoding", True),
             delta_type=DT(data.get("delta_type", "compressed")),
             strict_reconstruction=data.get("strict_reconstruction", False),
+            strict_integrity=data.get("strict_integrity", True),
         )
 
 

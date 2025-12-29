@@ -22,7 +22,7 @@ from coral.delta.delta_encoder import (
     DeltaType,
 )
 from coral.storage.hdf5_store import HDF5Store
-from coral.storage.weight_store import WeightStore
+from coral.storage.weight_store import DataIntegrityError, WeightStore
 from coral.version_control.repository import (
     MergeConflictError,
     MergeStrategy,
@@ -37,6 +37,7 @@ __all__ = [
     # Storage
     "WeightStore",
     "HDF5Store",
+    "DataIntegrityError",
     # Version Control
     "Repository",
     "MergeStrategy",

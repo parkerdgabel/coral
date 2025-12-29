@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional, Union
@@ -69,6 +70,10 @@ class MergeConflictError(Exception):
 class Repository:
     """Main repository class for version control operations.
 
+    This class is thread-safe. All public state-modifying methods use an RLock
+    to ensure safe concurrent access. RLock allows nested calls from the same
+    thread (e.g., merge -> stage_weights -> commit).
+
     Args:
         path: Path to the repository root directory (str or Path-like object)
         init: If True, initialize a new repository
@@ -84,6 +89,7 @@ class Repository:
     ):
         self.path = Path(path)
         self.coral_dir = self.path / ".coral"
+        self._lock = threading.RLock()
 
         if init:
             self._initialize_repository(config)
@@ -216,12 +222,13 @@ class Repository:
 
     def save_config(self) -> None:
         """Save the current configuration to the repository."""
-        self._save_config_toml(self._coral_config)
+        with self._lock:
+            self._save_config_toml(self._coral_config)
 
-        # Also update legacy format
-        legacy_config = self._get_legacy_config_dict()
-        with open(self.coral_dir / "config.json", "w") as f:
-            json.dump(legacy_config, f, indent=2)
+            # Also update legacy format
+            legacy_config = self._get_legacy_config_dict()
+            with open(self.coral_dir / "config.json", "w") as f:
+                json.dump(legacy_config, f, indent=2)
 
     def update_config(self, **kwargs: Any) -> None:
         """Update configuration values.
@@ -230,16 +237,17 @@ class Repository:
             **kwargs: Configuration values in dot notation
                 (e.g., core_similarity_threshold=0.95)
         """
-        for key, value in kwargs.items():
-            # Convert underscore notation to dot notation
-            dot_key = key.replace("_", ".", 1)
-            self._coral_config.set_nested(dot_key, value)
+        with self._lock:
+            for key, value in kwargs.items():
+                # Convert underscore notation to dot notation
+                dot_key = key.replace("_", ".", 1)
+                self._coral_config.set_nested(dot_key, value)
 
-        # Update legacy config dict
-        self.config = self._get_legacy_config_dict()
+            # Update legacy config dict
+            self.config = self._get_legacy_config_dict()
 
-        # Save to disk
-        self.save_config()
+            # Save to disk
+            self.save_config()
 
     def _load_commits(self) -> None:
         """Load all commits into the version graph."""
@@ -249,47 +257,48 @@ class Repository:
 
     def stage_weights(self, weights: dict[str, WeightTensor]) -> dict[str, str]:
         """Stage weights for commit with delta encoding support."""
-        staged = {}
+        with self._lock:
+            staged = {}
 
-        with HDF5Store(
-            self.weights_store_path,
-            compression=self._coral_config.core.compression,
-        ) as store:
-            for name, weight in weights.items():
-                # Add to deduplicator
-                ref_hash = self.deduplicator.add_weight(weight, name)
+            with HDF5Store(
+                self.weights_store_path,
+                compression=self._coral_config.core.compression,
+            ) as store:
+                for name, weight in weights.items():
+                    # Add to deduplicator
+                    ref_hash = self.deduplicator.add_weight(weight, name)
 
-                # Store weight if it's a new unique reference
-                if ref_hash == weight.compute_hash():
-                    store.store(weight)
+                    # Store weight if it's a new unique reference
+                    if ref_hash == weight.compute_hash():
+                        store.store(weight)
 
-                # Store delta if this weight was delta-encoded
-                if self.deduplicator.is_delta_encoded(name):
-                    delta = self.deduplicator.get_delta_by_name(name)
-                    if delta:
-                        delta_hash = self.deduplicator.name_to_delta[name]
-                        store.store_delta(delta, delta_hash)
-                        logger.debug(
-                            f"Stored delta for {name}: "
-                            f"{delta.compression_ratio:.2%} compression"
-                        )
+                    # Store delta if this weight was delta-encoded
+                    if self.deduplicator.is_delta_encoded(name):
+                        delta = self.deduplicator.get_delta_by_name(name)
+                        if delta:
+                            delta_hash = self.deduplicator.name_to_delta[name]
+                            store.store_delta(delta, delta_hash)
+                            logger.debug(
+                                f"Stored delta for {name}: "
+                                f"{delta.compression_ratio:.2%} compression"
+                            )
 
-                staged[name] = ref_hash
+                    staged[name] = ref_hash
 
-        # Save staging info with delta information
-        staging_info = {
-            "weights": staged,
-            "deltas": {
-                name: self.deduplicator.name_to_delta.get(name)
-                for name in staged
-                if self.deduplicator.is_delta_encoded(name)
-            },
-        }
+            # Save staging info with delta information
+            staging_info = {
+                "weights": staged,
+                "deltas": {
+                    name: self.deduplicator.name_to_delta.get(name)
+                    for name in staged
+                    if self.deduplicator.is_delta_encoded(name)
+                },
+            }
 
-        with open(self.staging_dir / "staged.json", "w") as f:
-            dump_numpy(staging_info, f, indent=2)
+            with open(self.staging_dir / "staged.json", "w") as f:
+                dump_numpy(staging_info, f, indent=2)
 
-        return staged
+            return staged
 
     def commit(
         self,
@@ -299,131 +308,134 @@ class Repository:
         tags: Optional[list[str]] = None,
     ) -> Commit:
         """Create a new commit from staged weights."""
-        # Load staged weights
-        staged_file = self.staging_dir / "staged.json"
-        if not staged_file.exists():
-            raise ValueError("No weights staged for commit")
+        with self._lock:
+            # Load staged weights
+            staged_file = self.staging_dir / "staged.json"
+            if not staged_file.exists():
+                raise ValueError("No weights staged for commit")
 
-        with open(staged_file) as f:
-            staged_data = json.load(f)
+            with open(staged_file) as f:
+                staged_data = json.load(f)
 
-        # Handle both old flat format and new nested format
-        if isinstance(staged_data, dict) and "weights" in staged_data:
-            weight_hashes = staged_data["weights"]
-            # Get delta information from staging
-            staged_deltas = staged_data.get("deltas", {})
-        else:
-            weight_hashes = staged_data
-            staged_deltas = {}
-
-        if not weight_hashes:
-            raise ValueError("No weights to commit")
-
-        # Get current branch and parent
-        current_branch = self.branch_manager.get_current_branch()
-        parent_commit_hash = self.branch_manager.get_branch_commit(current_branch)
-        parent_hashes = [parent_commit_hash] if parent_commit_hash else []
-
-        # Create commit metadata
-        metadata = CommitMetadata(
-            author=author or self._coral_config.user.name,
-            email=email or self._coral_config.user.email,
-            message=message,
-            tags=tags or [],
-        )
-
-        # Calculate deltas if we have a parent commit
-        if parent_hashes and parent_hashes[0]:
-            parent_commit = self.version_graph.get_commit(parent_hashes[0])
-            if parent_commit:
-                # Calculate deltas between current weights and parent
-                commit_deltas = self._calculate_deltas(weight_hashes, parent_commit)
-                # Merge with staged deltas (staged has priority)
-                delta_weights = {**commit_deltas, **staged_deltas}
+            # Handle both old flat format and new nested format
+            if isinstance(staged_data, dict) and "weights" in staged_data:
+                weight_hashes = staged_data["weights"]
+                # Get delta information from staging
+                staged_deltas = staged_data.get("deltas", {})
             else:
+                weight_hashes = staged_data
+                staged_deltas = {}
+
+            if not weight_hashes:
+                raise ValueError("No weights to commit")
+
+            # Get current branch and parent
+            current_branch = self.branch_manager.get_current_branch()
+            parent_commit_hash = self.branch_manager.get_branch_commit(current_branch)
+            parent_hashes = [parent_commit_hash] if parent_commit_hash else []
+
+            # Create commit metadata
+            metadata = CommitMetadata(
+                author=author or self._coral_config.user.name,
+                email=email or self._coral_config.user.email,
+                message=message,
+                tags=tags or [],
+            )
+
+            # Calculate deltas if we have a parent commit
+            if parent_hashes and parent_hashes[0]:
+                parent_commit = self.version_graph.get_commit(parent_hashes[0])
+                if parent_commit:
+                    # Calculate deltas between current weights and parent
+                    commit_deltas = self._calculate_deltas(weight_hashes, parent_commit)
+                    # Merge with staged deltas (staged has priority)
+                    delta_weights = {**commit_deltas, **staged_deltas}
+                else:
+                    delta_weights = staged_deltas
+            else:
+                # Use staged deltas from deduplicator for root commits
                 delta_weights = staged_deltas
-        else:
-            # Use staged deltas from deduplicator for root commits
-            delta_weights = staged_deltas
 
-        # Create commit hash (using 32 hex chars = 128 bits for collision resistance)
-        commit_content = {
-            "parent_hashes": parent_hashes,
-            "weight_hashes": weight_hashes,
-            "metadata": metadata.to_dict(),
-            "delta_weights": delta_weights,
-        }
-        commit_hash = hashlib.sha256(
-            json.dumps(commit_content, sort_keys=True).encode()
-        ).hexdigest()[:32]
+            # Create commit hash (using 32 hex chars = 128 bits for collision)
+            commit_content = {
+                "parent_hashes": parent_hashes,
+                "weight_hashes": weight_hashes,
+                "metadata": metadata.to_dict(),
+                "delta_weights": delta_weights,
+            }
+            commit_hash = hashlib.sha256(
+                json.dumps(commit_content, sort_keys=True).encode()
+            ).hexdigest()[:32]
 
-        # Create and save commit
-        commit = Commit(
-            commit_hash=commit_hash,
-            parent_hashes=parent_hashes,
-            weight_hashes=weight_hashes,
-            metadata=metadata,
-            delta_weights=delta_weights,
-        )
+            # Create and save commit
+            commit = Commit(
+                commit_hash=commit_hash,
+                parent_hashes=parent_hashes,
+                weight_hashes=weight_hashes,
+                metadata=metadata,
+                delta_weights=delta_weights,
+            )
 
-        commit.save(self.commits_dir / f"{commit_hash}.json")
-        self.version_graph.add_commit(commit)
+            commit.save(self.commits_dir / f"{commit_hash}.json")
+            self.version_graph.add_commit(commit)
 
-        # Update branch
-        self.branch_manager.update_branch(current_branch, commit_hash)
+            # Update branch
+            self.branch_manager.update_branch(current_branch, commit_hash)
 
-        # Clear staging
-        staged_file.unlink()
+            # Clear staging
+            staged_file.unlink()
 
-        return commit
+            return commit
 
     def checkout(self, target: str) -> None:
         """Checkout a branch or commit."""
-        # Check if target is a branch
-        branch = self.branch_manager.get_branch(target)
-        if branch:
-            self.branch_manager.set_current_branch(target)
-            return
+        with self._lock:
+            # Check if target is a branch
+            branch = self.branch_manager.get_branch(target)
+            if branch:
+                self.branch_manager.set_current_branch(target)
+                return
 
-        # Check if target is a commit
-        commit = self.version_graph.get_commit(target)
-        if commit:
-            # Create detached HEAD state
-            with open(self.coral_dir / "HEAD", "w") as f:
-                f.write(commit.commit_hash)
-            return
+            # Check if target is a commit
+            commit = self.version_graph.get_commit(target)
+            if commit:
+                # Create detached HEAD state
+                with open(self.coral_dir / "HEAD", "w") as f:
+                    f.write(commit.commit_hash)
+                return
 
-        raise ValueError(f"Invalid target: {target}")
+            raise ValueError(f"Invalid target: {target}")
 
     def create_branch(self, name: str, from_ref: Optional[str] = None) -> None:
         """Create a new branch."""
-        if from_ref:
-            # Check if it's a valid commit
-            commit = self.version_graph.get_commit(from_ref)
-            if not commit:
-                branch = self.branch_manager.get_branch(from_ref)
-                if not branch:
-                    raise ValueError(f"Invalid reference: {from_ref}")
-                commit_hash = branch.commit_hash
-                # Check if the branch has commits
+        with self._lock:
+            if from_ref:
+                # Check if it's a valid commit
+                commit = self.version_graph.get_commit(from_ref)
+                if not commit:
+                    branch = self.branch_manager.get_branch(from_ref)
+                    if not branch:
+                        raise ValueError(f"Invalid reference: {from_ref}")
+                    commit_hash = branch.commit_hash
+                    # Check if the branch has commits
+                    if not commit_hash:
+                        raise ValueError(
+                            "Cannot create branch: repository has no commits yet. "
+                            "Please make an initial commit first."
+                        )
+                else:
+                    commit_hash = from_ref
+            else:
+                # Use current HEAD
+                current_branch = self.branch_manager.get_current_branch()
+                commit_hash = self.branch_manager.get_branch_commit(current_branch)
                 if not commit_hash:
                     raise ValueError(
                         "Cannot create branch: repository has no commits yet. "
                         "Please make an initial commit first."
                     )
-            else:
-                commit_hash = from_ref
-        else:
-            # Use current HEAD
-            current_branch = self.branch_manager.get_current_branch()
-            commit_hash = self.branch_manager.get_branch_commit(current_branch)
-            if not commit_hash:
-                raise ValueError(
-                    "Cannot create branch: repository has no commits yet. "
-                    "Please make an initial commit first."
-                )
 
-        self.branch_manager.create_branch(name, commit_hash)
+            self.branch_manager.create_branch(name, commit_hash)
 
     def merge(
         self,
@@ -470,59 +482,62 @@ class Repository:
             MergeConflictError: If strategy is FAIL and conflicts detected
             ValueError: If branches are in invalid state
         """
-        current_branch = self.branch_manager.get_current_branch()
+        with self._lock:
+            current_branch = self.branch_manager.get_current_branch()
 
-        # Get branch commits
-        current_commit_hash = self.branch_manager.get_branch_commit(current_branch)
-        source_commit_hash = self.branch_manager.get_branch_commit(source_branch)
+            # Get branch commits
+            current_commit_hash = self.branch_manager.get_branch_commit(current_branch)
+            source_commit_hash = self.branch_manager.get_branch_commit(source_branch)
 
-        if not current_commit_hash or not source_commit_hash:
-            raise ValueError("Invalid branch state")
+            if not current_commit_hash or not source_commit_hash:
+                raise ValueError("Invalid branch state")
 
-        # Check if already up to date
-        if current_commit_hash == source_commit_hash:
-            raise ValueError("Already up to date")
+            # Check if already up to date
+            if current_commit_hash == source_commit_hash:
+                raise ValueError("Already up to date")
 
-        # Find common ancestor
-        common_ancestor = self.version_graph.get_common_ancestor(
-            current_commit_hash, source_commit_hash
-        )
+            # Find common ancestor
+            common_ancestor = self.version_graph.get_common_ancestor(
+                current_commit_hash, source_commit_hash
+            )
 
-        # Fast-forward if possible
-        if common_ancestor == current_commit_hash:
-            self.branch_manager.update_branch(current_branch, source_commit_hash)
-            return self.version_graph.get_commit(source_commit_hash)
+            # Fast-forward if possible
+            if common_ancestor == current_commit_hash:
+                self.branch_manager.update_branch(current_branch, source_commit_hash)
+                return self.version_graph.get_commit(source_commit_hash)
 
-        # Perform three-way merge
-        current_commit = self.version_graph.get_commit(current_commit_hash)
-        source_commit = self.version_graph.get_commit(source_commit_hash)
-        ancestor_commit = (
-            self.version_graph.get_commit(common_ancestor) if common_ancestor else None
-        )
+            # Perform three-way merge
+            current_commit = self.version_graph.get_commit(current_commit_hash)
+            source_commit = self.version_graph.get_commit(source_commit_hash)
+            ancestor_commit = (
+                self.version_graph.get_commit(common_ancestor)
+                if common_ancestor
+                else None
+            )
 
-        # Merge weights
-        merged_weights = self._merge_weights(
-            current_commit,
-            source_commit,
-            ancestor_commit,
-            strategy,
-            merge_alpha,
-            validation_fn=validation_fn,
-            ties_density=ties_density,
-            dare_drop_rate=dare_drop_rate,
-            task_scaling=task_scaling,
-            base_commit_ref=base_commit_ref,
-        )
+            # Merge weights
+            merged_weights = self._merge_weights(
+                current_commit,
+                source_commit,
+                ancestor_commit,
+                strategy,
+                merge_alpha,
+                validation_fn=validation_fn,
+                ties_density=ties_density,
+                dare_drop_rate=dare_drop_rate,
+                task_scaling=task_scaling,
+                base_commit_ref=base_commit_ref,
+            )
 
-        # Stage merged weights
-        self.stage_weights(merged_weights)
+            # Stage merged weights
+            self.stage_weights(merged_weights)
 
-        # Create merge commit
-        merge_message = (
-            message or f"Merge branch '{source_branch}' into {current_branch}"
-        )
+            # Create merge commit
+            merge_message = (
+                message or f"Merge branch '{source_branch}' into {current_branch}"
+            )
 
-        return self.commit(message=merge_message, tags=["merge"])
+            return self.commit(message=merge_message, tags=["merge"])
 
     def _reconstruct_weight_from_storage(
         self, name: str, weight_hash: str, commit: Commit, store: HDF5Store
@@ -661,33 +676,36 @@ class Repository:
         commit_ref: Optional[str] = None,
     ) -> Version:
         """Tag a commit as a named version."""
-        if commit_ref is None:
-            current_branch = self.branch_manager.get_current_branch()
-            commit_ref = self.branch_manager.get_branch_commit(current_branch)
+        with self._lock:
+            if commit_ref is None:
+                current_branch = self.branch_manager.get_current_branch()
+                commit_ref = self.branch_manager.get_branch_commit(current_branch)
 
-        if not self.version_graph.get_commit(commit_ref):
-            raise ValueError(f"Invalid commit: {commit_ref}")
+            if not self.version_graph.get_commit(commit_ref):
+                raise ValueError(f"Invalid commit: {commit_ref}")
 
-        version_id = hashlib.sha256(f"{name}:{commit_ref}".encode()).hexdigest()[:16]
+            version_id = hashlib.sha256(
+                f"{name}:{commit_ref}".encode()
+            ).hexdigest()[:16]
 
-        version = Version(
-            version_id=version_id,
-            commit_hash=commit_ref,
-            name=name,
-            description=description,
-            metrics=metrics,
-        )
+            version = Version(
+                version_id=version_id,
+                commit_hash=commit_ref,
+                name=name,
+                description=description,
+                metrics=metrics,
+            )
 
-        self.version_graph.add_version(version)
+            self.version_graph.add_version(version)
 
-        # Save version info
-        version_file = self.coral_dir / "versions" / f"{version_id}.json"
-        version_file.parent.mkdir(exist_ok=True)
+            # Save version info
+            version_file = self.coral_dir / "versions" / f"{version_id}.json"
+            version_file.parent.mkdir(exist_ok=True)
 
-        with open(version_file, "w") as f:
-            json.dump(version.to_dict(), f, indent=2)
+            with open(version_file, "w") as f:
+                json.dump(version.to_dict(), f, indent=2)
 
-        return version
+            return version
 
     def _calculate_deltas(
         self, weight_hashes: dict[str, str], parent_commit: Commit
@@ -1018,23 +1036,27 @@ class Repository:
 
     def gc(self) -> dict[str, int]:
         """Garbage collect unreferenced weights."""
-        # Find all referenced weight hashes
-        referenced_hashes = set()
+        with self._lock:
+            # Find all referenced weight hashes
+            referenced_hashes = set()
 
-        for commit in self.version_graph.commits.values():
-            referenced_hashes.update(commit.weight_hashes.values())
+            for commit in self.version_graph.commits.values():
+                referenced_hashes.update(commit.weight_hashes.values())
 
-        # Clean up unreferenced weights
-        cleaned = 0
-        with HDF5Store(self.weights_store_path) as store:
-            all_hashes = set(store.list_weights())
-            unreferenced = all_hashes - referenced_hashes
+            # Clean up unreferenced weights
+            cleaned = 0
+            with HDF5Store(self.weights_store_path) as store:
+                all_hashes = set(store.list_weights())
+                unreferenced = all_hashes - referenced_hashes
 
-            for hash_val in unreferenced:
-                store.delete(hash_val)
-                cleaned += 1
+                for hash_val in unreferenced:
+                    store.delete(hash_val)
+                    cleaned += 1
 
-        return {"cleaned_weights": cleaned, "remaining_weights": len(referenced_hashes)}
+            return {
+                "cleaned_weights": cleaned,
+                "remaining_weights": len(referenced_hashes),
+            }
 
     # ==================== Remote Management ====================
 
@@ -1062,34 +1084,36 @@ class Repository:
             name: Remote name (e.g., 'origin')
             url: Remote URL (s3://bucket/path, minio://host/bucket, file:///path)
         """
-        from ..remotes.remote import RemoteConfig
+        with self._lock:
+            from ..remotes.remote import RemoteConfig
 
-        # Parse URL to determine backend
-        config = RemoteConfig.from_url(name, url)
+            # Parse URL to determine backend
+            config = RemoteConfig.from_url(name, url)
 
-        remotes = self.list_remotes()
-        if name in remotes:
-            raise ValueError(f"Remote '{name}' already exists")
+            remotes = self.list_remotes()
+            if name in remotes:
+                raise ValueError(f"Remote '{name}' already exists")
 
-        remotes[name] = {
-            "url": config.url,
-            "backend": config.backend,
-            "endpoint_url": config.endpoint_url,
-        }
+            remotes[name] = {
+                "url": config.url,
+                "backend": config.backend,
+                "endpoint_url": config.endpoint_url,
+            }
 
-        with open(self._get_remotes_file(), "w") as f:
-            json.dump(remotes, f, indent=2)
+            with open(self._get_remotes_file(), "w") as f:
+                json.dump(remotes, f, indent=2)
 
     def remove_remote(self, name: str) -> None:
         """Remove a remote."""
-        remotes = self.list_remotes()
-        if name not in remotes:
-            raise ValueError(f"Remote '{name}' not found")
+        with self._lock:
+            remotes = self.list_remotes()
+            if name not in remotes:
+                raise ValueError(f"Remote '{name}' not found")
 
-        del remotes[name]
+            del remotes[name]
 
-        with open(self._get_remotes_file(), "w") as f:
-            json.dump(remotes, f, indent=2)
+            with open(self._get_remotes_file(), "w") as f:
+                json.dump(remotes, f, indent=2)
 
     def _get_remote_store(self, remote_name: str):
         """Get a storage backend for a remote."""
