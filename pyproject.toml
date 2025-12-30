@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "coral-ml"
-version = "1.0.0"
+version = "1.1.0"
 description = "Neural network weight storage and deduplication system"
 readme = "README.md"
 requires-python = ">=3.9"

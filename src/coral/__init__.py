@@ -2,7 +2,7 @@
 Coral: Neural network weight storage and deduplication system
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 from coral.config import (
     CoralConfig,

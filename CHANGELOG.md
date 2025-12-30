@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2024-12-29
+
+### Added
+- **TensorFlow/Keras Integration**
+  - `TensorFlowIntegration` class for Keras model weight management
+  - Automatic weight extraction and restoration for TF models
+  - Support for TensorFlow 2.x
+
+- **Model Souping**
+  - `ModelSoup` class for advanced weight merging strategies
+  - Uniform soup, greedy soup, and learned soup methods
+  - Support for ensembling multiple model checkpoints
+
+- **Lazy Loading**
+  - `LazyWeightTensor` for memory-efficient weight loading
+  - On-demand weight materialization
+  - Reduced memory footprint for large models
+
+- **Unified Similarity Index**
+  - Combined SimHash and LSH for efficient similarity search
+  - Configurable index parameters
+  - Faster duplicate detection
+
+- **Configuration System**
+  - Unified `CoralConfig` with TOML support
+  - Multi-source configuration loading (env vars, files, defaults)
+  - `coral-ml config` CLI commands for configuration management
+
+- **Experiment Tracking Integration**
+  - MLflow integration for experiment tracking
+  - Weights & Biases (wandb) integration
+  - Automatic metric logging during training
+
+### Changed
+- Improved test coverage to 81% (from ~70%)
+- Enhanced API following Pythonic design principles
+- Simplified `Checkpointer` class for training integration
+
+### Fixed
+- Resolved 15+ issues from comprehensive code review
+- Fixed linting and formatting issues across codebase
+- Improved Python 3.9 compatibility
+
 ## [1.0.0] - 2024-12-27
 
 ### Added
@@ -75,5 +118,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Research notes in `docs/research/`
 - CLI help and examples
 
-[Unreleased]: https://github.com/parkerdgabel/coral/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/parkerdgabel/coral/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/parkerdgabel/coral/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/parkerdgabel/coral/releases/tag/v1.0.0
