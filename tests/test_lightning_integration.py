@@ -438,9 +438,10 @@ class TestCoralCallbackLoadFromCoral:
 
     def test_load_from_coral_skips_optimizer(self, temp_repo):
         """Test load_from_coral skips optimizer state."""
-        from coral.integrations.lightning import CoralCallback
         import numpy as np
-        from coral.core.weight_tensor import WeightTensor, WeightMetadata
+
+        from coral.core.weight_tensor import WeightMetadata, WeightTensor
+        from coral.integrations.lightning import CoralCallback
 
         # Save weights including optimizer state
         weights = {

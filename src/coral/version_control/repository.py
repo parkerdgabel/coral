@@ -684,9 +684,9 @@ class Repository:
             if not self.version_graph.get_commit(commit_ref):
                 raise ValueError(f"Invalid commit: {commit_ref}")
 
-            version_id = hashlib.sha256(
-                f"{name}:{commit_ref}".encode()
-            ).hexdigest()[:16]
+            version_id = hashlib.sha256(f"{name}:{commit_ref}".encode()).hexdigest()[
+                :16
+            ]
 
             version = Version(
                 version_id=version_id,

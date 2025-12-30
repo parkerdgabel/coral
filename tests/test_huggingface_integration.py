@@ -120,9 +120,7 @@ class TestCoralHubClient:
             with pytest.raises(ImportError, match="safetensors is required"):
                 _require_safetensors()
 
-    @pytest.mark.skipif(
-        True, reason="Skipping as huggingface_hub may not be installed"
-    )
+    @pytest.mark.skipif(True, reason="Skipping as huggingface_hub may not be installed")
     def test_client_initialization(self, mock_hf_api):
         """Test client initialization."""
         from coral.integrations.huggingface import CoralHubClient

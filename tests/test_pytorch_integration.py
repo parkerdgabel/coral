@@ -564,9 +564,7 @@ class TestCoralTrainerExperimentBridge:
                     experiment_name="test",
                     experiment_bridge=mock_bridge,
                 )
-                run_id = trainer.start_experiment(
-                    params={"lr": 0.001}, tags=["test"]
-                )
+                run_id = trainer.start_experiment(params={"lr": 0.001}, tags=["test"])
 
         assert run_id == "run_id_123"
         mock_bridge.start_run.assert_called_once()

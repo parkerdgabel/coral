@@ -4,7 +4,6 @@ These tests don't require the actual optional dependencies (torch, transformers,
 to be installed. They mock the dependencies at the import level.
 """
 
-import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -36,7 +35,6 @@ class TestLightningCallbackMocked:
         """Create mock lightning module."""
         # Create mock pytorch_lightning module
         mock_pl = MagicMock()
-        mock_callback = MagicMock()
         mock_pl.Trainer = MagicMock
         mock_pl.LightningModule = MagicMock
         mock_callback_class = type("Callback", (), {})
@@ -85,9 +83,7 @@ class TestHFTrainerCallbackMocked:
         from coral.integrations.hf_trainer import CoralTrainerCallback
 
         with patch("coral.integrations.hf_trainer.HAS_TRANSFORMERS", True):
-            with patch(
-                "coral.integrations.hf_trainer.TrainerCallback", MagicMock
-            ):
+            with patch("coral.integrations.hf_trainer.TrainerCallback", MagicMock):
                 # Create callback with mocked parent class
                 callback = CoralTrainerCallback.__new__(CoralTrainerCallback)
                 callback._repo = temp_repo
@@ -116,8 +112,8 @@ class TestPyTorchIntegrationMocked:
         # Create a mock model
         mock_model = MagicMock()
         mock_param = MagicMock()
-        mock_param.detach.return_value.cpu.return_value.numpy.return_value = (
-            np.ones((10, 5), dtype=np.float32)
+        mock_param.detach.return_value.cpu.return_value.numpy.return_value = np.ones(
+            (10, 5), dtype=np.float32
         )
         mock_model.named_parameters.return_value = [("layer.weight", mock_param)]
 
@@ -354,7 +350,9 @@ class TestVersionGraph:
         graph = VersionGraph()
 
         # Create actual commit objects
-        metadata1 = CommitMetadata(author="test", email="test@test.com", message="commit1")
+        metadata1 = CommitMetadata(
+            author="test", email="test@test.com", message="commit1"
+        )
         commit1 = Commit(
             commit_hash="commit1",
             parent_hashes=[],
@@ -363,7 +361,9 @@ class TestVersionGraph:
         )
         graph.add_commit(commit1)
 
-        metadata2 = CommitMetadata(author="test", email="test@test.com", message="commit2")
+        metadata2 = CommitMetadata(
+            author="test", email="test@test.com", message="commit2"
+        )
         commit2 = Commit(
             commit_hash="commit2",
             parent_hashes=["commit1"],
@@ -383,7 +383,9 @@ class TestVersionGraph:
         graph = VersionGraph()
 
         # Create a chain of commits
-        metadata1 = CommitMetadata(author="test", email="test@test.com", message="commit1")
+        metadata1 = CommitMetadata(
+            author="test", email="test@test.com", message="commit1"
+        )
         commit1 = Commit(
             commit_hash="commit1",
             parent_hashes=[],
@@ -392,7 +394,9 @@ class TestVersionGraph:
         )
         graph.add_commit(commit1)
 
-        metadata2 = CommitMetadata(author="test", email="test@test.com", message="commit2")
+        metadata2 = CommitMetadata(
+            author="test", email="test@test.com", message="commit2"
+        )
         commit2 = Commit(
             commit_hash="commit2",
             parent_hashes=["commit1"],
@@ -401,7 +405,9 @@ class TestVersionGraph:
         )
         graph.add_commit(commit2)
 
-        metadata3 = CommitMetadata(author="test", email="test@test.com", message="commit3")
+        metadata3 = CommitMetadata(
+            author="test", email="test@test.com", message="commit3"
+        )
         commit3 = Commit(
             commit_hash="commit3",
             parent_hashes=["commit2"],
